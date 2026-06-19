@@ -1,4 +1,5 @@
 'use client'
+import Image from 'next/image'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
@@ -7,7 +8,6 @@ import Autocomplete from '@mui/material/Autocomplete'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
-import FilterListIcon from '@mui/icons-material/FilterList'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import type { LocationHistoryFilters } from '@/hooks/useFilters'
 
@@ -47,8 +47,6 @@ interface FilterSidebarProps {
   filterOptions: FilterOptions
 }
 
-// Shared Autocomplete props: type-to-search, limit to 100 items in the list,
-// allow free-text entry so users can type values not yet in the loaded dataset.
 function makeAutoProps(options: string[]) {
   return {
     options,
@@ -77,126 +75,160 @@ export default function FilterSidebar({
   return (
     <Box
       sx={{
-        width: 240,
+        width: 236,
         flexShrink: 0,
         bgcolor: 'background.paper',
-        border: '1px solid',
+        borderRight: '1px solid',
         borderColor: 'divider',
-        borderRadius: 2,
-        p: 2,
         display: 'flex',
         flexDirection: 'column',
-        gap: 2,
+        height: '100vh',
+        position: 'sticky',
+        top: 0,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <FilterListIcon sx={{ fontSize: 18, color: 'primary.main' }} />
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+      {/* Logo */}
+      <Box
+        sx={{
+          px: 2.5,
+          py: 2,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <Image
+          src="/images/logo.png"
+          alt="TrueSpot"
+          width={140}
+          height={36}
+          style={{ objectFit: 'contain', objectPosition: 'left center' }}
+          priority
+        />
+      </Box>
+
+      {/* Filters section */}
+      <Box sx={{ px: 2, pt: 2, pb: 1, flexShrink: 0 }}>
+        <Typography
+          variant="caption"
+          sx={{
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: 1,
+            fontSize: 11,
+            color: 'text.secondary',
+          }}
+        >
           Filters
         </Typography>
       </Box>
 
-      <Divider />
+      <Divider sx={{ mx: 2 }} />
 
-      <Stack spacing={1.5}>
-        {/* Date Seen — static options, no Autocomplete needed */}
-        <TextField
-          select
-          label="Date Seen"
-          value={filters.dateSeen}
-          onChange={(e) => onFilterChange('dateSeen', e.target.value)}
-          fullWidth
-          size="small"
-        >
-          {DATE_OPTIONS.map((o) => (
-            <MenuItem key={o.value} value={o.value}>
-              {o.label}
-            </MenuItem>
-          ))}
-        </TextField>
+      {/* Scrollable filter list */}
+      <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 1.5 }}>
+        <Stack spacing={1.5}>
+          <TextField
+            select
+            label="Date Seen"
+            value={filters.dateSeen}
+            onChange={(e) => onFilterChange('dateSeen', e.target.value)}
+            fullWidth
+            size="small"
+          >
+            {DATE_OPTIONS.map((o) => (
+              <MenuItem key={o.value} value={o.value}>
+                {o.label}
+              </MenuItem>
+            ))}
+          </TextField>
 
-        <Autocomplete
-          {...makeAutoProps(filterOptions.geofence)}
-          value={filters.geofence || null}
-          onChange={handleAuto('geofence')}
-          renderInput={(params) => (
-            <TextField {...params} label="Geofence" fullWidth />
-          )}
-        />
+          <Autocomplete
+            {...makeAutoProps(filterOptions.geofence)}
+            value={filters.geofence || null}
+            onChange={handleAuto('geofence')}
+            renderInput={(params) => (
+              <TextField {...params} label="Geofence" fullWidth />
+            )}
+          />
 
-        <Autocomplete
-          {...makeAutoProps(filterOptions.subGeoZone)}
-          value={filters.subGeoZone || null}
-          onChange={handleAuto('subGeoZone')}
-          renderInput={(params) => (
-            <TextField {...params} label="Sub Geo Zone" fullWidth />
-          )}
-        />
+          <Autocomplete
+            {...makeAutoProps(filterOptions.subGeoZone)}
+            value={filters.subGeoZone || null}
+            onChange={handleAuto('subGeoZone')}
+            renderInput={(params) => (
+              <TextField {...params} label="Sub Geo Zone" fullWidth />
+            )}
+          />
 
-        <Autocomplete
-          {...makeAutoProps(filterOptions.floorLevel)}
-          value={filters.floorLevel || null}
-          onChange={handleAuto('floorLevel')}
-          renderInput={(params) => (
-            <TextField {...params} label="Floor Level" fullWidth />
-          )}
-        />
+          <Autocomplete
+            {...makeAutoProps(filterOptions.floorLevel)}
+            value={filters.floorLevel || null}
+            onChange={handleAuto('floorLevel')}
+            renderInput={(params) => (
+              <TextField {...params} label="Floor Level" fullWidth />
+            )}
+          />
 
-        <Autocomplete
-          {...makeAutoProps(filterOptions.beaconId)}
-          value={filters.beaconId || null}
-          onChange={handleAuto('beaconId')}
-          renderInput={(params) => (
-            <TextField {...params} label="Beacon ID" fullWidth />
-          )}
-        />
+          <Autocomplete
+            {...makeAutoProps(filterOptions.beaconId)}
+            value={filters.beaconId || null}
+            onChange={handleAuto('beaconId')}
+            renderInput={(params) => (
+              <TextField {...params} label="Beacon ID" fullWidth />
+            )}
+          />
 
-        <Autocomplete
-          {...makeAutoProps(filterOptions.assetType)}
-          value={filters.assetType || null}
-          onChange={handleAuto('assetType')}
-          renderInput={(params) => (
-            <TextField {...params} label="Asset Type" fullWidth />
-          )}
-        />
+          <Autocomplete
+            {...makeAutoProps(filterOptions.assetType)}
+            value={filters.assetType || null}
+            onChange={handleAuto('assetType')}
+            renderInput={(params) => (
+              <TextField {...params} label="Asset Type" fullWidth />
+            )}
+          />
 
-        <Autocomplete
-          {...makeAutoProps(filterOptions.vin)}
-          value={filters.vin || null}
-          onChange={handleAuto('vin')}
-          renderInput={(params) => (
-            <TextField {...params} label="VIN" fullWidth />
-          )}
-        />
+          <Autocomplete
+            {...makeAutoProps(filterOptions.vin)}
+            value={filters.vin || null}
+            onChange={handleAuto('vin')}
+            renderInput={(params) => (
+              <TextField {...params} label="VIN" fullWidth />
+            )}
+          />
 
-        <Autocomplete
-          {...makeAutoProps(filterOptions.stockNumber)}
-          value={filters.stockNumber || null}
-          onChange={handleAuto('stockNumber')}
-          renderInput={(params) => (
-            <TextField {...params} label="Stock Number" fullWidth />
-          )}
-        />
+          <Autocomplete
+            {...makeAutoProps(filterOptions.stockNumber)}
+            value={filters.stockNumber || null}
+            onChange={handleAuto('stockNumber')}
+            renderInput={(params) => (
+              <TextField {...params} label="Stock Number" fullWidth />
+            )}
+          />
 
-        <TextField
-          label="Min Duration (min)"
-          type="number"
-          value={filters.minDurationMinutes}
-          onChange={(e) => onFilterChange('minDurationMinutes', e.target.value)}
-          slotProps={{ htmlInput: { min: 0 } }}
-          fullWidth
-          size="small"
-        />
-      </Stack>
+          <TextField
+            label="Min Duration (min)"
+            type="number"
+            value={filters.minDurationMinutes}
+            onChange={(e) => onFilterChange('minDurationMinutes', e.target.value)}
+            slotProps={{ htmlInput: { min: 0 } }}
+            fullWidth
+            size="small"
+          />
+        </Stack>
+      </Box>
 
-      <Box sx={{ mt: 'auto', pt: 1 }}>
+      {/* Reset button */}
+      <Box sx={{ px: 2, py: 2, borderTop: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
         <Button
-          variant="outlined"
+          variant="contained"
           size="small"
           startIcon={<RestartAltIcon />}
           onClick={onReset}
           fullWidth
-          sx={{ color: 'text.secondary', borderColor: 'divider' }}
+          disableElevation
         >
           Reset Filters
         </Button>

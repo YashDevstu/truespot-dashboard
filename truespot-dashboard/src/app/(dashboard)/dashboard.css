@@ -1,11 +1,5 @@
 .dashboard-shell {
   min-height: 100vh;
   background-color: #f1f5f9;
-  padding: 24px;
-}
-
-@media (max-width: 600px) {
-  .dashboard-shell {
-    padding: 16px;
-  }
+  /* padding is handled inside each dashboard component */
 }

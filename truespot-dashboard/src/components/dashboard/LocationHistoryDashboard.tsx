@@ -11,12 +11,14 @@ import { useFilters } from '@/hooks/useFilters'
 import { usePanelQuery } from '@/hooks/usePanelQuery'
 import { useProgressiveDatesQuery } from '@/hooks/useProgressiveDatesQuery'
 import { useFilterOptions } from '@/hooks/useFilterOptions'
+import { buildGeofenceColorMap } from '@/utils/geofenceColors'
 import FilterSidebar from './FilterSidebar'
 import DashboardHeader from './DashboardHeader'
 import KpiCard from './panels/KpiCard'
 import DataTable from './panels/DataTable'
 import JourneyTimeline from './panels/JourneyTimeline/JourneyTimeline'
 import AssetStatCards from './panels/AssetStatCards'
+import LocationsVisitedTable from './panels/LocationsVisitedTable'
 
 interface Props {
   clientId: string
@@ -24,6 +26,10 @@ interface Props {
   displayName: string
   dashboardLabel: string
 }
+
+// Above this threshold we skip the timeline/table and show the AG Grid instead,
+// preventing the main thread from being blocked by a huge useMemo.
+const TIMELINE_MAX_ROWS = 5_000
 
 export default function LocationHistoryDashboard({
   clientId,
@@ -33,11 +39,9 @@ export default function LocationHistoryDashboard({
 }: Props) {
   const { filters, setFilter, resetFilters } = useFilters()
   const [refreshToken, setRefreshToken] = useState(0)
+  const [selectedStopIndex, setSelectedStopIndex] = useState<number | null>(null)
 
   const isAllDates = filters.dateSeen === 'all'
-
-  // A "specific asset" filter means the user has narrowed to one beacon/vehicle.
-  // This changes how "All Dates" queries are executed (see below).
   const hasAssetFilter = !!(filters.beaconId || filters.vin || filters.stockNumber)
 
   const baseFilters = {
@@ -52,37 +56,20 @@ export default function LocationHistoryDashboard({
     _r: refreshToken,
   }
 
-  // ── Three distinct query modes ──────────────────────────────────────────────
-  //
-  // Mode A — "All Dates" with NO asset filter (progressive)
-  //   → 8 parallel client requests, rows accumulate live, used for broad
-  //     exploration of the full dataset (~700K rows)
-  //
-  // Mode B — "All Dates" WITH asset filter (single server-side request)
-  //   → 1 client request with dateSeen='all'; the API route runs all
-  //     date×chunk queries on the server and returns a small result set.
-  //     Eliminates the 8-client-connection overhead that caused the freeze.
-  //
-  // Mode C — Specific date (single request, always)
-  //   → 1 client request; the API runs 4 time-chunk queries for that date.
-  //
-  const useProgressiveMode = isAllDates && !hasAssetFilter // Mode A
+  // ── Three query modes (see original comments) ─────────────────────────────
+  const useProgressiveMode = isAllDates && !hasAssetFilter
 
-  // Modes B and C both go through usePanelQuery (one request each)
   const singleQuery = usePanelQuery({
     clientId,
     dashboardKey,
     panelId: 'location-history-data',
     filters: {
       ...baseFilters,
-      // Mode B passes 'all' so the server handles every date internally.
-      // Mode C passes the specific date selected by the user.
       dateSeen: isAllDates ? 'all' : (filters.dateSeen || undefined),
     },
     enabled: !useProgressiveMode,
   })
 
-  // Mode A only
   const progressiveQuery = useProgressiveDatesQuery({
     clientId,
     dashboardKey,
@@ -112,8 +99,6 @@ export default function LocationHistoryDashboard({
     ? String(Object.values(kpiQuery.data.rows[0])[0] ?? '')
     : undefined
 
-  // Return empty rows while the single query is loading so AG Grid never has
-  // to process a stale large dataset before the filtered result arrives.
   const tableRows = useMemo(() => {
     if (useProgressiveMode) return progressiveQuery.rows
     if (singleQuery.loading) return []
@@ -123,8 +108,7 @@ export default function LocationHistoryDashboard({
   const tableLoading = useProgressiveMode ? progressiveQuery.loading : singleQuery.loading
   const tableError = useProgressiveMode ? null : singleQuery.error
 
-  const dateLabel =
-    filters.dateSeen === 'all' || !filters.dateSeen ? 'All Dates' : filters.dateSeen
+  const dateLabel = filters.dateSeen === 'all' || !filters.dateSeen ? 'All Dates' : filters.dateSeen
 
   const subtitleText = (() => {
     if (useProgressiveMode && progressiveQuery.loading) {
@@ -136,6 +120,45 @@ export default function LocationHistoryDashboard({
 
   const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
 
+  // ── Single-day rows for timeline + table ──────────────────────────────────
+  // Rows available for the single-bar timeline (capped at TIMELINE_MAX_ROWS).
+  const timelineRows = useMemo(() => {
+    if (!selectedAsset || tableLoading) return []
+    if (tableRows.length > TIMELINE_MAX_ROWS) return []
+    return tableRows
+  }, [selectedAsset, tableLoading, tableRows])
+
+  const timelineTooLarge = !!(selectedAsset && !tableLoading && tableRows.length > TIMELINE_MAX_ROWS)
+
+  // When "All Dates" is active, filter the timeline down to the most-recent
+  // calendar day in the result so the single bar makes sense.
+  const singleDayRows = useMemo(() => {
+    if (timelineRows.length === 0) return []
+    if (!isAllDates) return timelineRows
+
+    let latestDate = ''
+    for (const r of timelineRows) {
+      const d = String(r['[StartTime]'] ?? '').slice(0, 10)
+      if (d > latestDate) latestDate = d
+    }
+    return latestDate
+      ? timelineRows.filter((r) => String(r['[StartTime]'] ?? '').startsWith(latestDate))
+      : []
+  }, [timelineRows, isAllDates])
+
+  // Shared colour map — build once from sorted geofences so both components agree
+  const sharedColorMap = useMemo(() => {
+    const geos = [...singleDayRows]
+      .sort((a, b) => {
+        const sa = String(a['[StartTime]'] ?? '')
+        const sb = String(b['[StartTime]'] ?? '')
+        return sa < sb ? -1 : sa > sb ? 1 : 0
+      })
+      .map((r) => String(r['[Geofence]'] ?? ''))
+    return buildGeofenceColorMap(geos)
+  }, [singleDayRows])
+
+  // datePeriod for AssetStatCards caption text
   const datePeriod =
     !filters.dateSeen || filters.dateSeen === 'Today'
       ? 'today'
@@ -143,16 +166,29 @@ export default function LocationHistoryDashboard({
       ? 'all time'
       : `on ${filters.dateSeen}`
 
-  // Cap timeline rows to prevent the groupByDay useMemo from blocking the main
-  // thread on huge result sets. Above this threshold the per-day bars would be
-  // too dense to read anyway — the parent shows a "too many records" message.
-  const TIMELINE_MAX_ROWS = 5_000
-  const timelineRows =
-    selectedAsset && !tableLoading && tableRows.length <= TIMELINE_MAX_ROWS ? tableRows : []
-  const timelineTooLarge = selectedAsset && !tableLoading && tableRows.length > TIMELINE_MAX_ROWS
+  // The stat cards always show singleDay stats (most recent day)
+  const singleDayPeriod = useMemo(() => {
+    if (!isAllDates || singleDayRows.length === 0) return datePeriod
+    const d = String(singleDayRows[0]['[StartTime]'] ?? '').slice(0, 10)
+    if (!d) return datePeriod
+    const date = new Date(d + 'T00:00:00')
+    return `on ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+  }, [isAllDates, singleDayRows, datePeriod])
+
+  // Label above the timeline bar
+  const journeyDateLabel =
+    filters.dateSeen === 'Today'
+      ? "TODAY'S JOURNEY"
+      : isAllDates
+      ? 'MOST RECENT JOURNEY'
+      : `${filters.dateSeen} JOURNEY`
+
+  // Only show Live badge when showing today's data
+  const showLive = filters.dateSeen === 'Today'
 
   return (
-    <Box sx={{ display: 'flex', gap: 2.5, height: '100%' }}>
+    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      {/* ── Left sidebar ───────────────────────────────────────────────────── */}
       <FilterSidebar
         filters={filters}
         onFilterChange={setFilter}
@@ -160,110 +196,181 @@ export default function LocationHistoryDashboard({
         filterOptions={filterOptions}
       />
 
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <DashboardHeader
-          clientName={displayName}
-          dashboardLabel={dashboardLabel}
-          lastRefresh={lastRefreshValue}
-          onRefresh={handleRefresh}
-        />
-
-        {tableError && <Alert severity="error">{tableError}</Alert>}
-        {kpiQuery.error && <Alert severity="error">{kpiQuery.error}</Alert>}
-
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <KpiCard
-              title="Last Refresh"
-              row={kpiQuery.data?.rows?.[0]}
-              loading={kpiQuery.loading}
-              error={kpiQuery.error}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <KpiCard
-              title="Records"
-              row={{ Count: tableRows.length }}
-              loading={tableLoading && tableRows.length === 0}
-              error={null}
-            />
-          </Grid>
-        </Grid>
-
-        {selectedAsset && !tableLoading && tableRows.length > 0 && (
-          <AssetStatCards rows={tableRows} datePeriod={datePeriod} />
-        )}
-
-        {selectedAsset ? (
-          timelineTooLarge ? (
-            <Paper
-              variant="outlined"
-              sx={{ p: 2.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
-            >
-              <TimelineIcon sx={{ fontSize: 28 }} />
-              <Box>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
-                <Typography variant="caption">
-                  {tableRows.length.toLocaleString()} records is too many to render a timeline.
-                  Add a date or geofence filter to narrow the result.
-                </Typography>
-              </Box>
-            </Paper>
-          ) : (
-            <JourneyTimeline rows={timelineRows} selectedAsset={selectedAsset} />
-          )
-        ) : (
-          <Paper
-            variant="outlined"
-            sx={{ p: 2.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
-          >
-            <TimelineIcon sx={{ fontSize: 28 }} />
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                Journey Timeline
-              </Typography>
-              <Typography variant="caption">
-                Filter by Beacon ID, VIN, or Stock Number to view that asset&apos;s journey timeline.
-              </Typography>
-            </Box>
-          </Paper>
-        )}
-
+      {/* ── Main content ───────────────────────────────────────────────────── */}
+      <Box
+        sx={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          bgcolor: '#f8fafc',
+        }}
+      >
         <Box
           sx={{
             flex: 1,
-            bgcolor: 'background.paper',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 2,
-            overflow: 'hidden',
+            overflowY: 'auto',
+            p: 3,
             display: 'flex',
             flexDirection: 'column',
+            gap: 2.5,
           }}
         >
-          <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-            <Typography variant="h6">Location History</Typography>
-            <Typography variant="caption" color="text.secondary">
-              {subtitleText}
-            </Typography>
-          </Box>
+          {/* Alerts */}
+          {tableError && <Alert severity="error">{tableError}</Alert>}
+          {kpiQuery.error && <Alert severity="error">{kpiQuery.error}</Alert>}
 
-          {/* Progress bar only shown in progressive mode (unfiltered All Dates) */}
-          {useProgressiveMode && progressiveQuery.loading && (
-            <LinearProgress
-              variant="determinate"
-              value={(progressiveQuery.loadedDates / progressiveQuery.totalDates) * 100}
-              sx={{ height: 3 }}
-            />
+          {/* Page heading */}
+          <DashboardHeader
+            clientName={displayName}
+            dashboardLabel={dashboardLabel}
+            lastRefresh={lastRefreshValue}
+            onRefresh={handleRefresh}
+          />
+
+          {/* ── Asset selected: stat cards + timeline + locations table ─── */}
+          {selectedAsset ? (
+            <>
+              {/* Stat cards — derived from singleDayRows */}
+              {!tableLoading && singleDayRows.length > 0 && (
+                <AssetStatCards rows={singleDayRows} datePeriod={singleDayPeriod} />
+              )}
+
+              {/* Journey timeline */}
+              {timelineTooLarge ? (
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 2.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
+                >
+                  <TimelineIcon sx={{ fontSize: 28 }} />
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
+                    <Typography variant="caption">
+                      {tableRows.length.toLocaleString()} records — add a date or geofence filter to view the timeline.
+                    </Typography>
+                  </Box>
+                </Paper>
+              ) : (
+                <JourneyTimeline
+                  rows={singleDayRows}
+                  colorMap={sharedColorMap}
+                  dateLabel={journeyDateLabel}
+                  selectedIndex={selectedStopIndex}
+                  onSelectIndex={setSelectedStopIndex}
+                />
+              )}
+
+              {/* Locations visited table */}
+              {!timelineTooLarge && (
+                <LocationsVisitedTable
+                  rows={singleDayRows}
+                  colorMap={sharedColorMap}
+                  showLive={showLive}
+                  selectedIndex={selectedStopIndex}
+                  onSelectRow={setSelectedStopIndex}
+                />
+              )}
+
+              {/* Fall back to AG Grid when rows exceed the cap */}
+              {timelineTooLarge && (
+                <Box
+                  sx={{
+                    flex: 1,
+                    bgcolor: 'background.paper',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="h6">Location History</Typography>
+                    <Typography variant="caption" color="text.secondary">{subtitleText}</Typography>
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <DataTable
+                      rows={tableRows}
+                      loading={tableLoading && tableRows.length === 0}
+                      error={tableError}
+                    />
+                  </Box>
+                </Box>
+              )}
+            </>
+          ) : (
+            <>
+              {/* ── No asset: KPI cards + timeline placeholder + AG Grid ── */}
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <KpiCard
+                    title="Last Refresh"
+                    row={kpiQuery.data?.rows?.[0]}
+                    loading={kpiQuery.loading}
+                    error={kpiQuery.error}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <KpiCard
+                    title="Records"
+                    row={{ Count: tableRows.length }}
+                    loading={tableLoading && tableRows.length === 0}
+                    error={null}
+                  />
+                </Grid>
+              </Grid>
+
+              {/* Timeline placeholder */}
+              <Paper
+                variant="outlined"
+                sx={{ p: 2.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
+              >
+                <TimelineIcon sx={{ fontSize: 28 }} />
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
+                  <Typography variant="caption">
+                    Filter by Beacon ID, VIN, or Stock Number to view that asset&apos;s journey timeline.
+                  </Typography>
+                </Box>
+              </Paper>
+
+              {/* Full AG Grid table */}
+              <Box
+                sx={{
+                  flex: 1,
+                  bgcolor: 'background.paper',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="h6">Location History</Typography>
+                  <Typography variant="caption" color="text.secondary">{subtitleText}</Typography>
+                </Box>
+
+                {useProgressiveMode && progressiveQuery.loading && (
+                  <LinearProgress
+                    variant="determinate"
+                    value={(progressiveQuery.loadedDates / progressiveQuery.totalDates) * 100}
+                    sx={{ height: 3 }}
+                  />
+                )}
+
+                <Box sx={{ flex: 1 }}>
+                  <DataTable
+                    rows={tableRows}
+                    loading={tableLoading && tableRows.length === 0}
+                    error={tableError}
+                  />
+                </Box>
+              </Box>
+            </>
           )}
-
-          <Box sx={{ flex: 1 }}>
-            <DataTable
-              rows={tableRows}
-              loading={tableLoading && tableRows.length === 0}
-              error={tableError}
-            />
-          </Box>
         </Box>
       </Box>
     </Box>
