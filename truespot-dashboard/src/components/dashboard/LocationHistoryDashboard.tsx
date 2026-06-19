@@ -5,6 +5,8 @@ import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import LinearProgress from '@mui/material/LinearProgress'
 import Alert from '@mui/material/Alert'
+import Paper from '@mui/material/Paper'
+import TimelineIcon from '@mui/icons-material/Timeline'
 import { useFilters } from '@/hooks/useFilters'
 import { usePanelQuery } from '@/hooks/usePanelQuery'
 import { useProgressiveDatesQuery } from '@/hooks/useProgressiveDatesQuery'
@@ -12,6 +14,7 @@ import FilterSidebar from './FilterSidebar'
 import DashboardHeader from './DashboardHeader'
 import KpiCard from './panels/KpiCard'
 import DataTable from './panels/DataTable'
+import JourneyTimeline from './panels/JourneyTimeline/JourneyTimeline'
 
 interface Props {
   clientId: string
@@ -20,14 +23,11 @@ interface Props {
   dashboardLabel: string
 }
 
-// Extract sorted unique non-empty string values for a given column from row data
 function uniqueValues(rows: Record<string, unknown>[], field: string): string[] {
   const seen = new Set<string>()
   for (const row of rows) {
     const v = row[field]
-    if (v !== null && v !== undefined && String(v).trim() !== '') {
-      seen.add(String(v))
-    }
+    if (v !== null && v !== undefined && String(v).trim() !== '') seen.add(String(v))
   }
   return [...seen].sort((a, b) => a.localeCompare(b))
 }
@@ -87,9 +87,13 @@ export default function LocationHistoryDashboard({
     ? String(Object.values(lastRefreshRow)[0] ?? '')
     : undefined
 
-  const tableRows = isAllDates
-    ? progressiveQuery.rows
-    : ((singleDateQuery.data?.rows ?? []) as Record<string, unknown>[])
+  const tableRows = useMemo(
+    () =>
+      isAllDates
+        ? progressiveQuery.rows
+        : ((singleDateQuery.data?.rows ?? []) as Record<string, unknown>[]),
+    [isAllDates, progressiveQuery.rows, singleDateQuery.data?.rows]
+  )
 
   const tableLoading = isAllDates ? progressiveQuery.loading : singleDateQuery.loading
   const tableError = isAllDates ? null : singleDateQuery.error
@@ -106,8 +110,6 @@ export default function LocationHistoryDashboard({
       ? `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
       : `${dateLabel} · ${tableRows.length.toLocaleString()} records`
 
-  // Derive dropdown options from the currently loaded rows.
-  // Updates live as progressive loading adds more rows.
   const filterOptions = useMemo(
     () => ({
       geofence: uniqueValues(tableRows, '[Geofence]'),
@@ -120,6 +122,13 @@ export default function LocationHistoryDashboard({
     }),
     [tableRows]
   )
+
+  // The first active asset filter becomes the timeline's asset label
+  const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
+
+  // Rows used by the timeline: when an asset filter is set, use current tableRows
+  // (already filtered by the API). When no asset filter, show the prompt card.
+  const timelineRows = selectedAsset ? tableRows : []
 
   return (
     <Box sx={{ display: 'flex', gap: 2.5, height: '100%' }}>
@@ -138,16 +147,8 @@ export default function LocationHistoryDashboard({
           onRefresh={handleRefresh}
         />
 
-        {tableError && (
-          <Alert severity="error" sx={{ mb: 1 }}>
-            {tableError}
-          </Alert>
-        )}
-        {kpiQuery.error && (
-          <Alert severity="error" sx={{ mb: 1 }}>
-            {kpiQuery.error}
-          </Alert>
-        )}
+        {tableError && <Alert severity="error">{tableError}</Alert>}
+        {kpiQuery.error && <Alert severity="error">{kpiQuery.error}</Alert>}
 
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -168,6 +169,27 @@ export default function LocationHistoryDashboard({
           </Grid>
         </Grid>
 
+        {/* Journey Timeline — shows asset journey when BeaconId / VIN / Stock Number is filtered */}
+        {selectedAsset ? (
+          <JourneyTimeline rows={timelineRows} selectedAsset={selectedAsset} />
+        ) : (
+          <Paper
+            variant="outlined"
+            sx={{ p: 2.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
+          >
+            <TimelineIcon sx={{ fontSize: 28 }} />
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Journey Timeline
+              </Typography>
+              <Typography variant="caption">
+                Filter by Beacon ID, VIN, or Stock Number to view that asset&apos;s journey timeline.
+              </Typography>
+            </Box>
+          </Paper>
+        )}
+
+        {/* Location History data table */}
         <Box
           sx={{
             flex: 1,
