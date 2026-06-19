@@ -3,7 +3,7 @@ export const maxDuration = 300
 
 import type { NextRequest } from 'next/server'
 import { PanelType } from '@/constants/dashboard'
-import { CACHE_TTL_KPIS, CACHE_TTL_CHARTS } from '@/constants/cache'
+import { CACHE_TTL_KPIS, CACHE_TTL_CHARTS, CACHE_TTL_LOCATION_HISTORY } from '@/constants/cache'
 import { QueryRequestSchema, type QueryResponse } from '@/types/api'
 import { getClientConfig } from '@/services/config/clientConfigService'
 import { executeQuery } from '@/services/powerbi/queryService'
@@ -11,6 +11,9 @@ import { buildMeasureQuery, buildLocationHistoryQuery, DAY_TIME_CHUNKS } from '@
 
 function ttlForPanelType(type: PanelType): number {
   switch (type) {
+    case PanelType.DATA_TABLE:
+    case PanelType.JOURNEY_TIMELINE:
+      return CACHE_TTL_LOCATION_HISTORY
     case PanelType.LINE_CHART:
     case PanelType.BAR_CHART:
       return CACHE_TTL_CHARTS

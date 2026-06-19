@@ -3,9 +3,11 @@ import { useState, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
+import LinearProgress from '@mui/material/LinearProgress'
 import Alert from '@mui/material/Alert'
 import { useFilters } from '@/hooks/useFilters'
 import { usePanelQuery } from '@/hooks/usePanelQuery'
+import { useProgressiveDatesQuery } from '@/hooks/useProgressiveDatesQuery'
 import FilterSidebar from './FilterSidebar'
 import DashboardHeader from './DashboardHeader'
 import KpiCard from './panels/KpiCard'
@@ -27,8 +29,10 @@ export default function LocationHistoryDashboard({
   const { filters, setFilter, resetFilters } = useFilters()
   const [refreshToken, setRefreshToken] = useState(0)
 
-  const queryFilters = {
-    dateSeen: filters.dateSeen || undefined,
+  const isAllDates = filters.dateSeen === 'all'
+
+  // Filters shared by both query paths (everything except dateSeen)
+  const baseFilters = {
     beaconId: filters.beaconId || undefined,
     geofence: filters.geofence || undefined,
     subGeoZone: filters.subGeoZone || undefined,
@@ -36,20 +40,33 @@ export default function LocationHistoryDashboard({
     vin: filters.vin || undefined,
     stockNumber: filters.stockNumber || undefined,
     assetType: filters.assetType || undefined,
+    minDurationMinutes: filters.minDurationMinutes ? Number(filters.minDurationMinutes) : undefined,
+    _r: refreshToken,
   }
+
+  // Single-date path: used when a specific date (or Today) is selected
+  const singleDateQuery = usePanelQuery({
+    clientId,
+    dashboardKey,
+    panelId: 'location-history-data',
+    filters: { ...baseFilters, dateSeen: filters.dateSeen || undefined },
+    enabled: !isAllDates,
+  })
+
+  // All Dates path: fires 7 parallel requests (one per day), rows accumulate progressively
+  const progressiveQuery = useProgressiveDatesQuery({
+    clientId,
+    dashboardKey,
+    panelId: 'location-history-data',
+    baseFilters,
+    enabled: isAllDates,
+  })
 
   const kpiQuery = usePanelQuery({
     clientId,
     dashboardKey,
     panelId: 'last-refresh',
-    filters: { ...queryFilters, _r: refreshToken },
-  })
-
-  const tableQuery = usePanelQuery({
-    clientId,
-    dashboardKey,
-    panelId: 'location-history-data',
-    filters: { ...queryFilters, _r: refreshToken },
+    filters: { _r: refreshToken },
   })
 
   const handleRefresh = useCallback(() => {
@@ -61,9 +78,23 @@ export default function LocationHistoryDashboard({
     ? String(Object.values(lastRefreshRow)[0] ?? '')
     : undefined
 
-  const tableRows = (tableQuery.data?.rows ?? []) as Record<string, unknown>[]
-  const minDur = Number(filters.minDurationMinutes) || 1
-  // minDur is used for the subtitle label; actual filtering happens server-side in the DAX query
+  const tableRows = isAllDates
+    ? progressiveQuery.rows
+    : ((singleDateQuery.data?.rows ?? []) as Record<string, unknown>[])
+
+  const tableLoading = isAllDates ? progressiveQuery.loading : singleDateQuery.loading
+  const tableError = isAllDates ? null : singleDateQuery.error
+
+  const progressPct = isAllDates
+    ? (progressiveQuery.loadedDates / progressiveQuery.totalDates) * 100
+    : 0
+
+  const dateLabel =
+    filters.dateSeen === 'all' || !filters.dateSeen ? 'All Dates' : filters.dateSeen
+
+  const subtitleText = isAllDates && progressiveQuery.loading
+    ? `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
+    : `${dateLabel} · ${tableRows.length.toLocaleString()} records`
 
   return (
     <Box sx={{ display: 'flex', gap: 2.5, height: '100%' }}>
@@ -77,9 +108,14 @@ export default function LocationHistoryDashboard({
           onRefresh={handleRefresh}
         />
 
-        {(kpiQuery.error || tableQuery.error) && (
+        {tableError && (
           <Alert severity="error" sx={{ mb: 1 }}>
-            {kpiQuery.error ?? tableQuery.error}
+            {tableError}
+          </Alert>
+        )}
+        {kpiQuery.error && (
+          <Alert severity="error" sx={{ mb: 1 }}>
+            {kpiQuery.error}
           </Alert>
         )}
 
@@ -96,7 +132,7 @@ export default function LocationHistoryDashboard({
             <KpiCard
               title="Records"
               row={{ Count: tableRows.length }}
-              loading={tableQuery.loading}
+              loading={tableLoading && tableRows.length === 0}
               error={null}
             />
           </Grid>
@@ -117,15 +153,24 @@ export default function LocationHistoryDashboard({
           <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Typography variant="h6">Location History</Typography>
             <Typography variant="caption" color="text.secondary">
-              {filters.dateSeen || 'All Dates'} · {tableRows.length} records
-              {minDur > 1 ? ` · min ${minDur}m` : ''}
+              {subtitleText}
             </Typography>
           </Box>
+
+          {/* Progress bar: visible while All Dates is loading date-by-date */}
+          {isAllDates && progressiveQuery.loading && (
+            <LinearProgress
+              variant="determinate"
+              value={progressPct}
+              sx={{ height: 3 }}
+            />
+          )}
+
           <Box sx={{ flex: 1 }}>
             <DataTable
               rows={tableRows}
-              loading={tableQuery.loading}
-              error={tableQuery.error}
+              loading={tableLoading && tableRows.length === 0}
+              error={tableError}
             />
           </Box>
         </Box>
