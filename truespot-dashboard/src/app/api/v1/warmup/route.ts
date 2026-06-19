@@ -50,7 +50,7 @@ async function warmDashboard(clientId: string, dashboardKey: string) {
   // Wake the model first so all 28 data queries hit a warm engine
   await pingModel(dashboard.dataset_name)
 
-  const dateLabels = ['Today', ...lastNDayLabels(6)]
+  const dateLabels = ['Today', ...lastNDayLabels(7)]
   const queries = dateLabels.flatMap((dateSeen) =>
     DAY_TIME_CHUNKS.map((timeChunk) =>
       buildLocationHistoryQuery({ dateSeen, timeChunk })

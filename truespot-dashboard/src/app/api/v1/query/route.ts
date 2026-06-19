@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
 
       // All Dates: 7 days × 4 chunks = 28 parallel queries → merge
       // Each of the 28 queries is independently cached
-      const dateLabels = ['Today', ...lastNDayLabels(6)]
+      const dateLabels = ['Today', ...lastNDayLabels(7)]
       const allChunkResults = await Promise.all(
         dateLabels.map((dateSeen) =>
           fetchDateChunked(dashboard.dataset_name, dateSeen, baseFilters, ttl)

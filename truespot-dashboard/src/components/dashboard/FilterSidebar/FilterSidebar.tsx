@@ -16,7 +16,7 @@ function buildDateOptions() {
     { value: 'all', label: 'All Dates' },
     { value: 'Today', label: 'Today' },
   ]
-  for (let i = 1; i <= 6; i++) {
+  for (let i = 1; i <= 7; i++) {
     const d = new Date()
     d.setDate(d.getDate() - i)
     const mm = String(d.getMonth() + 1).padStart(2, '0')

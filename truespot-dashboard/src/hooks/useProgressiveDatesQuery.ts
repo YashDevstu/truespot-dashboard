@@ -20,10 +20,12 @@ interface UseProgressiveDatesQueryParams {
   enabled?: boolean
 }
 
-// Generates the 7 rolling date labels the server expects: "Today" + last 6 days as "MM/DD/YY"
+// Generates date labels: "Today" + last 7 days as "MM/DD/YY" = 8 dates total.
+// The model keeps 7 complete past days + today's partial data, so we need 8 labels
+// to avoid silently dropping the oldest day in the rolling window.
 function buildDateLabels(): string[] {
   const labels: string[] = ['Today']
-  for (let i = 1; i <= 6; i++) {
+  for (let i = 1; i <= 7; i++) {
     const d = new Date()
     d.setDate(d.getDate() - i)
     const mm = String(d.getMonth() + 1).padStart(2, '0')
