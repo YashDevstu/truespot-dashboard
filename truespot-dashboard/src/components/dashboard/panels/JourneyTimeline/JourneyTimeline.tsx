@@ -1,5 +1,5 @@
 'use client'
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
@@ -95,8 +95,8 @@ function splitByDay(stop: Stop): Stop[] {
   return segments
 }
 
-function groupByDay(stops: Stop[]): DayGroup[] {
-  const todayMs = dayStart(Date.now())
+// todayMs is passed in from the component so Date.now() never runs on the server.
+function groupByDay(stops: Stop[], todayMs: number): DayGroup[] {
   const map = new Map<number, Stop[]>()
 
   for (const stop of stops) {
@@ -134,7 +134,8 @@ function groupByDay(stops: Stop[]): DayGroup[] {
 // ── DayRow ────────────────────────────────────────────────────────────────────
 // Renders a single horizontal row for one calendar day.
 // The time axis is always 00:00–23:59, giving consistent alignment across rows.
-function DayRow({ group, colorMap }: { group: DayGroup; colorMap: Map<string, string> }) {
+// nowMs is -1 on the server (sentinel), real Date.now() on the client.
+function DayRow({ group, colorMap, nowMs }: { group: DayGroup; colorMap: Map<string, string>; nowMs: number }) {
   const toLeftPct = (ms: number) => {
     const c = Math.max(group.dayStartMs, Math.min(group.dayStartMs + DAY_MS, ms))
     return `${((c - group.dayStartMs) / DAY_MS) * 100}%`
@@ -146,9 +147,8 @@ function DayRow({ group, colorMap }: { group: DayGroup; colorMap: Map<string, st
     return `${Math.max(0, (e - s) / DAY_MS) * 100}%`
   }
 
-  const nowMs = Date.now()
   const nowPct =
-    group.isToday && nowMs >= group.dayStartMs && nowMs < group.dayStartMs + DAY_MS
+    nowMs !== null && group.isToday && nowMs >= group.dayStartMs && nowMs < group.dayStartMs + DAY_MS
       ? `${((nowMs - group.dayStartMs) / DAY_MS) * 100}%`
       : null
 
@@ -298,6 +298,17 @@ interface JourneyTimelineProps {
 }
 
 export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimelineProps) {
+  // useSyncExternalStore lets React use different values for server vs client
+  // without triggering a hydration mismatch. The server snapshot (-1) never
+  // matches any real dayStart so isToday / nowPct stay false during SSR.
+  const nowMs = useSyncExternalStore(
+    () => () => {},    // no subscription needed — we only need the value once
+    () => Date.now(),  // client snapshot: real current time
+    () => -1,          // server snapshot: sentinel that never matches a day
+  )
+
+  const todayMs = nowMs !== -1 ? dayStart(nowMs) : -1
+
   const { dayGroups, colorMap, totalStops, uniqueGeofences } = useMemo(() => {
     const parsed: Stop[] = rows
       .map((r) => {
@@ -314,12 +325,12 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
       })
       .filter((s): s is Stop => s !== null)
 
-    const dayGroups = groupByDay(parsed)
+    const dayGroups = groupByDay(parsed, todayMs)
     const colorMap = buildColorMap(parsed.map((s) => s.geofence))
     const uniqueGeofences = [...new Set(parsed.map((s) => s.geofence))].filter(Boolean)
 
     return { dayGroups, colorMap, totalStops: parsed.length, uniqueGeofences }
-  }, [rows])
+  }, [rows, todayMs])
 
   // ── placeholder ──────────────────────────────────────────────────────────
   if (rows.length === 0 || dayGroups.length === 0) {
@@ -360,7 +371,7 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
       {/* One row per calendar day, newest at top */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
         {dayGroups.map((group) => (
-          <DayRow key={group.dayStartMs} group={group} colorMap={colorMap} />
+          <DayRow key={group.dayStartMs} group={group} colorMap={colorMap} nowMs={nowMs} />
         ))}
       </Box>
 
