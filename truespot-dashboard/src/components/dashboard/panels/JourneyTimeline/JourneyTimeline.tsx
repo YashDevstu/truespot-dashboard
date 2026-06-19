@@ -113,7 +113,7 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
     }
 
     const minMs = parsed[0].startMs
-    const maxMs = Math.max(...parsed.map((s) => s.endMs))
+    const maxMs = parsed.reduce((acc, s) => (s.endMs > acc ? s.endMs : acc), parsed[0].endMs)
     const totalMs = maxMs - minMs
 
     // Detect untracked gaps (> 1 min between consecutive stop end and next start)

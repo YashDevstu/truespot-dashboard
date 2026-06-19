@@ -126,9 +126,10 @@ export default function LocationHistoryDashboard({
   // The first active asset filter becomes the timeline's asset label
   const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
 
-  // Rows used by the timeline: when an asset filter is set, use current tableRows
-  // (already filtered by the API). When no asset filter, show the prompt card.
-  const timelineRows = selectedAsset ? tableRows : []
+  // Pass rows to the timeline only once the current query has settled.
+  // While a query is loading, tableRows may still contain the previous (unfiltered)
+  // dataset which can be 700K+ rows — spreading that into Math.max() overflows the stack.
+  const timelineRows = selectedAsset && !tableLoading ? tableRows : []
 
   return (
     <Box sx={{ display: 'flex', gap: 2.5, height: '100%' }}>
