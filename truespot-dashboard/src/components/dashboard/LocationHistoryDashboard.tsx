@@ -35,6 +35,10 @@ export default function LocationHistoryDashboard({
 
   const isAllDates = filters.dateSeen === 'all'
 
+  // A "specific asset" filter means the user has narrowed to one beacon/vehicle.
+  // This changes how "All Dates" queries are executed (see below).
+  const hasAssetFilter = !!(filters.beaconId || filters.vin || filters.stockNumber)
+
   const baseFilters = {
     beaconId: filters.beaconId || undefined,
     geofence: filters.geofence || undefined,
@@ -47,20 +51,43 @@ export default function LocationHistoryDashboard({
     _r: refreshToken,
   }
 
-  const singleDateQuery = usePanelQuery({
+  // ── Three distinct query modes ──────────────────────────────────────────────
+  //
+  // Mode A — "All Dates" with NO asset filter (progressive)
+  //   → 8 parallel client requests, rows accumulate live, used for broad
+  //     exploration of the full dataset (~700K rows)
+  //
+  // Mode B — "All Dates" WITH asset filter (single server-side request)
+  //   → 1 client request with dateSeen='all'; the API route runs all
+  //     date×chunk queries on the server and returns a small result set.
+  //     Eliminates the 8-client-connection overhead that caused the freeze.
+  //
+  // Mode C — Specific date (single request, always)
+  //   → 1 client request; the API runs 4 time-chunk queries for that date.
+  //
+  const useProgressiveMode = isAllDates && !hasAssetFilter // Mode A
+
+  // Modes B and C both go through usePanelQuery (one request each)
+  const singleQuery = usePanelQuery({
     clientId,
     dashboardKey,
     panelId: 'location-history-data',
-    filters: { ...baseFilters, dateSeen: filters.dateSeen || undefined },
-    enabled: !isAllDates,
+    filters: {
+      ...baseFilters,
+      // Mode B passes 'all' so the server handles every date internally.
+      // Mode C passes the specific date selected by the user.
+      dateSeen: isAllDates ? 'all' : (filters.dateSeen || undefined),
+    },
+    enabled: !useProgressiveMode,
   })
 
+  // Mode A only
   const progressiveQuery = useProgressiveDatesQuery({
     clientId,
     dashboardKey,
     panelId: 'location-history-data',
     baseFilters,
-    enabled: isAllDates,
+    enabled: useProgressiveMode,
   })
 
   const kpiQuery = usePanelQuery({
@@ -70,8 +97,6 @@ export default function LocationHistoryDashboard({
     filters: { _r: refreshToken },
   })
 
-  // Filter options fetched server-side once on mount — no client-side computation
-  // over large datasets. Distinct values come from the Semantic Model directly.
   const { options: filterOptions } = useFilterOptions({
     clientId,
     dashboardKey,
@@ -86,33 +111,29 @@ export default function LocationHistoryDashboard({
     ? String(Object.values(kpiQuery.data.rows[0])[0] ?? '')
     : undefined
 
-  const tableRows = useMemo(
-    () =>
-      isAllDates
-        ? progressiveQuery.rows
-        : ((singleDateQuery.data?.rows ?? []) as Record<string, unknown>[]),
-    [isAllDates, progressiveQuery.rows, singleDateQuery.data?.rows]
-  )
+  // Return empty rows while the single query is loading so AG Grid never has
+  // to process a stale large dataset before the filtered result arrives.
+  const tableRows = useMemo(() => {
+    if (useProgressiveMode) return progressiveQuery.rows
+    if (singleQuery.loading) return []
+    return (singleQuery.data?.rows ?? []) as Record<string, unknown>[]
+  }, [useProgressiveMode, progressiveQuery.rows, singleQuery.loading, singleQuery.data?.rows])
 
-  const tableLoading = isAllDates ? progressiveQuery.loading : singleDateQuery.loading
-  const tableError = isAllDates ? null : singleDateQuery.error
-
-  const progressPct = isAllDates
-    ? (progressiveQuery.loadedDates / progressiveQuery.totalDates) * 100
-    : 0
+  const tableLoading = useProgressiveMode ? progressiveQuery.loading : singleQuery.loading
+  const tableError = useProgressiveMode ? null : singleQuery.error
 
   const dateLabel =
     filters.dateSeen === 'all' || !filters.dateSeen ? 'All Dates' : filters.dateSeen
 
-  const subtitleText =
-    isAllDates && progressiveQuery.loading
-      ? `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
-      : `${dateLabel} · ${tableRows.length.toLocaleString()} records`
+  const subtitleText = (() => {
+    if (useProgressiveMode && progressiveQuery.loading) {
+      return `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
+    }
+    if (tableLoading) return `${dateLabel} · Loading…`
+    return `${dateLabel} · ${tableRows.length.toLocaleString()} records`
+  })()
 
   const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
-
-  // Pass rows to the timeline only once loading is complete to avoid processing
-  // stale full-dataset rows (700K+) before the filtered query returns.
   const timelineRows = selectedAsset && !tableLoading ? tableRows : []
 
   return (
@@ -192,8 +213,13 @@ export default function LocationHistoryDashboard({
             </Typography>
           </Box>
 
-          {isAllDates && progressiveQuery.loading && (
-            <LinearProgress variant="determinate" value={progressPct} sx={{ height: 3 }} />
+          {/* Progress bar only shown in progressive mode (unfiltered All Dates) */}
+          {useProgressiveMode && progressiveQuery.loading && (
+            <LinearProgress
+              variant="determinate"
+              value={(progressiveQuery.loadedDates / progressiveQuery.totalDates) * 100}
+              sx={{ height: 3 }}
+            />
           )}
 
           <Box sx={{ flex: 1 }}>
