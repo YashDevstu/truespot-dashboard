@@ -16,7 +16,16 @@
         {
           "id": "location-history-data",
           "title": "Locations Visited",
-          "type": "data_table"
+          "type": "data_table",
+          "filter_columns": {
+            "geofence":    "AppendFinal[Geofence]",
+            "subGeoZone":  "AppendFinal[SubGeoZone]",
+            "floorLevel":  "AppendFinal[Floor Level]",
+            "beaconId":    "AppendFinal[BeaconId]",
+            "vin":         "AppendFinal[VIN Updated]",
+            "stockNumber": "AppendFinal[StockNumber]",
+            "assetType":   "AppendFinal[AssetType]"
+          }
         }
       ]
     }

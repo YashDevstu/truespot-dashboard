@@ -10,6 +10,7 @@ import TimelineIcon from '@mui/icons-material/Timeline'
 import { useFilters } from '@/hooks/useFilters'
 import { usePanelQuery } from '@/hooks/usePanelQuery'
 import { useProgressiveDatesQuery } from '@/hooks/useProgressiveDatesQuery'
+import { useFilterOptions } from '@/hooks/useFilterOptions'
 import FilterSidebar from './FilterSidebar'
 import DashboardHeader from './DashboardHeader'
 import KpiCard from './panels/KpiCard'
@@ -21,15 +22,6 @@ interface Props {
   dashboardKey: string
   displayName: string
   dashboardLabel: string
-}
-
-function uniqueValues(rows: Record<string, unknown>[], field: string): string[] {
-  const seen = new Set<string>()
-  for (const row of rows) {
-    const v = row[field]
-    if (v !== null && v !== undefined && String(v).trim() !== '') seen.add(String(v))
-  }
-  return [...seen].sort((a, b) => a.localeCompare(b))
 }
 
 export default function LocationHistoryDashboard({
@@ -78,13 +70,20 @@ export default function LocationHistoryDashboard({
     filters: { _r: refreshToken },
   })
 
+  // Filter options fetched server-side once on mount — no client-side computation
+  // over large datasets. Distinct values come from the Semantic Model directly.
+  const { options: filterOptions } = useFilterOptions({
+    clientId,
+    dashboardKey,
+    panelId: 'location-history-data',
+  })
+
   const handleRefresh = useCallback(() => {
     setRefreshToken((t) => t + 1)
   }, [])
 
-  const lastRefreshRow = kpiQuery.data?.rows?.[0]
-  const lastRefreshValue = lastRefreshRow
-    ? String(Object.values(lastRefreshRow)[0] ?? '')
+  const lastRefreshValue = kpiQuery.data?.rows?.[0]
+    ? String(Object.values(kpiQuery.data.rows[0])[0] ?? '')
     : undefined
 
   const tableRows = useMemo(
@@ -110,25 +109,10 @@ export default function LocationHistoryDashboard({
       ? `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
       : `${dateLabel} · ${tableRows.length.toLocaleString()} records`
 
-  const filterOptions = useMemo(
-    () => ({
-      geofence: uniqueValues(tableRows, '[Geofence]'),
-      subGeoZone: uniqueValues(tableRows, '[SubGeoZone]'),
-      floorLevel: uniqueValues(tableRows, '[FloorLevel]'),
-      beaconId: uniqueValues(tableRows, '[BeaconId]'),
-      vin: uniqueValues(tableRows, '[VIN]'),
-      stockNumber: uniqueValues(tableRows, '[StockNumber]'),
-      assetType: uniqueValues(tableRows, '[AssetType]'),
-    }),
-    [tableRows]
-  )
-
-  // The first active asset filter becomes the timeline's asset label
   const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
 
-  // Pass rows to the timeline only once the current query has settled.
-  // While a query is loading, tableRows may still contain the previous (unfiltered)
-  // dataset which can be 700K+ rows — spreading that into Math.max() overflows the stack.
+  // Pass rows to the timeline only once loading is complete to avoid processing
+  // stale full-dataset rows (700K+) before the filtered query returns.
   const timelineRows = selectedAsset && !tableLoading ? tableRows : []
 
   return (
@@ -170,7 +154,6 @@ export default function LocationHistoryDashboard({
           </Grid>
         </Grid>
 
-        {/* Journey Timeline — shows asset journey when BeaconId / VIN / Stock Number is filtered */}
         {selectedAsset ? (
           <JourneyTimeline rows={timelineRows} selectedAsset={selectedAsset} />
         ) : (
@@ -190,7 +173,6 @@ export default function LocationHistoryDashboard({
           </Paper>
         )}
 
-        {/* Location History data table */}
         <Box
           sx={{
             flex: 1,

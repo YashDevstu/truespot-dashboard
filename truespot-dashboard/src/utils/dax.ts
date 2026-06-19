@@ -2,6 +2,12 @@ export function buildMeasureQuery(measure: string): string {
   return `EVALUATE ROW("Value", ${measure})`
 }
 
+// Returns all distinct non-blank values for a single DAX column.
+// Response rows contain one key "[value]" per row.
+export function buildDistinctQuery(tableColumn: string): string {
+  return `EVALUATE SELECTCOLUMNS(FILTER(DISTINCT(${tableColumn}), NOT ISBLANK(${tableColumn})), "value", ${tableColumn})`
+}
+
 export interface TimeChunk {
   startFraction: number // fraction of a day: 0 = midnight, 0.25 = 6am, 0.5 = noon, 0.75 = 6pm
   endFraction: number   // exclusive upper bound (1 = next midnight)

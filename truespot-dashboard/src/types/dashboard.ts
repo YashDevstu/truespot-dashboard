@@ -6,6 +6,9 @@ export const PanelConfigSchema = z.object({
   title: z.string(),
   type: z.nativeEnum(PanelType),
   measure: z.string().optional(),
+  // Maps filter key → DAX column reference (e.g. "geofence" → "AppendFinal[Geofence]")
+  // Used by /api/v1/filter-options to run DISTINCT queries server-side.
+  filter_columns: z.record(z.string(), z.string()).optional(),
 })
 
 export type PanelConfig = z.infer<typeof PanelConfigSchema>
