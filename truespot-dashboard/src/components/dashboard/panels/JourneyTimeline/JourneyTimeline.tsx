@@ -6,18 +6,11 @@ import Tooltip from '@mui/material/Tooltip'
 import Paper from '@mui/material/Paper'
 import TimelineIcon from '@mui/icons-material/Timeline'
 
-// ─── colour palette ──────────────────────────────────────────────────────────
+// ── colour palette ────────────────────────────────────────────────────────────
 const STOP_COLORS = [
-  '#4A90D9', // blue
-  '#9B59B6', // purple
-  '#27AE60', // green
-  '#E67E22', // orange
-  '#E74C3C', // red
-  '#1ABC9C', // teal
-  '#E91E63', // pink
-  '#8BC34A', // lime
-  '#FF5722', // deep-orange
-  '#607D8B', // blue-grey
+  '#4A90D9', '#9B59B6', '#27AE60', '#E67E22', '#E74C3C',
+  '#1ABC9C', '#E91E63', '#8BC34A', '#FF5722', '#607D8B',
+  '#F39C12', '#2ECC71', '#3498DB', '#E91E63', '#95A5A6',
 ]
 
 function buildColorMap(geofences: string[]): Map<string, string> {
@@ -26,11 +19,47 @@ function buildColorMap(geofences: string[]): Map<string, string> {
   return map
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ── constants ─────────────────────────────────────────────────────────────────
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Fixed hour ticks shared by every day row
+const HOUR_TICKS = [
+  { h: 0,  label: '12am' },
+  { h: 6,  label: '6am'  },
+  { h: 12, label: '12pm' },
+  { h: 18, label: '6pm'  },
+]
+
+// ── types ─────────────────────────────────────────────────────────────────────
+interface Stop {
+  geofence: string
+  subZone: string
+  startMs: number
+  endMs: number
+  minutes: number
+}
+
+interface Gap { startMs: number; endMs: number; minutes: number }
+
+interface DayGroup {
+  dateLabel: string
+  isToday: boolean
+  dayStartMs: number
+  stops: Stop[]
+  gaps: Gap[]
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 function parseMs(val: unknown): number | null {
   if (!val) return null
   const d = new Date(String(val))
   return isNaN(d.getTime()) ? null : d.getTime()
+}
+
+function dayStart(ms: number): number {
+  const d = new Date(ms)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
 }
 
 function fmtDuration(minutes: number): string {
@@ -51,146 +80,104 @@ function fmtTime(ms: number): string {
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
-function fmtTick(ms: number, prevMs: number | null): string {
-  const time = fmtTime(ms)
-  if (prevMs === null) return time
-  // If this tick crosses a day boundary, prefix with the date
-  if (new Date(prevMs).getDate() !== new Date(ms).getDate()) {
-    const d = new Date(ms)
-    return `${d.getMonth() + 1}/${d.getDate()} ${time}`
+// Split a stop that crosses midnight into per-day segments so each day row
+// only displays activity that belongs to its calendar date.
+function splitByDay(stop: Stop): Stop[] {
+  const segments: Stop[] = []
+  let cursor = stop.startMs
+  while (cursor < stop.endMs) {
+    const nextMidnight = dayStart(cursor) + DAY_MS
+    const segEnd = Math.min(nextMidnight, stop.endMs)
+    const mins = Math.round((segEnd - cursor) / 60_000)
+    if (mins > 0) segments.push({ ...stop, startMs: cursor, endMs: segEnd, minutes: mins })
+    cursor = nextMidnight
   }
-  return time
+  return segments
 }
 
-// ─── types ────────────────────────────────────────────────────────────────────
-interface Stop {
-  geofence: string
-  subZone: string
-  startMs: number
-  endMs: number
-  minutes: number
-  beaconId: string
-  vin: string
-  stockNumber: string
-}
+function groupByDay(stops: Stop[]): DayGroup[] {
+  const todayMs = dayStart(Date.now())
+  const map = new Map<number, Stop[]>()
 
-interface Gap {
-  startMs: number
-  endMs: number
-  minutes: number
-}
+  for (const stop of stops) {
+    for (const seg of splitByDay(stop)) {
+      const key = dayStart(seg.startMs)
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(seg)
+    }
+  }
 
-interface JourneyTimelineProps {
-  rows: Record<string, unknown>[]
-  /** Label shown in the header — typically the BeaconId, VIN, or Stock Number filter value. */
-  selectedAsset?: string
-}
+  return [...map.entries()]
+    .sort((a, b) => b[0] - a[0]) // newest first
+    .map(([dayMs, dayStops]) => {
+      const sorted = [...dayStops].sort((a, b) => a.startMs - b.startMs)
 
-// ─── component ───────────────────────────────────────────────────────────────
-export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimelineProps) {
-  const { stops, gaps, colorMap, minMs, totalMs, ticks, nowLeft } = useMemo(() => {
-    const parsed: Stop[] = rows
-      .map((r) => {
-        const startMs = parseMs(r['[StartTime]'])
-        const endMs = parseMs(r['[EndTime]'])
-        if (startMs === null || endMs === null || endMs <= startMs) return null
-        return {
-          geofence: String(r['[Geofence]'] ?? ''),
-          subZone: String(r['[SubGeoZone]'] ?? ''),
-          startMs,
-          endMs,
-          minutes: Number(r['[MinutesDiff]'] ?? 0),
-          beaconId: String(r['[BeaconId]'] ?? ''),
-          vin: String(r['[VIN]'] ?? ''),
-          stockNumber: String(r['[StockNumber]'] ?? ''),
+      const gaps: Gap[] = []
+      for (let i = 1; i < sorted.length; i++) {
+        const gapMs = sorted[i].startMs - sorted[i - 1].endMs
+        if (gapMs > 60_000) {
+          gaps.push({ startMs: sorted[i - 1].endMs, endMs: sorted[i].startMs, minutes: Math.round(gapMs / 60_000) })
         }
-      })
-      .filter((s): s is Stop => s !== null)
-      .sort((a, b) => a.startMs - b.startMs)
-
-    if (parsed.length === 0) {
-      return { stops: [], gaps: [], colorMap: new Map(), minMs: 0, totalMs: 0, ticks: [], nowLeft: null }
-    }
-
-    const minMs = parsed[0].startMs
-    const maxMs = parsed.reduce((acc, s) => (s.endMs > acc ? s.endMs : acc), parsed[0].endMs)
-    const totalMs = maxMs - minMs
-
-    // Detect untracked gaps (> 1 min between consecutive stop end and next start)
-    const gaps: Gap[] = []
-    for (let i = 1; i < parsed.length; i++) {
-      const gapMs = parsed[i].startMs - parsed[i - 1].endMs
-      if (gapMs > 60_000) {
-        gaps.push({ startMs: parsed[i - 1].endMs, endMs: parsed[i].startMs, minutes: Math.round(gapMs / 60_000) })
       }
-    }
 
-    const colorMap = buildColorMap(parsed.map((s) => s.geofence))
+      const date = new Date(dayMs)
+      return {
+        dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        isToday: dayMs === todayMs,
+        dayStartMs: dayMs,
+        stops: sorted,
+        gaps,
+      }
+    })
+}
 
-    // Time axis ticks every 30 minutes, snapped to the nearest half-hour
-    const tickMs: number[] = []
-    const tick = new Date(minMs)
-    tick.setMinutes(Math.ceil(tick.getMinutes() / 30) * 30, 0, 0)
-    while (tick.getTime() <= maxMs) {
-      tickMs.push(tick.getTime())
-      tick.setMinutes(tick.getMinutes() + 30)
-    }
-
-    // "Now" marker position (null when outside today's data range)
-    const now = Date.now()
-    const nowLeft = now >= minMs && now <= maxMs ? `${((now - minMs) / totalMs) * 100}%` : null
-
-    return { stops: parsed, gaps, colorMap, minMs, totalMs, ticks: tickMs, nowLeft }
-  }, [rows])
-
-  // ── placeholder when no asset is identified ──────────────────────────────
-  if (rows.length === 0 || stops.length === 0) {
-    return (
-      <Paper
-        variant="outlined"
-        sx={{ p: 3, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
-      >
-        <TimelineIcon sx={{ fontSize: 28 }} />
-        <Box>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            Journey Timeline
-          </Typography>
-          <Typography variant="caption">
-            {rows.length === 0
-              ? 'No data loaded yet — select a date and apply filters to begin.'
-              : 'No timeline data could be built from the current rows (timestamps missing or invalid).'}
-          </Typography>
-        </Box>
-      </Paper>
-    )
+// ── DayRow ────────────────────────────────────────────────────────────────────
+// Renders a single horizontal row for one calendar day.
+// The time axis is always 00:00–23:59, giving consistent alignment across rows.
+function DayRow({ group, colorMap }: { group: DayGroup; colorMap: Map<string, string> }) {
+  const toLeftPct = (ms: number) => {
+    const c = Math.max(group.dayStartMs, Math.min(group.dayStartMs + DAY_MS, ms))
+    return `${((c - group.dayStartMs) / DAY_MS) * 100}%`
   }
 
-  const pctLeft = (ms: number) => `${((ms - minMs) / totalMs) * 100}%`
-  const pctWidth = (startMs: number, endMs: number) => `${((endMs - startMs) / totalMs) * 100}%`
+  const toWidthPct = (sMs: number, eMs: number) => {
+    const s = Math.max(group.dayStartMs, sMs)
+    const e = Math.min(group.dayStartMs + DAY_MS, eMs)
+    return `${Math.max(0, (e - s) / DAY_MS) * 100}%`
+  }
+
+  const nowMs = Date.now()
+  const nowPct =
+    group.isToday && nowMs >= group.dayStartMs && nowMs < group.dayStartMs + DAY_MS
+      ? `${((nowMs - group.dayStartMs) / DAY_MS) * 100}%`
+      : null
 
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <TimelineIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-        <Typography
-          variant="caption"
-          sx={{ fontWeight: 700, letterSpacing: 0.8, color: 'text.secondary', textTransform: 'uppercase' }}
-        >
-          Journey Timeline · {stops.length} stop{stops.length !== 1 ? 's' : ''}
-          {selectedAsset ? ` · ${selectedAsset}` : ''}
-        </Typography>
-      </Box>
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+      {/* Date label — fixed 52 px column so all rows align */}
+      <Typography
+        variant="caption"
+        sx={{
+          width: 52,
+          flexShrink: 0,
+          pt: 0.75,
+          fontSize: 11,
+          fontWeight: group.isToday ? 700 : 400,
+          color: group.isToday ? 'primary.main' : 'text.secondary',
+        }}
+      >
+        {group.isToday ? 'Today' : group.dateLabel}
+      </Typography>
 
       {/* Timeline */}
-      <Box sx={{ position: 'relative' }}>
-        {/* Bar track */}
-        <Box sx={{ position: 'relative', height: 44 }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        {/* Bar */}
+        <Box sx={{ position: 'relative', height: 34 }}>
           {/* Background */}
           <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'grey.100', borderRadius: 1 }} />
 
           {/* Stop blocks */}
-          {stops.map((stop, i) => (
+          {group.stops.map((stop, i) => (
             <Tooltip
               key={i}
               arrow
@@ -206,10 +193,10 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
                     </Typography>
                   )}
                   <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                    {fmtTime(stop.startMs)} → {fmtTime(stop.endMs)}
+                    {fmtTime(stop.startMs)} – {fmtTime(stop.endMs)}
                   </Typography>
                   <Typography variant="caption" sx={{ display: 'block' }}>
-                    Duration: {fmtDuration(stop.minutes)}
+                    {fmtDuration(stop.minutes)}
                   </Typography>
                 </Box>
               }
@@ -217,62 +204,61 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
               <Box
                 sx={{
                   position: 'absolute',
-                  left: pctLeft(stop.startMs),
-                  width: pctWidth(stop.startMs, stop.endMs),
-                  minWidth: 4,
+                  left: toLeftPct(stop.startMs),
+                  width: toWidthPct(stop.startMs, stop.endMs),
+                  minWidth: 2,
                   top: 2,
                   bottom: 2,
-                  bgcolor: colorMap.get(stop.geofence),
-                  borderRadius: 1,
+                  bgcolor: colorMap.get(stop.geofence) ?? '#9E9E9E',
+                  overflow: 'hidden',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  overflow: 'hidden',
                   cursor: 'default',
-                  px: 0.5,
                   transition: 'opacity 0.15s',
-                  '&:hover': { opacity: 0.8 },
+                  '&:hover': { opacity: 0.75, zIndex: 1 },
                 }}
               >
-                <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' }}>
-                  {fmtDuration(stop.minutes)}
-                </Typography>
+                {/* Label only for stops ≥ 1 h (block is wide enough to read) */}
+                {stop.minutes >= 60 && (
+                  <Typography
+                    variant="caption"
+                    sx={{ color: 'white', fontWeight: 700, fontSize: 10, whiteSpace: 'nowrap', px: 0.25 }}
+                  >
+                    {fmtDuration(stop.minutes)}
+                  </Typography>
+                )}
               </Box>
             </Tooltip>
           ))}
 
           {/* Untracked gaps */}
-          {gaps.map((gap, i) => (
+          {group.gaps.map((gap, i) => (
             <Tooltip key={`gap-${i}`} arrow placement="top" title={`Untracked · ${fmtDuration(gap.minutes)}`}>
               <Box
                 sx={{
                   position: 'absolute',
-                  left: pctLeft(gap.startMs),
-                  width: pctWidth(gap.startMs, gap.endMs),
-                  minWidth: 4,
+                  left: toLeftPct(gap.startMs),
+                  width: toWidthPct(gap.startMs, gap.endMs),
+                  minWidth: 3,
                   top: 2,
                   bottom: 2,
-                  background: 'repeating-linear-gradient(45deg,#FFFDE7 0px,#FFFDE7 5px,#FFC107 5px,#FFC107 10px)',
-                  border: '1.5px dashed #FFC107',
-                  borderRadius: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  background: 'repeating-linear-gradient(45deg,#FFFDE7 0,#FFFDE7 5px,#FFC107 5px,#FFC107 10px)',
+                  border: '1px dashed #FFC107',
                   cursor: 'default',
-                  fontSize: 13,
                 }}
-              >
-                ⚠
-              </Box>
+              />
             </Tooltip>
           ))}
 
           {/* "Now" marker */}
-          {nowLeft && (
-            <Box sx={{ position: 'absolute', left: nowLeft, top: -16, bottom: -6, width: 2, bgcolor: 'error.main', zIndex: 10 }}>
+          {nowPct && (
+            <Box
+              sx={{ position: 'absolute', left: nowPct, top: -6, bottom: -6, width: 2, bgcolor: 'error.main', zIndex: 10 }}
+            >
               <Typography
                 variant="caption"
-                sx={{ position: 'absolute', top: 0, left: 4, color: 'error.main', fontWeight: 700, fontSize: 10, whiteSpace: 'nowrap' }}
+                sx={{ position: 'absolute', top: 0, left: 4, color: 'error.main', fontWeight: 700, fontSize: 9, whiteSpace: 'nowrap' }}
               >
                 Now
               </Typography>
@@ -280,55 +266,124 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
           )}
         </Box>
 
-        {/* Time axis */}
-        <Box sx={{ position: 'relative', height: 22, mt: 0.5 }}>
-          {ticks.map((ms, i) => (
+        {/* Shared 24-hour axis: same ticks on every row so days align */}
+        <Box sx={{ position: 'relative', height: 16 }}>
+          {HOUR_TICKS.map(({ h, label }) => (
             <Typography
-              key={i}
+              key={h}
               variant="caption"
               sx={{
                 position: 'absolute',
-                left: pctLeft(ms),
+                left: `${(h / 24) * 100}%`,
                 transform: 'translateX(-50%)',
+                fontSize: 9,
                 color: 'text.disabled',
-                fontSize: 10,
                 whiteSpace: 'nowrap',
                 userSelect: 'none',
               }}
             >
-              {fmtTick(ms, i > 0 ? ticks[i - 1] : null)}
+              {label}
             </Typography>
           ))}
         </Box>
       </Box>
+    </Box>
+  )
+}
+
+// ── JourneyTimeline ───────────────────────────────────────────────────────────
+interface JourneyTimelineProps {
+  rows: Record<string, unknown>[]
+  selectedAsset?: string
+}
+
+export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimelineProps) {
+  const { dayGroups, colorMap, totalStops, uniqueGeofences } = useMemo(() => {
+    const parsed: Stop[] = rows
+      .map((r) => {
+        const startMs = parseMs(r['[StartTime]'])
+        const endMs = parseMs(r['[EndTime]'])
+        if (startMs === null || endMs === null || endMs <= startMs) return null
+        return {
+          geofence: String(r['[Geofence]'] ?? ''),
+          subZone: String(r['[SubGeoZone]'] ?? ''),
+          startMs,
+          endMs,
+          minutes: Number(r['[MinutesDiff]'] ?? 0),
+        }
+      })
+      .filter((s): s is Stop => s !== null)
+
+    const dayGroups = groupByDay(parsed)
+    const colorMap = buildColorMap(parsed.map((s) => s.geofence))
+    const uniqueGeofences = [...new Set(parsed.map((s) => s.geofence))].filter(Boolean)
+
+    return { dayGroups, colorMap, totalStops: parsed.length, uniqueGeofences }
+  }, [rows])
+
+  // ── placeholder ──────────────────────────────────────────────────────────
+  if (rows.length === 0 || dayGroups.length === 0) {
+    return (
+      <Paper
+        variant="outlined"
+        sx={{ p: 2.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
+      >
+        <TimelineIcon sx={{ fontSize: 28 }} />
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
+          <Typography variant="caption">
+            {rows.length === 0
+              ? 'Filter by Beacon ID, VIN, or Stock Number to view that asset’s journey timeline.'
+              : 'No valid timeline data in the current rows.'}
+          </Typography>
+        </Box>
+      </Paper>
+    )
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <TimelineIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+        <Typography
+          variant="caption"
+          sx={{ fontWeight: 700, letterSpacing: 0.8, color: 'text.secondary', textTransform: 'uppercase' }}
+        >
+          Journey Timeline
+          {selectedAsset ? ` · ${selectedAsset}` : ''}
+          {` · ${totalStops} stop${totalStops !== 1 ? 's' : ''}`}
+          {` · ${dayGroups.length} day${dayGroups.length !== 1 ? 's' : ''}`}
+        </Typography>
+      </Box>
+
+      {/* One row per calendar day, newest at top */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+        {dayGroups.map((group) => (
+          <DayRow key={group.dayStartMs} group={group} colorMap={colorMap} />
+        ))}
+      </Box>
 
       {/* Legend */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 2, alignItems: 'center' }}>
-        {[...colorMap.entries()].map(([geofence, color]) => (
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider', alignItems: 'center' }}>
+        {uniqueGeofences.map((geofence) => (
           <Box key={geofence} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Box sx={{ width: 10, height: 10, bgcolor: color, borderRadius: '2px', flexShrink: 0 }} />
-            <Typography variant="caption" color="text.secondary">
-              {geofence}
-            </Typography>
+            <Box sx={{ width: 10, height: 10, bgcolor: colorMap.get(geofence), borderRadius: '2px', flexShrink: 0 }} />
+            <Typography variant="caption" color="text.secondary">{geofence}</Typography>
           </Box>
         ))}
-        {gaps.length > 0 && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Box
-              sx={{
-                width: 10,
-                height: 10,
-                background: 'repeating-linear-gradient(45deg,#FFFDE7 0px,#FFFDE7 3px,#FFC107 3px,#FFC107 6px)',
-                border: '1px dashed #FFC107',
-                borderRadius: '2px',
-                flexShrink: 0,
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              ⚠ Untracked
-            </Typography>
-          </Box>
-        )}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Box
+            sx={{
+              width: 10, height: 10,
+              background: 'repeating-linear-gradient(45deg,#FFFDE7 0,#FFFDE7 3px,#FFC107 3px,#FFC107 6px)',
+              border: '1px dashed #FFC107',
+              borderRadius: '2px',
+              flexShrink: 0,
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">Untracked</Typography>
+        </Box>
       </Box>
     </Paper>
   )
