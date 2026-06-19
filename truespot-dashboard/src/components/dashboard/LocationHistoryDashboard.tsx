@@ -16,6 +16,7 @@ import DashboardHeader from './DashboardHeader'
 import KpiCard from './panels/KpiCard'
 import DataTable from './panels/DataTable'
 import JourneyTimeline from './panels/JourneyTimeline/JourneyTimeline'
+import AssetStatCards from './panels/AssetStatCards'
 
 interface Props {
   clientId: string
@@ -134,7 +135,21 @@ export default function LocationHistoryDashboard({
   })()
 
   const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
-  const timelineRows = selectedAsset && !tableLoading ? tableRows : []
+
+  const datePeriod =
+    !filters.dateSeen || filters.dateSeen === 'Today'
+      ? 'today'
+      : filters.dateSeen === 'all'
+      ? 'all time'
+      : `on ${filters.dateSeen}`
+
+  // Cap timeline rows to prevent the groupByDay useMemo from blocking the main
+  // thread on huge result sets. Above this threshold the per-day bars would be
+  // too dense to read anyway — the parent shows a "too many records" message.
+  const TIMELINE_MAX_ROWS = 5_000
+  const timelineRows =
+    selectedAsset && !tableLoading && tableRows.length <= TIMELINE_MAX_ROWS ? tableRows : []
+  const timelineTooLarge = selectedAsset && !tableLoading && tableRows.length > TIMELINE_MAX_ROWS
 
   return (
     <Box sx={{ display: 'flex', gap: 2.5, height: '100%' }}>
@@ -175,8 +190,28 @@ export default function LocationHistoryDashboard({
           </Grid>
         </Grid>
 
+        {selectedAsset && !tableLoading && tableRows.length > 0 && (
+          <AssetStatCards rows={tableRows} datePeriod={datePeriod} />
+        )}
+
         {selectedAsset ? (
-          <JourneyTimeline rows={timelineRows} selectedAsset={selectedAsset} />
+          timelineTooLarge ? (
+            <Paper
+              variant="outlined"
+              sx={{ p: 2.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2, color: 'text.disabled' }}
+            >
+              <TimelineIcon sx={{ fontSize: 28 }} />
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
+                <Typography variant="caption">
+                  {tableRows.length.toLocaleString()} records is too many to render a timeline.
+                  Add a date or geofence filter to narrow the result.
+                </Typography>
+              </Box>
+            </Paper>
+          ) : (
+            <JourneyTimeline rows={timelineRows} selectedAsset={selectedAsset} />
+          )
         ) : (
           <Paper
             variant="outlined"

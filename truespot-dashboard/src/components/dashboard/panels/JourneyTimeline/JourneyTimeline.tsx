@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
@@ -10,7 +10,7 @@ import TimelineIcon from '@mui/icons-material/Timeline'
 const STOP_COLORS = [
   '#4A90D9', '#9B59B6', '#27AE60', '#E67E22', '#E74C3C',
   '#1ABC9C', '#E91E63', '#8BC34A', '#FF5722', '#607D8B',
-  '#F39C12', '#2ECC71', '#3498DB', '#E91E63', '#95A5A6',
+  '#F39C12', '#2ECC71', '#3498DB', '#8E44AD', '#95A5A6',
 ]
 
 function buildColorMap(geofences: string[]): Map<string, string> {
@@ -22,12 +22,6 @@ function buildColorMap(geofences: string[]): Map<string, string> {
 // ── constants ─────────────────────────────────────────────────────────────────
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// Stable subscribe reference for useSyncExternalStore — must be defined at
-// module scope so React always receives the same function reference and does
-// not re-subscribe on every render (which would cause an infinite update loop).
-const noopSubscribe = () => () => {}
-
-// Fixed hour ticks shared by every day row
 const HOUR_TICKS = [
   { h: 0,  label: '12am' },
   { h: 6,  label: '6am'  },
@@ -48,7 +42,6 @@ interface Gap { startMs: number; endMs: number; minutes: number }
 
 interface DayGroup {
   dateLabel: string
-  isToday: boolean
   dayStartMs: number
   stops: Stop[]
   gaps: Gap[]
@@ -61,7 +54,7 @@ function parseMs(val: unknown): number | null {
   return isNaN(d.getTime()) ? null : d.getTime()
 }
 
-function dayStart(ms: number): number {
+function midnightOf(ms: number): number {
   const d = new Date(ms)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
@@ -85,13 +78,13 @@ function fmtTime(ms: number): string {
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
-// Split a stop that crosses midnight into per-day segments so each day row
-// only displays activity that belongs to its calendar date.
+// Splits a stop that crosses midnight into per-day segments so each day row
+// only contains activity that belongs to its calendar date.
 function splitByDay(stop: Stop): Stop[] {
   const segments: Stop[] = []
   let cursor = stop.startMs
   while (cursor < stop.endMs) {
-    const nextMidnight = dayStart(cursor) + DAY_MS
+    const nextMidnight = midnightOf(cursor) + DAY_MS
     const segEnd = Math.min(nextMidnight, stop.endMs)
     const mins = Math.round((segEnd - cursor) / 60_000)
     if (mins > 0) segments.push({ ...stop, startMs: cursor, endMs: segEnd, minutes: mins })
@@ -100,13 +93,12 @@ function splitByDay(stop: Stop): Stop[] {
   return segments
 }
 
-// todayMs is passed in from the component so Date.now() never runs on the server.
-function groupByDay(stops: Stop[], todayMs: number): DayGroup[] {
+function groupByDay(stops: Stop[]): DayGroup[] {
   const map = new Map<number, Stop[]>()
 
   for (const stop of stops) {
     for (const seg of splitByDay(stop)) {
-      const key = dayStart(seg.startMs)
+      const key = midnightOf(seg.startMs)
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(seg)
     }
@@ -121,14 +113,17 @@ function groupByDay(stops: Stop[], todayMs: number): DayGroup[] {
       for (let i = 1; i < sorted.length; i++) {
         const gapMs = sorted[i].startMs - sorted[i - 1].endMs
         if (gapMs > 60_000) {
-          gaps.push({ startMs: sorted[i - 1].endMs, endMs: sorted[i].startMs, minutes: Math.round(gapMs / 60_000) })
+          gaps.push({
+            startMs: sorted[i - 1].endMs,
+            endMs: sorted[i].startMs,
+            minutes: Math.round(gapMs / 60_000),
+          })
         }
       }
 
       const date = new Date(dayMs)
       return {
         dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        isToday: dayMs === todayMs,
         dayStartMs: dayMs,
         stops: sorted,
         gaps,
@@ -137,10 +132,9 @@ function groupByDay(stops: Stop[], todayMs: number): DayGroup[] {
 }
 
 // ── DayRow ────────────────────────────────────────────────────────────────────
-// Renders a single horizontal row for one calendar day.
-// The time axis is always 00:00–23:59, giving consistent alignment across rows.
-// nowMs is -1 on the server (sentinel), real Date.now() on the client.
-function DayRow({ group, colorMap, nowMs }: { group: DayGroup; colorMap: Map<string, string>; nowMs: number }) {
+// One horizontal row for one calendar date. Fixed 24-hour axis (midnight–midnight)
+// keeps all rows visually aligned so patterns across days are easy to compare.
+function DayRow({ group, colorMap }: { group: DayGroup; colorMap: Map<string, string> }) {
   const toLeftPct = (ms: number) => {
     const c = Math.max(group.dayStartMs, Math.min(group.dayStartMs + DAY_MS, ms))
     return `${((c - group.dayStartMs) / DAY_MS) * 100}%`
@@ -152,33 +146,19 @@ function DayRow({ group, colorMap, nowMs }: { group: DayGroup; colorMap: Map<str
     return `${Math.max(0, (e - s) / DAY_MS) * 100}%`
   }
 
-  const nowPct =
-    nowMs !== null && group.isToday && nowMs >= group.dayStartMs && nowMs < group.dayStartMs + DAY_MS
-      ? `${((nowMs - group.dayStartMs) / DAY_MS) * 100}%`
-      : null
-
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-      {/* Date label — fixed 52 px column so all rows align */}
+      {/* Date label — fixed 52 px column keeps all bars left-aligned */}
       <Typography
         variant="caption"
-        sx={{
-          width: 52,
-          flexShrink: 0,
-          pt: 0.75,
-          fontSize: 11,
-          fontWeight: group.isToday ? 700 : 400,
-          color: group.isToday ? 'primary.main' : 'text.secondary',
-        }}
+        sx={{ width: 52, flexShrink: 0, pt: 0.75, fontSize: 11, color: 'text.secondary' }}
       >
-        {group.isToday ? 'Today' : group.dateLabel}
+        {group.dateLabel}
       </Typography>
 
-      {/* Timeline */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         {/* Bar */}
         <Box sx={{ position: 'relative', height: 34 }}>
-          {/* Background */}
           <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'grey.100', borderRadius: 1 }} />
 
           {/* Stop blocks */}
@@ -224,7 +204,7 @@ function DayRow({ group, colorMap, nowMs }: { group: DayGroup; colorMap: Map<str
                   '&:hover': { opacity: 0.75, zIndex: 1 },
                 }}
               >
-                {/* Label only for stops ≥ 1 h (block is wide enough to read) */}
+                {/* Duration label only for stops ≥ 1 h — block is wide enough to read */}
                 {stop.minutes >= 60 && (
                   <Typography
                     variant="caption"
@@ -255,23 +235,9 @@ function DayRow({ group, colorMap, nowMs }: { group: DayGroup; colorMap: Map<str
               />
             </Tooltip>
           ))}
-
-          {/* "Now" marker */}
-          {nowPct && (
-            <Box
-              sx={{ position: 'absolute', left: nowPct, top: -6, bottom: -6, width: 2, bgcolor: 'error.main', zIndex: 10 }}
-            >
-              <Typography
-                variant="caption"
-                sx={{ position: 'absolute', top: 0, left: 4, color: 'error.main', fontWeight: 700, fontSize: 9, whiteSpace: 'nowrap' }}
-              >
-                Now
-              </Typography>
-            </Box>
-          )}
         </Box>
 
-        {/* Shared 24-hour axis: same ticks on every row so days align */}
+        {/* 24-hour axis — same tick positions on every row so days align */}
         <Box sx={{ position: 'relative', height: 16 }}>
           {HOUR_TICKS.map(({ h, label }) => (
             <Typography
@@ -303,17 +269,6 @@ interface JourneyTimelineProps {
 }
 
 export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimelineProps) {
-  // useSyncExternalStore lets React use different values for server vs client
-  // without triggering a hydration mismatch. The server snapshot (-1) never
-  // matches any real dayStart so isToday / nowPct stay false during SSR.
-  const nowMs = useSyncExternalStore(
-    noopSubscribe,     // stable ref — inline arrow here would cause infinite loop
-    () => Date.now(),  // client snapshot: real current time
-    () => -1,          // server snapshot: sentinel that never matches a day
-  )
-
-  const todayMs = nowMs !== -1 ? dayStart(nowMs) : -1
-
   const { dayGroups, colorMap, totalStops, uniqueGeofences } = useMemo(() => {
     const parsed: Stop[] = rows
       .map((r) => {
@@ -330,14 +285,14 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
       })
       .filter((s): s is Stop => s !== null)
 
-    const dayGroups = groupByDay(parsed, todayMs)
-    const colorMap = buildColorMap(parsed.map((s) => s.geofence))
-    const uniqueGeofences = [...new Set(parsed.map((s) => s.geofence))].filter(Boolean)
+    return {
+      dayGroups: groupByDay(parsed),
+      colorMap: buildColorMap(parsed.map((s) => s.geofence)),
+      uniqueGeofences: [...new Set(parsed.map((s) => s.geofence))].filter(Boolean),
+      totalStops: parsed.length,
+    }
+  }, [rows])
 
-    return { dayGroups, colorMap, totalStops: parsed.length, uniqueGeofences }
-  }, [rows, todayMs])
-
-  // ── placeholder ──────────────────────────────────────────────────────────
   if (rows.length === 0 || dayGroups.length === 0) {
     return (
       <Paper
@@ -347,11 +302,7 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
         <TimelineIcon sx={{ fontSize: 28 }} />
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
-          <Typography variant="caption">
-            {rows.length === 0
-              ? 'Filter by Beacon ID, VIN, or Stock Number to view that asset’s journey timeline.'
-              : 'No valid timeline data in the current rows.'}
-          </Typography>
+          <Typography variant="caption">No valid timeline data in the current result set.</Typography>
         </Box>
       </Paper>
     )
@@ -368,7 +319,7 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
         >
           Journey Timeline
           {selectedAsset ? ` · ${selectedAsset}` : ''}
-          {` · ${totalStops} stop${totalStops !== 1 ? 's' : ''}`}
+          {` · ${totalStops.toLocaleString()} stop${totalStops !== 1 ? 's' : ''}`}
           {` · ${dayGroups.length} day${dayGroups.length !== 1 ? 's' : ''}`}
         </Typography>
       </Box>
@@ -376,12 +327,18 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
       {/* One row per calendar day, newest at top */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
         {dayGroups.map((group) => (
-          <DayRow key={group.dayStartMs} group={group} colorMap={colorMap} nowMs={nowMs} />
+          <DayRow key={group.dayStartMs} group={group} colorMap={colorMap} />
         ))}
       </Box>
 
       {/* Legend */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider', alignItems: 'center' }}>
+      <Box
+        sx={{
+          display: 'flex', flexWrap: 'wrap', gap: 1.5,
+          mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider',
+          alignItems: 'center',
+        }}
+      >
         {uniqueGeofences.map((geofence) => (
           <Box key={geofence} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Box sx={{ width: 10, height: 10, bgcolor: colorMap.get(geofence), borderRadius: '2px', flexShrink: 0 }} />
@@ -391,11 +348,9 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <Box
             sx={{
-              width: 10, height: 10,
+              width: 10, height: 10, borderRadius: '2px', flexShrink: 0,
               background: 'repeating-linear-gradient(45deg,#FFFDE7 0,#FFFDE7 3px,#FFC107 3px,#FFC107 6px)',
               border: '1px dashed #FFC107',
-              borderRadius: '2px',
-              flexShrink: 0,
             }}
           />
           <Typography variant="caption" color="text.secondary">Untracked</Typography>
