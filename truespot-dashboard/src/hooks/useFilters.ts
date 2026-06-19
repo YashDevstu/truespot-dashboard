@@ -20,7 +20,7 @@ const DEFAULTS: LocationHistoryFilters = {
   geofence: '',
   subGeoZone: '',
   floorLevel: '',
-  minDurationMinutes: '1',
+  minDurationMinutes: '0',
   vin: '',
   stockNumber: '',
   assetType: '',

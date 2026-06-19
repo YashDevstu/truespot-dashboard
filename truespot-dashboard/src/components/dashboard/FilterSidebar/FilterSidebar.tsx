@@ -10,12 +10,25 @@ import FilterListIcon from '@mui/icons-material/FilterList'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import type { LocationHistoryFilters } from '@/hooks/useFilters'
 
-const DATE_SEEN_OPTIONS = [
-  { value: 'Today', label: 'Today' },
-  { value: 'Yesterday', label: 'Yesterday' },
-  { value: 'Last 7 Days', label: 'Last 7 Days' },
-  { value: 'Last 30 Days', label: 'Last 30 Days' },
-]
+// Matches LastSeenDateDefault column: "Today" for today, "MM/DD/YY" for past days
+function buildDateOptions() {
+  const options: { value: string; label: string }[] = [
+    { value: 'all', label: 'All Dates' },
+    { value: 'Today', label: 'Today' },
+  ]
+  for (let i = 1; i <= 6; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const yy = String(d.getFullYear()).slice(-2)
+    const label = `${mm}/${dd}/${yy}`
+    options.push({ value: label, label })
+  }
+  return options
+}
+
+const DATE_OPTIONS = buildDateOptions()
 
 interface FilterSidebarProps {
   filters: LocationHistoryFilters
@@ -51,12 +64,12 @@ export default function FilterSidebar({ filters, onFilterChange, onReset }: Filt
       <Stack spacing={2}>
         <TextField
           select
-          label="Date"
+          label="Date Seen"
           value={filters.dateSeen}
           onChange={(e) => onFilterChange('dateSeen', e.target.value)}
           fullWidth
         >
-          {DATE_SEEN_OPTIONS.map((o) => (
+          {DATE_OPTIONS.map((o) => (
             <MenuItem key={o.value} value={o.value}>
               {o.label}
             </MenuItem>

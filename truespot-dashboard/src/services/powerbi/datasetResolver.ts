@@ -5,16 +5,16 @@ import { CACHE_TTL_DATASETS } from '@/constants/cache'
 import { DatasetsResponseSchema } from '@/types/powerbi'
 import { getAccessToken } from '@/services/auth/msalService'
 import { getOrSet } from '@/services/cache/cacheService'
+import { withRetry } from '@/utils/retry'
 
 async function fetchDatasets(workspaceId: string) {
   const token = await getAccessToken()
 
-  const response = await axios.get(
-    `${POWERBI_API_BASE}/groups/${workspaceId}/datasets`,
-    {
+  const response = await withRetry(() =>
+    axios.get(`${POWERBI_API_BASE}/groups/${workspaceId}/datasets`, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: REQUEST_TIMEOUT_MS,
-    }
+    })
   )
 
   return DatasetsResponseSchema.parse(response.data).value

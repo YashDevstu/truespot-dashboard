@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 300
 
 import type { NextRequest } from 'next/server'
 import { PanelType } from '@/constants/dashboard'
@@ -7,7 +7,7 @@ import { CACHE_TTL_KPIS, CACHE_TTL_CHARTS } from '@/constants/cache'
 import { QueryRequestSchema, type QueryResponse } from '@/types/api'
 import { getClientConfig } from '@/services/config/clientConfigService'
 import { executeQuery } from '@/services/powerbi/queryService'
-import { buildMeasureQuery, buildLocationHistoryQuery } from '@/utils/dax'
+import { buildMeasureQuery, buildLocationHistoryQuery, DAY_TIME_CHUNKS } from '@/utils/dax'
 
 function ttlForPanelType(type: PanelType): number {
   switch (type) {
@@ -17,6 +17,37 @@ function ttlForPanelType(type: PanelType): number {
     default:
       return CACHE_TTL_KPIS
   }
+}
+
+// Generates last N date labels in the format stored in LastSeenDateDefault (MM/DD/YY)
+function lastNDayLabels(n: number): string[] {
+  const labels: string[] = []
+  for (let i = 1; i <= n; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const yy = String(d.getFullYear()).slice(-2)
+    labels.push(`${mm}/${dd}/${yy}`)
+  }
+  return labels
+}
+
+// Fetch a single date by splitting into 4 parallel 6-hour chunks to stay under 15 MB per call.
+// Each chunk is independently cached so repeat requests within the TTL are instant.
+async function fetchDateChunked(
+  datasetName: string,
+  dateSeen: string,
+  baseFilters: Record<string, unknown>,
+  ttl: number
+): Promise<Record<string, unknown>[]> {
+  const chunkRows = await Promise.all(
+    DAY_TIME_CHUNKS.map((timeChunk) => {
+      const q = buildLocationHistoryQuery({ ...baseFilters, dateSeen, timeChunk } as Parameters<typeof buildLocationHistoryQuery>[0])
+      return executeQuery(datasetName, q, ttl)
+    })
+  )
+  return chunkRows.flat()
 }
 
 export async function POST(request: NextRequest) {
@@ -58,11 +89,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    let daxQuery: string
+    const ttl = ttlForPanelType(panel.type)
 
     if (panel.type === PanelType.DATA_TABLE || panel.type === PanelType.JOURNEY_TIMELINE) {
-      daxQuery = buildLocationHistoryQuery({
-        dateSeen: filters?.dateSeen,
+      const baseFilters = {
         beaconId: filters?.beaconId,
         geofence: filters?.geofence,
         subGeoZone: filters?.subGeoZone,
@@ -70,20 +100,37 @@ export async function POST(request: NextRequest) {
         vin: filters?.vin,
         stockNumber: filters?.stockNumber,
         assetType: filters?.assetType,
-      })
-    } else if (panel.measure) {
-      daxQuery = buildMeasureQuery(panel.measure)
-    } else {
-      return Response.json(
-        { error: `Panel "${panelId}" has no measure configured` },
-        { status: 400 }
+        minDurationMinutes: filters?.minDurationMinutes,
+      }
+
+      if (filters?.dateSeen && filters.dateSeen !== 'all') {
+        // Single date: 4 parallel 6-hour chunks → each chunk < 15 MB → merge
+        const rows = await fetchDateChunked(dashboard.dataset_name, filters.dateSeen, baseFilters, ttl)
+        return Response.json({ rows, refreshedAt: null } satisfies QueryResponse)
+      }
+
+      // All Dates: 7 days × 4 chunks = 28 parallel queries → merge
+      // Each of the 28 queries is independently cached
+      const dateLabels = ['Today', ...lastNDayLabels(6)]
+      const allChunkResults = await Promise.all(
+        dateLabels.map((dateSeen) =>
+          fetchDateChunked(dashboard.dataset_name, dateSeen, baseFilters, ttl)
+        )
       )
+      const rows = allChunkResults.flat()
+      return Response.json({ rows, refreshedAt: null } satisfies QueryResponse)
     }
 
-    const ttl = ttlForPanelType(panel.type)
-    const rows = await executeQuery(dashboard.dataset_name, daxQuery, ttl)
-    const response: QueryResponse = { rows, refreshedAt: null }
-    return Response.json(response)
+    if (panel.measure) {
+      const daxQuery = buildMeasureQuery(panel.measure)
+      const rows = await executeQuery(dashboard.dataset_name, daxQuery, ttl)
+      return Response.json({ rows, refreshedAt: null } satisfies QueryResponse)
+    }
+
+    return Response.json(
+      { error: `Panel "${panelId}" has no measure configured` },
+      { status: 400 }
+    )
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })
   }

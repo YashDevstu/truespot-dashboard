@@ -5,6 +5,7 @@ import { ExecuteQueriesResponseSchema } from '@/types/powerbi'
 import { getAccessToken } from '@/services/auth/msalService'
 import { resolveDatasetId } from '@/services/powerbi/datasetResolver'
 import { getOrSet } from '@/services/cache/cacheService'
+import { withRetry } from '@/utils/retry'
 
 export async function executeQuery(
   datasetName: string,
@@ -14,41 +15,37 @@ export async function executeQuery(
   const workspaceId = process.env.FABRIC_WORKSPACE_ID
   if (!workspaceId) throw new Error('FABRIC_WORKSPACE_ID is not set')
 
-  return getOrSet(
-    `query:${datasetName}:${daxQuery}`,
-    ttlSeconds,
-    async () => {
-      const [token, datasetId] = await Promise.all([
-        getAccessToken(),
-        resolveDatasetId(datasetName),
-      ])
+  return getOrSet(`query:${datasetName}:${daxQuery}`, ttlSeconds, async () => {
+    const [token, datasetId] = await Promise.all([
+      getAccessToken(),
+      resolveDatasetId(datasetName),
+    ])
 
-      let response
-      try {
-        response = await axios.post(
-          `${POWERBI_API_BASE}/groups/${workspaceId}/datasets/${datasetId}/executeQueries`,
-          {
-            queries: [{ query: daxQuery }],
-            serializerSettings: { includeNulls: true },
+    const url = `${POWERBI_API_BASE}/groups/${workspaceId}/datasets/${datasetId}/executeQueries`
+    const body = {
+      queries: [{ query: daxQuery }],
+      serializerSettings: { includeNulls: true },
+    }
+
+    try {
+      const response = await withRetry(() =>
+        axios.post(url, body, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
           },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            timeout: QUERY_TIMEOUT_MS,
-          }
-        )
-      } catch (err: unknown) {
-        if (axios.isAxiosError(err)) {
-          const detail = JSON.stringify(err.response?.data ?? err.message)
-          throw new Error(`Power BI API ${err.response?.status ?? 'error'}: ${detail}`)
-        }
-        throw err
-      }
+          timeout: QUERY_TIMEOUT_MS,
+        })
+      )
 
       const parsed = ExecuteQueriesResponseSchema.parse(response.data)
       return parsed.results[0]?.tables[0]?.rows ?? []
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const detail = JSON.stringify(err.response?.data ?? err.message)
+        throw new Error(`Power BI API error: ${detail}`)
+      }
+      throw err
     }
-  )
+  })
 }

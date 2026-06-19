@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useMemo } from 'react'
+import { useEffect, useRef } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ModuleRegistry, AllCommunityModule, type ColDef } from 'ag-grid-community'
 import Box from '@mui/material/Box'
@@ -39,7 +39,6 @@ interface DataTableProps {
   rows: Record<string, unknown>[]
   loading?: boolean
   error?: string | null
-  minDurationMinutes?: number
 }
 
 // Power BI Execute Queries API wraps all column names in square brackets in the response
@@ -81,22 +80,14 @@ const COL_DEFS: ColDef[] = [
   },
 ]
 
-export default function DataTable({ rows, loading, error, minDurationMinutes = 1 }: DataTableProps) {
+export default function DataTable({ rows, loading, error }: DataTableProps) {
   const gridRef = useRef<AgGridReact>(null)
-
-  const filteredRows = useMemo(() => {
-    if (!rows) return []
-    return rows.filter((r) => {
-      const mins = Number(r['[MinutesDiff]'])
-      return isNaN(mins) || mins >= minDurationMinutes
-    })
-  }, [rows, minDurationMinutes])
 
   useEffect(() => {
     if (gridRef.current?.api) {
       gridRef.current.api.sizeColumnsToFit()
     }
-  }, [filteredRows])
+  }, [rows])
 
   if (loading) {
     return (
@@ -135,7 +126,7 @@ export default function DataTable({ rows, loading, error, minDurationMinutes = 1
     >
       <AgGridReact
         ref={gridRef}
-        rowData={filteredRows}
+        rowData={rows}
         columnDefs={COL_DEFS}
         defaultColDef={{ resizable: true, sortable: true, filter: true }}
         pagination

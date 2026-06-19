@@ -63,6 +63,7 @@ export default function LocationHistoryDashboard({
 
   const tableRows = (tableQuery.data?.rows ?? []) as Record<string, unknown>[]
   const minDur = Number(filters.minDurationMinutes) || 1
+  // minDur is used for the subtitle label; actual filtering happens server-side in the DAX query
 
   return (
     <Box sx={{ display: 'flex', gap: 2.5, height: '100%' }}>
@@ -116,7 +117,7 @@ export default function LocationHistoryDashboard({
           <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Typography variant="h6">Location History</Typography>
             <Typography variant="caption" color="text.secondary">
-              {filters.dateSeen} · {tableRows.length} records
+              {filters.dateSeen || 'All Dates'} · {tableRows.length} records
               {minDur > 1 ? ` · min ${minDur}m` : ''}
             </Typography>
           </Box>
@@ -125,7 +126,6 @@ export default function LocationHistoryDashboard({
               rows={tableRows}
               loading={tableQuery.loading}
               error={tableQuery.error}
-              minDurationMinutes={minDur}
             />
           </Box>
         </Box>
