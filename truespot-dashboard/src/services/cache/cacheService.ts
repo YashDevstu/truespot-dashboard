@@ -1,48 +1,115 @@
 import 'server-only'
 import NodeCache from 'node-cache'
 
-const cache = new NodeCache({ useClones: false })
+// ---------------------------------------------------------------------------
+// Storage backends
+// ---------------------------------------------------------------------------
 
-// Refresh in background when less than this much TTL remains (10 minutes)
-const SWR_THRESHOLD_MS = 10 * 60 * 1000
+const nodeCache = new NodeCache({ useClones: false })
 
-export function cacheGet<T>(key: string): T | undefined {
-  return cache.get<T>(key)
+// Upstash Redis: used in production when env vars are set.
+// Survives Vercel serverless spin-downs; node-cache does NOT.
+// Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN in Vercel env vars.
+let redis: import('@upstash/redis').Redis | null = null
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  import('@upstash/redis').then(({ Redis }) => {
+    redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
+  })
 }
 
-export function cacheSet<T>(key: string, value: T, ttlSeconds: number): void {
-  cache.set(key, value, ttlSeconds)
+async function cacheRead<T>(key: string): Promise<T | null> {
+  if (redis) {
+    return redis.get<T>(key)
+  }
+  return nodeCache.get<T>(key) ?? null
 }
 
-export function cacheDel(key: string): void {
-  cache.del(key)
+async function cacheWrite<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  if (redis) {
+    await redis.set(key, value, { ex: ttlSeconds })
+  } else {
+    nodeCache.set(key, value, ttlSeconds)
+  }
 }
 
-// Stale-while-revalidate: serve cached data instantly even when near expiry,
-// and trigger a background refresh so the next request is also instant.
+function nodeCacheTtlMs(key: string): number {
+  const ts = nodeCache.getTtl(key)
+  return ts ? ts - Date.now() : Infinity
+}
+
+// ---------------------------------------------------------------------------
+// In-flight deduplication
+// Prevents N simultaneous requests for the same cold cache key from all
+// hitting Power BI in parallel — the first one fetches, the rest wait.
+// ---------------------------------------------------------------------------
+
+const inFlight = new Map<string, Promise<unknown>>()
+
+// ---------------------------------------------------------------------------
+// Stale-while-revalidate threshold
+// When < SWR_THRESHOLD_MS remains on the TTL, serve stale data and refresh
+// in the background so the next request is also instant.
+// ---------------------------------------------------------------------------
+
+const SWR_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export async function getOrSet<T>(
   key: string,
   ttlSeconds: number,
   fetcher: () => Promise<T>
 ): Promise<T> {
-  const cached = cache.get<T>(key)
+  const cached = await cacheRead<T>(key)
 
-  if (cached !== undefined) {
-    const expiresAt = cache.getTtl(key) // ms timestamp, or 0 if no TTL
-    const timeLeftMs = expiresAt ? expiresAt - Date.now() : Infinity
-
-    if (timeLeftMs < SWR_THRESHOLD_MS) {
-      // Serve stale immediately; refresh in background so next request is still fast
-      fetcher()
-        .then((fresh) => cache.set(key, fresh, ttlSeconds))
-        .catch(() => {}) // background failures are silent — stale data continues serving
+  if (cached !== null) {
+    // Check whether we're inside the stale window and should background-refresh
+    if (!redis) {
+      const timeLeftMs = nodeCacheTtlMs(key)
+      if (timeLeftMs < SWR_THRESHOLD_MS) {
+        triggerBackgroundRefresh(key, ttlSeconds, fetcher)
+      }
     }
-
+    // For Redis we rely on the Vercel Cron warmup to refresh before expiry
     return cached
   }
 
-  // Cold miss: must wait for the fetcher
-  const value = await fetcher()
-  cache.set(key, value, ttlSeconds)
-  return value
+  // Cache miss — deduplicate concurrent fetches for the same key
+  if (inFlight.has(key)) {
+    return inFlight.get(key) as Promise<T>
+  }
+
+  const promise = fetcher()
+    .then(async (value) => {
+      await cacheWrite(key, value, ttlSeconds)
+      inFlight.delete(key)
+      return value
+    })
+    .catch((err) => {
+      inFlight.delete(key)
+      throw err
+    })
+
+  inFlight.set(key, promise)
+  return promise
+}
+
+function triggerBackgroundRefresh<T>(
+  key: string,
+  ttlSeconds: number,
+  fetcher: () => Promise<T>
+): void {
+  fetcher()
+    .then((fresh) => cacheWrite(key, fresh, ttlSeconds))
+    .catch(() => {}) // silent — stale data continues serving
+}
+
+export function cacheDel(key: string): void {
+  nodeCache.del(key)
+  redis?.del(key)
 }

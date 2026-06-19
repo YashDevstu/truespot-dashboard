@@ -79,6 +79,8 @@ export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}):
       ? `FILTER(\n    AppendFinal,\n    ${conditions.join('\n    && ')}\n  )`
       : `AppendFinal`
 
+  // No ORDER BY — sorting 49K rows per chunk server-side adds latency.
+  // AG Grid handles client-side sorting via ColDef.sort.
   return `EVALUATE
 SELECTCOLUMNS(
   ${sourceTable},
@@ -93,6 +95,5 @@ SELECTCOLUMNS(
   "AssetType", AppendFinal[AssetType],
   "FloorLevel", AppendFinal[Floor Level],
   "BatteryLevel", AppendFinal[BatteryLevel]
-)
-ORDER BY [StartTime] ASC`
+)`
 }
