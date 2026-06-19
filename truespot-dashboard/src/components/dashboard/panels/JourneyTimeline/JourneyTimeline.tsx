@@ -22,6 +22,11 @@ function buildColorMap(geofences: string[]): Map<string, string> {
 // ── constants ─────────────────────────────────────────────────────────────────
 const DAY_MS = 24 * 60 * 60 * 1000
 
+// Stable subscribe reference for useSyncExternalStore — must be defined at
+// module scope so React always receives the same function reference and does
+// not re-subscribe on every render (which would cause an infinite update loop).
+const noopSubscribe = () => () => {}
+
 // Fixed hour ticks shared by every day row
 const HOUR_TICKS = [
   { h: 0,  label: '12am' },
@@ -302,7 +307,7 @@ export default function JourneyTimeline({ rows, selectedAsset }: JourneyTimeline
   // without triggering a hydration mismatch. The server snapshot (-1) never
   // matches any real dayStart so isToday / nowPct stay false during SSR.
   const nowMs = useSyncExternalStore(
-    () => () => {},    // no subscription needed — we only need the value once
+    noopSubscribe,     // stable ref — inline arrow here would cause infinite loop
     () => Date.now(),  // client snapshot: real current time
     () => -1,          // server snapshot: sentinel that never matches a day
   )
