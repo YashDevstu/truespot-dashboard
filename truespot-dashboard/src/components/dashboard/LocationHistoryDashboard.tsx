@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
@@ -20,6 +20,18 @@ interface Props {
   dashboardLabel: string
 }
 
+// Extract sorted unique non-empty string values for a given column from row data
+function uniqueValues(rows: Record<string, unknown>[], field: string): string[] {
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const v = row[field]
+    if (v !== null && v !== undefined && String(v).trim() !== '') {
+      seen.add(String(v))
+    }
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b))
+}
+
 export default function LocationHistoryDashboard({
   clientId,
   dashboardKey,
@@ -31,7 +43,6 @@ export default function LocationHistoryDashboard({
 
   const isAllDates = filters.dateSeen === 'all'
 
-  // Filters shared by both query paths (everything except dateSeen)
   const baseFilters = {
     beaconId: filters.beaconId || undefined,
     geofence: filters.geofence || undefined,
@@ -44,7 +55,6 @@ export default function LocationHistoryDashboard({
     _r: refreshToken,
   }
 
-  // Single-date path: used when a specific date (or Today) is selected
   const singleDateQuery = usePanelQuery({
     clientId,
     dashboardKey,
@@ -53,7 +63,6 @@ export default function LocationHistoryDashboard({
     enabled: !isAllDates,
   })
 
-  // All Dates path: fires 7 parallel requests (one per day), rows accumulate progressively
   const progressiveQuery = useProgressiveDatesQuery({
     clientId,
     dashboardKey,
@@ -92,13 +101,34 @@ export default function LocationHistoryDashboard({
   const dateLabel =
     filters.dateSeen === 'all' || !filters.dateSeen ? 'All Dates' : filters.dateSeen
 
-  const subtitleText = isAllDates && progressiveQuery.loading
-    ? `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
-    : `${dateLabel} · ${tableRows.length.toLocaleString()} records`
+  const subtitleText =
+    isAllDates && progressiveQuery.loading
+      ? `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
+      : `${dateLabel} · ${tableRows.length.toLocaleString()} records`
+
+  // Derive dropdown options from the currently loaded rows.
+  // Updates live as progressive loading adds more rows.
+  const filterOptions = useMemo(
+    () => ({
+      geofence: uniqueValues(tableRows, '[Geofence]'),
+      subGeoZone: uniqueValues(tableRows, '[SubGeoZone]'),
+      floorLevel: uniqueValues(tableRows, '[FloorLevel]'),
+      beaconId: uniqueValues(tableRows, '[BeaconId]'),
+      vin: uniqueValues(tableRows, '[VIN]'),
+      stockNumber: uniqueValues(tableRows, '[StockNumber]'),
+      assetType: uniqueValues(tableRows, '[AssetType]'),
+    }),
+    [tableRows]
+  )
 
   return (
     <Box sx={{ display: 'flex', gap: 2.5, height: '100%' }}>
-      <FilterSidebar filters={filters} onFilterChange={setFilter} onReset={resetFilters} />
+      <FilterSidebar
+        filters={filters}
+        onFilterChange={setFilter}
+        onReset={resetFilters}
+        filterOptions={filterOptions}
+      />
 
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <DashboardHeader
@@ -157,13 +187,8 @@ export default function LocationHistoryDashboard({
             </Typography>
           </Box>
 
-          {/* Progress bar: visible while All Dates is loading date-by-date */}
           {isAllDates && progressiveQuery.loading && (
-            <LinearProgress
-              variant="determinate"
-              value={progressPct}
-              sx={{ height: 3 }}
-            />
+            <LinearProgress variant="determinate" value={progressPct} sx={{ height: 3 }} />
           )}
 
           <Box sx={{ flex: 1 }}>

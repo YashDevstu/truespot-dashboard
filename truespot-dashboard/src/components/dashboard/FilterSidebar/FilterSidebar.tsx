@@ -3,6 +3,7 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import MenuItem from '@mui/material/MenuItem'
+import Autocomplete from '@mui/material/Autocomplete'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
@@ -10,7 +11,6 @@ import FilterListIcon from '@mui/icons-material/FilterList'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import type { LocationHistoryFilters } from '@/hooks/useFilters'
 
-// Matches LastSeenDateDefault column: "Today" for today, "MM/DD/YY" for past days
 function buildDateOptions() {
   const options: { value: string; label: string }[] = [
     { value: 'all', label: 'All Dates' },
@@ -30,13 +30,50 @@ function buildDateOptions() {
 
 const DATE_OPTIONS = buildDateOptions()
 
+export interface FilterOptions {
+  geofence: string[]
+  subGeoZone: string[]
+  floorLevel: string[]
+  beaconId: string[]
+  vin: string[]
+  stockNumber: string[]
+  assetType: string[]
+}
+
 interface FilterSidebarProps {
   filters: LocationHistoryFilters
   onFilterChange: (key: keyof LocationHistoryFilters, value: string) => void
   onReset: () => void
+  filterOptions: FilterOptions
 }
 
-export default function FilterSidebar({ filters, onFilterChange, onReset }: FilterSidebarProps) {
+// Shared Autocomplete props: type-to-search, limit to 100 items in the list,
+// allow free-text entry so users can type values not yet in the loaded dataset.
+function makeAutoProps(options: string[]) {
+  return {
+    options,
+    filterOptions: (opts: string[], { inputValue }: { inputValue: string }) =>
+      opts
+        .filter((o) => o.toLowerCase().includes(inputValue.toLowerCase()))
+        .slice(0, 100),
+    freeSolo: true as const,
+    clearOnEscape: true,
+    autoHighlight: true,
+    size: 'small' as const,
+  }
+}
+
+export default function FilterSidebar({
+  filters,
+  onFilterChange,
+  onReset,
+  filterOptions,
+}: FilterSidebarProps) {
+  const handleAuto =
+    (key: keyof LocationHistoryFilters) =>
+    (_: React.SyntheticEvent, value: string | null) =>
+      onFilterChange(key, value ?? '')
+
   return (
     <Box
       sx={{
@@ -61,13 +98,15 @@ export default function FilterSidebar({ filters, onFilterChange, onReset }: Filt
 
       <Divider />
 
-      <Stack spacing={2}>
+      <Stack spacing={1.5}>
+        {/* Date Seen — static options, no Autocomplete needed */}
         <TextField
           select
           label="Date Seen"
           value={filters.dateSeen}
           onChange={(e) => onFilterChange('dateSeen', e.target.value)}
           fullWidth
+          size="small"
         >
           {DATE_OPTIONS.map((o) => (
             <MenuItem key={o.value} value={o.value}>
@@ -76,55 +115,67 @@ export default function FilterSidebar({ filters, onFilterChange, onReset }: Filt
           ))}
         </TextField>
 
-        <TextField
-          label="Beacon ID"
-          value={filters.beaconId}
-          onChange={(e) => onFilterChange('beaconId', e.target.value)}
-          placeholder="e.g. A1:B2:C3"
-          fullWidth
+        <Autocomplete
+          {...makeAutoProps(filterOptions.geofence)}
+          value={filters.geofence || null}
+          onChange={handleAuto('geofence')}
+          renderInput={(params) => (
+            <TextField {...params} label="Geofence" fullWidth />
+          )}
         />
 
-        <TextField
-          label="Geofence"
-          value={filters.geofence}
-          onChange={(e) => onFilterChange('geofence', e.target.value)}
-          placeholder="e.g. Main Lot"
-          fullWidth
+        <Autocomplete
+          {...makeAutoProps(filterOptions.subGeoZone)}
+          value={filters.subGeoZone || null}
+          onChange={handleAuto('subGeoZone')}
+          renderInput={(params) => (
+            <TextField {...params} label="Sub Geo Zone" fullWidth />
+          )}
         />
 
-        <TextField
-          label="Sub Geo Zone"
-          value={filters.subGeoZone}
-          onChange={(e) => onFilterChange('subGeoZone', e.target.value)}
-          fullWidth
+        <Autocomplete
+          {...makeAutoProps(filterOptions.floorLevel)}
+          value={filters.floorLevel || null}
+          onChange={handleAuto('floorLevel')}
+          renderInput={(params) => (
+            <TextField {...params} label="Floor Level" fullWidth />
+          )}
         />
 
-        <TextField
-          label="Floor Level"
-          value={filters.floorLevel}
-          onChange={(e) => onFilterChange('floorLevel', e.target.value)}
-          fullWidth
+        <Autocomplete
+          {...makeAutoProps(filterOptions.beaconId)}
+          value={filters.beaconId || null}
+          onChange={handleAuto('beaconId')}
+          renderInput={(params) => (
+            <TextField {...params} label="Beacon ID" fullWidth />
+          )}
         />
 
-        <TextField
-          label="VIN"
-          value={filters.vin}
-          onChange={(e) => onFilterChange('vin', e.target.value)}
-          fullWidth
+        <Autocomplete
+          {...makeAutoProps(filterOptions.assetType)}
+          value={filters.assetType || null}
+          onChange={handleAuto('assetType')}
+          renderInput={(params) => (
+            <TextField {...params} label="Asset Type" fullWidth />
+          )}
         />
 
-        <TextField
-          label="Stock Number"
-          value={filters.stockNumber}
-          onChange={(e) => onFilterChange('stockNumber', e.target.value)}
-          fullWidth
+        <Autocomplete
+          {...makeAutoProps(filterOptions.vin)}
+          value={filters.vin || null}
+          onChange={handleAuto('vin')}
+          renderInput={(params) => (
+            <TextField {...params} label="VIN" fullWidth />
+          )}
         />
 
-        <TextField
-          label="Asset Type"
-          value={filters.assetType}
-          onChange={(e) => onFilterChange('assetType', e.target.value)}
-          fullWidth
+        <Autocomplete
+          {...makeAutoProps(filterOptions.stockNumber)}
+          value={filters.stockNumber || null}
+          onChange={handleAuto('stockNumber')}
+          renderInput={(params) => (
+            <TextField {...params} label="Stock Number" fullWidth />
+          )}
         />
 
         <TextField
@@ -134,6 +185,7 @@ export default function FilterSidebar({ filters, onFilterChange, onReset }: Filt
           onChange={(e) => onFilterChange('minDurationMinutes', e.target.value)}
           slotProps={{ htmlInput: { min: 0 } }}
           fullWidth
+          size="small"
         />
       </Stack>
 
