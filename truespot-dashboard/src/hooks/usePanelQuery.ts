@@ -21,7 +21,6 @@ export function usePanelQuery({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Stable key so the effect only re-runs when filter content actually changes
   const filterKey = JSON.stringify(filters ?? {})
 
   useEffect(() => {
@@ -29,8 +28,14 @@ export function usePanelQuery({
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 130_000)
+
+    // Clear stale data IMMEDIATELY so consumers (AG Grid, JourneyTimeline)
+    // never receive the previous large dataset while a new query is in-flight.
+    // Without this, AG Grid holds the old 100K rows until the new 50 rows arrive
+    // and must process a 100K→50 row transition — that is the primary freeze cause.
     setLoading(true)
     setError(null)
+    setData(null)
 
     fetch('/api/v1/query', {
       method: 'POST',

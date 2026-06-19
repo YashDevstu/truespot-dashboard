@@ -1,6 +1,6 @@
 'use client'
+import { useTransition, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback } from 'react'
 
 export interface LocationHistoryFilters {
   beaconId: string
@@ -29,6 +29,10 @@ const DEFAULTS: LocationHistoryFilters = {
 export function useFilters() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  // startTransition marks the router.push as non-urgent work so the browser
+  // stays responsive (can process clicks, input events) while React re-renders
+  // the dashboard with the new filter value.
+  const [, startTransition] = useTransition()
 
   const filters: LocationHistoryFilters = {
     beaconId: searchParams.get('beaconId') ?? DEFAULTS.beaconId,
@@ -50,14 +54,20 @@ export function useFilters() {
       } else {
         params.delete(key)
       }
-      router.push(`?${params.toString()}`, { scroll: false })
+      // Wrapping in startTransition keeps the dropdown / sidebar interactive
+      // while React processes the navigation and subsequent data re-fetch.
+      startTransition(() => {
+        router.push(`?${params.toString()}`, { scroll: false })
+      })
     },
-    [searchParams, router]
+    [searchParams, router, startTransition]
   )
 
   const resetFilters = useCallback(() => {
-    router.push('?', { scroll: false })
-  }, [router])
+    startTransition(() => {
+      router.push('?', { scroll: false })
+    })
+  }, [router, startTransition])
 
   return { filters, setFilter, resetFilters }
 }

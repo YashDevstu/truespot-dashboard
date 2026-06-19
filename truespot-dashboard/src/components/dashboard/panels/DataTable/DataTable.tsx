@@ -130,9 +130,8 @@ export default function DataTable({ rows, loading, error }: DataTableProps) {
         columnDefs={COL_DEFS}
         defaultColDef={{ resizable: true, sortable: true, filter: true }}
         pagination
-        paginationPageSize={25}
-        paginationPageSizeSelector={[25, 50, 100]}
-        animateRows
+        paginationPageSize={100}
+        paginationPageSizeSelector={[50, 100, 250, 500]}
         suppressMovableColumns={false}
         domLayout="autoHeight"
       />

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 
 interface BaseFilters {
   beaconId?: string
@@ -20,9 +20,6 @@ interface UseProgressiveDatesQueryParams {
   enabled?: boolean
 }
 
-// Generates date labels: "Today" + last 7 days as "MM/DD/YY" = 8 dates total.
-// The model keeps 7 complete past days + today's partial data, so we need 8 labels
-// to avoid silently dropping the oldest day in the rolling window.
 function buildDateLabels(): string[] {
   const labels: string[] = ['Today']
   for (let i = 1; i <= 7; i++) {
@@ -36,8 +33,6 @@ function buildDateLabels(): string[] {
   return labels
 }
 
-// Fires one request per date in parallel and accumulates rows as each response arrives.
-// Users see data building up progressively rather than waiting for all 7 dates at once.
 export function useProgressiveDatesQuery({
   clientId,
   dashboardKey,
@@ -45,7 +40,14 @@ export function useProgressiveDatesQuery({
   baseFilters,
   enabled = true,
 }: UseProgressiveDatesQueryParams) {
-  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  // Store per-date row arrays in a ref to avoid the spread-accumulation pattern
+  // that previously created increasingly large intermediate arrays on every date
+  // response: [100K], [200K], [300K]... [700K] = 2.8M total object allocations.
+  // With ref storage, each date gets its own fixed-size slice; the final flat()
+  // runs once per date completion instead of re-allocating the whole dataset.
+  const rowsByDateRef = useRef<Record<string, unknown>[][]>([])
+
+  // Counter-only state: only re-renders when a date completes, not on row append.
   const [loadedDates, setLoadedDates] = useState(0)
   const [errors, setErrors] = useState(0)
 
@@ -55,16 +57,18 @@ export function useProgressiveDatesQuery({
 
   useEffect(() => {
     if (!enabled) {
-      setRows([])
+      rowsByDateRef.current = []
       setLoadedDates(0)
       setErrors(0)
       return
     }
 
-    setRows([])
+    // Reset — clearing the ref is O(1) regardless of how many rows were stored
+    rowsByDateRef.current = []
     setLoadedDates(0)
     setErrors(0)
 
+    let cancelled = false
     const controllers = dateLabels.map(() => new AbortController())
 
     dateLabels.forEach((dateSeen, i) => {
@@ -81,22 +85,38 @@ export function useProgressiveDatesQuery({
       })
         .then((r) => r.json())
         .then((json: { rows?: Record<string, unknown>[]; error?: string }) => {
+          if (cancelled) return
           if (json.rows && json.rows.length > 0) {
-            setRows((prev) => [...prev, ...json.rows!])
+            // Push the per-date slice into the ref; no spreading of prior data
+            rowsByDateRef.current.push(json.rows)
           }
+          // Incrementing the counter is the only thing that triggers a re-render.
+          // The memo below re-flattens at that point — one flat() instead of
+          // N allocations of ever-growing arrays.
           setLoadedDates((prev) => prev + 1)
         })
         .catch((err: Error) => {
-          if (err.name !== 'AbortError') {
+          if (!cancelled && err.name !== 'AbortError') {
             setErrors((prev) => prev + 1)
             setLoadedDates((prev) => prev + 1)
           }
         })
     })
 
-    return () => controllers.forEach((c) => c.abort())
+    return () => {
+      cancelled = true
+      controllers.forEach((c) => c.abort())
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, dashboardKey, panelId, filterKey, enabled])
+
+  // Recomputes only when loadedDates changes (a date completed).
+  // flat() creates one combined array from the per-date slices stored in the ref.
+  const rows = useMemo(
+    () => rowsByDateRef.current.flat(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loadedDates]
+  )
 
   return {
     rows,
