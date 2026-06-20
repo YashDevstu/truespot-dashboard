@@ -31,30 +31,37 @@ function fmtDuration(minutes: number): string {
   return `${minutes}m`
 }
 
-// Time ticks at geofence-transition boundaries.
-// Falls back to evenly-spaced ticks when transitions are too dense.
-function buildTimeTicks(stops: Stop[], minMs: number, maxMs: number, maxTicks = 6) {
-  const totalMs = maxMs - minMs || 1
-  const toPct = (ms: number) => ((ms - minMs) / totalMs) * 100
+// Hour-boundary ticks with auto-scaling interval.
+// Falls back to start/end only when the range is very short.
+function buildTimeTicks(minMs: number, maxMs: number) {
+  const range = maxMs - minMs || 1
+  const rangeHours = range / 3_600_000
 
-  // Collect geofence change times
-  const times = new Set<number>([minMs, maxMs])
-  for (let i = 1; i < stops.length; i++) {
-    if (stops[i].geofence !== stops[i - 1].geofence) times.add(stops[i].startMs)
+  const intervalMs =
+    rangeHours <= 1   ? 15 * 60_000      // 15 min
+    : rangeHours <= 3 ? 30 * 60_000      // 30 min
+    : rangeHours <= 6 ? 3_600_000        // 1 h
+    : rangeHours <= 12 ? 2 * 3_600_000   // 2 h
+    : rangeHours <= 24 ? 4 * 3_600_000   // 4 h
+    : 6 * 3_600_000                       // 6 h
+
+  // Find first multiple of intervalMs that falls inside the range
+  const firstTick = Math.ceil(minMs / intervalMs) * intervalMs
+  const candidates: number[] = []
+  for (let ms = firstTick; ms < maxMs; ms += intervalMs) {
+    candidates.push(ms)
   }
 
-  let sorted = [...times].sort((a, b) => a - b)
+  // Drop any tick too close (< 5 % of range) to the start or end labels
+  const minGap = range * 0.05
+  const filtered = candidates.filter(
+    (ms) => ms - minMs > minGap && maxMs - ms > minGap
+  )
 
-  // If there are more transitions than maxTicks, sample evenly
-  if (sorted.length > maxTicks) {
-    const step = (sorted.length - 1) / (maxTicks - 1)
-    const sampled = [sorted[0]]
-    for (let i = 1; i < maxTicks - 1; i++) sampled.push(sorted[Math.round(i * step)])
-    sampled.push(sorted[sorted.length - 1])
-    sorted = sampled
-  }
+  const times = [minMs, ...filtered, maxMs]
+  const toPct = (ms: number) => ((ms - minMs) / range) * 100
 
-  return sorted.map((ms, i, arr) => ({
+  return times.map((ms, i, arr) => ({
     pct: toPct(ms),
     label: fmtTime(ms),
     isFirst: i === 0,
@@ -71,11 +78,46 @@ interface Stop {
   minutes: number
 }
 
+// Consecutive stops that share the same geofence are merged into one visual block.
+// This keeps the bar readable even when the same asset ping-pongs between sub-zones.
+interface VisualBlock {
+  geofence: string
+  startMs: number
+  endMs: number
+  totalMinutes: number
+  stopCount: number
+}
+
+function mergeGeofenceRuns(stops: Stop[]): VisualBlock[] {
+  if (stops.length === 0) return []
+  const blocks: VisualBlock[] = []
+  let cur: VisualBlock = {
+    geofence: stops[0].geofence,
+    startMs: stops[0].startMs,
+    endMs: stops[0].endMs,
+    totalMinutes: stops[0].minutes,
+    stopCount: 1,
+  }
+  for (let i = 1; i < stops.length; i++) {
+    const s = stops[i]
+    if (s.geofence === cur.geofence) {
+      cur.endMs = s.endMs
+      cur.totalMinutes += s.minutes
+      cur.stopCount++
+    } else {
+      blocks.push(cur)
+      cur = { geofence: s.geofence, startMs: s.startMs, endMs: s.endMs, totalMinutes: s.minutes, stopCount: 1 }
+    }
+  }
+  blocks.push(cur)
+  return blocks
+}
+
 // ── JourneyTimeline ───────────────────────────────────────────────────────────
 interface JourneyTimelineProps {
   rows: Record<string, unknown>[]
   colorMap: Map<string, string>
-  dateLabel?: string           // e.g. "TODAY'S JOURNEY"
+  dateLabel?: string
   selectedIndex?: number | null
   onSelectIndex?: (i: number | null) => void
 }
@@ -87,7 +129,7 @@ export default function JourneyTimeline({
   selectedIndex,
   onSelectIndex,
 }: JourneyTimelineProps) {
-  const { stops, uniqueGeofences, minMs, maxMs, timeTicks } = useMemo(() => {
+  const { stops, blocks, uniqueGeofences, minMs, maxMs, timeTicks } = useMemo(() => {
     const parsed: Stop[] = rows
       .map((r) => {
         const startMs = parseMs(r['[StartTime]'])
@@ -105,7 +147,7 @@ export default function JourneyTimeline({
       .sort((a, b) => a.startMs - b.startMs)
 
     if (parsed.length === 0) {
-      return { stops: [], uniqueGeofences: [], minMs: 0, maxMs: 0, timeTicks: [] }
+      return { stops: [], blocks: [], uniqueGeofences: [], minMs: 0, maxMs: 0, timeTicks: [] }
     }
 
     const minMs = parsed[0].startMs
@@ -113,10 +155,11 @@ export default function JourneyTimeline({
 
     return {
       stops: parsed,
+      blocks: mergeGeofenceRuns(parsed),
       uniqueGeofences: [...new Set(parsed.map((s) => s.geofence))].filter(Boolean),
       minMs,
       maxMs,
-      timeTicks: buildTimeTicks(parsed, minMs, maxMs, 6),
+      timeTicks: buildTimeTicks(minMs, maxMs),
     }
   }, [rows])
 
@@ -145,13 +188,7 @@ export default function JourneyTimeline({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
         <Typography
           variant="caption"
-          sx={{
-            fontWeight: 700,
-            letterSpacing: 1.5,
-            color: 'text.secondary',
-            textTransform: 'uppercase',
-            lineHeight: 1,
-          }}
+          sx={{ fontWeight: 700, letterSpacing: 1.5, color: 'text.secondary', textTransform: 'uppercase', lineHeight: 1 }}
         >
           {dateLabel}
         </Typography>
@@ -159,9 +196,13 @@ export default function JourneyTimeline({
         <Typography variant="caption" color="text.disabled">
           click a segment to select
         </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Typography variant="caption" color="text.disabled">
+          {stops.length} stop{stops.length !== 1 ? 's' : ''} · {uniqueGeofences.length} geofence{uniqueGeofences.length !== 1 ? 's' : ''}
+        </Typography>
       </Box>
 
-      {/* Single timeline bar */}
+      {/* Single timeline bar — merged geofence blocks */}
       <Box
         sx={{
           position: 'relative',
@@ -169,77 +210,80 @@ export default function JourneyTimeline({
           borderRadius: 1.5,
           overflow: 'hidden',
           bgcolor: 'grey.100',
-          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.08)',
+          boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.08)',
         }}
       >
-        {stops.map((stop, i) => (
-          <Tooltip
-            key={i}
-            arrow
-            placement="top"
-            title={
-              <Box>
-                <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
-                  {stop.geofence}
-                </Typography>
-                {stop.subZone && (
+        {blocks.map((block, i) => {
+          const color = colorMap.get(block.geofence) ?? '#9E9E9E'
+          const isSelected = selectedIndex === i
+
+          return (
+            <Tooltip
+              key={i}
+              arrow
+              placement="top"
+              title={
+                <Box>
+                  <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
+                    {block.geofence}
+                  </Typography>
                   <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
-                    {stop.subZone}
+                    {fmtTime(block.startMs)} – {fmtTime(block.endMs)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                    {fmtDuration(block.totalMinutes)}
+                    {block.stopCount > 1 ? ` · ${block.stopCount} stops` : ''}
+                  </Typography>
+                </Box>
+              }
+            >
+              <Box
+                onClick={() => onSelectIndex?.(isSelected ? null : i)}
+                sx={{
+                  position: 'absolute',
+                  left: toLeft(block.startMs),
+                  width: toWidth(block.startMs, block.endMs),
+                  top: 0,
+                  bottom: 0,
+                  bgcolor: color,
+                  cursor: 'pointer',
+                  // White gap between blocks — only where geofence changes
+                  borderRight: i < blocks.length - 1 ? '2px solid rgba(255,255,255,0.85)' : 'none',
+                  // Selection ring
+                  outline: isSelected ? '3px solid rgba(255,255,255,0.9)' : 'none',
+                  outlineOffset: '-3px',
+                  transition: 'filter 0.15s',
+                  '&:hover': { filter: 'brightness(0.82)', zIndex: 1 },
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                }}
+              >
+                {/* Duration label inside wide-enough blocks */}
+                {block.totalMinutes >= 60 && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: 10,
+                      whiteSpace: 'nowrap',
+                      px: 0.5,
+                      textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                    }}
+                  >
+                    {fmtDuration(block.totalMinutes)}
                   </Typography>
                 )}
-                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                  {fmtTime(stop.startMs)} – {fmtTime(stop.endMs)}
-                </Typography>
-                <Typography variant="caption" sx={{ display: 'block' }}>
-                  {fmtDuration(stop.minutes)}
-                </Typography>
               </Box>
-            }
-          >
-            <Box
-              onClick={() => onSelectIndex?.(selectedIndex === i ? null : i)}
-              sx={{
-                position: 'absolute',
-                left: toLeft(stop.startMs),
-                width: toWidth(stop.startMs, stop.endMs),
-                top: 0,
-                bottom: 0,
-                bgcolor: colorMap.get(stop.geofence) ?? '#9E9E9E',
-                cursor: 'pointer',
-                // White right-edge separator so adjacent same-colour stops are distinguishable
-                borderRight: i < stops.length - 1 ? '1.5px solid rgba(255,255,255,0.7)' : 'none',
-                outline: selectedIndex === i ? '3px solid rgba(255,255,255,0.85)' : 'none',
-                outlineOffset: '-3px',
-                transition: 'filter 0.15s',
-                '&:hover': { filter: 'brightness(0.82)', zIndex: 1 },
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
-              }}
-            >
-              {stop.minutes >= 60 && (
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: '#fff',
-                    fontWeight: 700,
-                    fontSize: 10,
-                    whiteSpace: 'nowrap',
-                    px: 0.5,
-                    textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-                  }}
-                >
-                  {fmtDuration(stop.minutes)}
-                </Typography>
-              )}
-            </Box>
-          </Tooltip>
-        ))}
+            </Tooltip>
+          )
+        })}
       </Box>
 
       {/* Time axis */}
-      <Box sx={{ position: 'relative', height: 20, mt: 0.5 }}>
+      <Box sx={{ position: 'relative', height: 22, mt: 0.5 }}>
         {timeTicks.map((tick, i) => (
           <Box
             key={i}
@@ -252,7 +296,6 @@ export default function JourneyTimeline({
               alignItems: tick.isFirst ? 'flex-start' : tick.isLast ? 'flex-end' : 'center',
             }}
           >
-            {/* Tick mark */}
             <Box sx={{ width: 1, height: 4, bgcolor: 'divider', mb: 0.25 }} />
             <Typography
               variant="caption"
@@ -279,9 +322,7 @@ export default function JourneyTimeline({
       >
         {uniqueGeofences.map((g) => (
           <Box key={g} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-            <Box
-              sx={{ width: 12, height: 12, borderRadius: '3px', bgcolor: colorMap.get(g) ?? '#9E9E9E', flexShrink: 0 }}
-            />
+            <Box sx={{ width: 12, height: 12, borderRadius: '3px', bgcolor: colorMap.get(g) ?? '#9E9E9E', flexShrink: 0 }} />
             <Typography variant="caption" color="text.secondary">
               {g}
             </Typography>

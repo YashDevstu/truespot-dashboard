@@ -223,7 +223,7 @@ export default function LocationHistoryDashboard({
           {/* ── Asset selected: stat cards + timeline + locations table ─── */}
           {selectedAsset ? (
             <>
-              {/* Stat cards — derived from singleDayRows */}
+              {/* Stat cards */}
               {!tableLoading && singleDayRows.length > 0 && (
                 <AssetStatCards rows={singleDayRows} datePeriod={singleDayPeriod} />
               )}

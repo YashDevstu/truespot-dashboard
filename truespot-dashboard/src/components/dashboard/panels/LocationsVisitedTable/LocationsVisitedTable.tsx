@@ -30,6 +30,15 @@ function fmtDuration(minutes: number): string {
   return `${minutes}m`
 }
 
+// Keyframe blocks reused across the pulsing dot and the live row accent.
+const pulseRing = {
+  '@keyframes pulseRing': {
+    '0%': { transform: 'scale(1)', opacity: 0.8 },
+    '70%': { transform: 'scale(2.2)', opacity: 0 },
+    '100%': { transform: 'scale(2.2)', opacity: 0 },
+  },
+} as const
+
 // ── types ─────────────────────────────────────────────────────────────────────
 interface Stop {
   geofence: string
@@ -41,13 +50,13 @@ interface Stop {
 }
 
 const COLUMNS = ['#', 'GEOFENCE', 'SUBZONE', 'TIME RANGE', 'DURATION'] as const
-const GRID = '40px 1fr 1fr 195px 100px'
+const GRID = '40px 1fr 1fr 195px 110px'
 
 // ── LocationsVisitedTable ─────────────────────────────────────────────────────
 interface LocationsVisitedTableProps {
   rows: Record<string, unknown>[]
   colorMap: Map<string, string>
-  showLive?: boolean       // mark the last stop as Live
+  showLive?: boolean
   selectedIndex?: number | null
   onSelectRow?: (index: number | null) => void
 }
@@ -82,40 +91,107 @@ export default function LocationsVisitedTable({
 
   if (stops.length === 0) return null
 
-  return (
-    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-      {/* Table header */}
-      <Box
-        sx={{
-          px: 2.5,
-          py: 1.5,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-        }}
-      >
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
-          Locations visited
-        </Typography>
-        <Typography variant="caption" color="text.disabled">
-          Sorted by visit order
-        </Typography>
-      </Box>
+  const liveStop = showLive ? stops[stops.length - 1] : null
+  const liveColor = liveStop ? colorMap.get(liveStop.geofence) ?? '#9E9E9E' : undefined
 
-      {/* Column labels */}
-      <Box
-        sx={{
-          px: 2.5,
-          py: 1,
-          display: 'grid',
-          gridTemplateColumns: GRID,
-          gap: 1,
-          bgcolor: 'grey.50',
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-        }}
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+      {/* ── Sticky header: title row + Live Now banner ──────────────────── */}
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 10, bgcolor: 'background.paper', borderRadius: '8px 8px 0 0' }}>
+        {/* Title row */}
+        <Box
+          sx={{
+            px: 2.5,
+            py: 1.5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Locations visited
+          </Typography>
+          <Typography variant="caption" color="text.disabled">
+            Sorted by visit order
+          </Typography>
+        </Box>
+
+        {/* Live Now banner */}
+        {liveStop && (
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              bgcolor: '#E8F5E9',
+              borderBottom: '2px solid #A5D6A7',
+            }}
+          >
+          {/* Pulsing ring + solid dot */}
+          <Box sx={{ position: 'relative', width: 12, height: 12, flexShrink: 0 }}>
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                borderRadius: '50%',
+                bgcolor: 'success.main',
+                ...pulseRing,
+                animation: 'pulseRing 1.8s ease-out infinite',
+              }}
+            />
+            <Box
+              sx={{
+                position: 'relative',
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                bgcolor: 'success.main',
+              }}
+            />
+          </Box>
+
+          {/* Location text */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: 'success.dark' }}>
+              Live now
+            </Typography>
+            <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'success.light', flexShrink: 0 }} />
+            {liveColor && (
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: liveColor, flexShrink: 0 }} />
+            )}
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+              {liveStop.geofence}
+            </Typography>
+            {liveStop.subZone && (
+              <Typography variant="body2" color="text.secondary" noWrap>
+                · {liveStop.subZone}
+              </Typography>
+            )}
+          </Box>
+
+          {/* Since time */}
+          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+            since {fmtTime(liveStop.startMs)}
+          </Typography>
+        </Box>
+        )}
+
+        {/* Column labels — inside sticky block so headers stay visible */}
+        <Box
+          sx={{
+            px: 2.5,
+            py: 1,
+            display: 'grid',
+            gridTemplateColumns: GRID,
+            gap: 1,
+            bgcolor: 'grey.50',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
       >
         {COLUMNS.map((h) => (
           <Typography
@@ -126,12 +202,14 @@ export default function LocationsVisitedTable({
             {h}
           </Typography>
         ))}
-      </Box>
+        </Box>
+      </Box>{/* end sticky header */}
 
-      {/* Data rows */}
+      {/* ── Data rows ────────────────────────────────────────────────────── */}
       {stops.map((stop, i) => {
         const isLive = showLive && i === stops.length - 1
         const isSelected = selectedIndex === i
+        const dotColor = colorMap.get(stop.geofence) ?? '#9E9E9E'
 
         return (
           <Box
@@ -147,15 +225,17 @@ export default function LocationsVisitedTable({
               bgcolor: isSelected
                 ? '#E3F2FD'
                 : isLive
-                ? '#E8F5E9'
+                ? '#F1FBF3'
                 : 'transparent',
               borderBottom: '1px solid',
-              borderColor: 'divider',
+              borderColor: isLive ? '#C8E6C9' : 'divider',
+              borderLeft: isLive ? '3px solid' : '3px solid transparent',
+              borderLeftColor: isLive ? 'success.main' : 'transparent',
               '&:last-child': { borderBottom: 'none' },
               cursor: 'pointer',
               transition: 'background-color 0.12s',
               '&:hover': {
-                bgcolor: isSelected ? '#BBDEFB' : isLive ? '#C8E6C9' : 'grey.50',
+                bgcolor: isSelected ? '#BBDEFB' : isLive ? '#E8F5E9' : 'grey.50',
               },
             }}
           >
@@ -164,25 +244,50 @@ export default function LocationsVisitedTable({
               {i + 1}
             </Typography>
 
-            {/* Geofence */}
+            {/* Geofence + pulsing dot for live row */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-              <Box
+              <Box sx={{ position: 'relative', width: 10, height: 10, flexShrink: 0 }}>
+                {isLive && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      borderRadius: '50%',
+                      bgcolor: dotColor,
+                      ...pulseRing,
+                      animation: 'pulseRing 1.8s ease-out infinite',
+                    }}
+                  />
+                )}
+                <Box
+                  sx={{
+                    position: 'relative',
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    bgcolor: dotColor,
+                  }}
+                />
+              </Box>
+              <Typography
+                variant="body2"
                 sx={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  bgcolor: colorMap.get(stop.geofence) ?? '#9E9E9E',
-                  flexShrink: 0,
+                  fontWeight: isLive ? 600 : 500,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
-              />
-              <Typography variant="body2" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              >
                 {stop.geofence || '—'}
               </Typography>
             </Box>
 
-            {/* Subzone + floor level code */}
+            {/* Subzone + floor level */}
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="body2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
                 {stop.subZone || '—'}
               </Typography>
               {stop.floorLevel && (
@@ -205,14 +310,11 @@ export default function LocationsVisitedTable({
               )}
             </Typography>
 
-            {/* Duration + Live badge */}
+            {/* Duration + Live chip */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
               <Typography
                 variant="body2"
-                sx={{
-                  fontWeight: isLive ? 700 : 500,
-                  color: isLive ? 'success.main' : 'text.primary',
-                }}
+                sx={{ fontWeight: isLive ? 700 : 500, color: isLive ? 'success.main' : 'text.primary' }}
               >
                 {fmtDuration(stop.minutes)}
               </Typography>
