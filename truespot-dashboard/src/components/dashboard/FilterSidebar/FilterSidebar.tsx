@@ -8,6 +8,7 @@ import Autocomplete from '@mui/material/Autocomplete'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
+import Slider from '@mui/material/Slider'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import type { LocationHistoryFilters } from '@/hooks/useFilters'
 
@@ -172,6 +173,38 @@ export default function FilterSidebar({
             )}
           />
 
+          {/* Bounce Filter Interval — filters out stops shorter than N minutes */}
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, mb: 1, display: 'block' }}>
+              Bounce Filter Interval
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <TextField
+                type="number"
+                value={filters.minDurationMinutes}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.min(60, Number(e.target.value)))
+                  onFilterChange('minDurationMinutes', String(v))
+                }}
+                slotProps={{ htmlInput: { min: 0, max: 60 } }}
+                size="small"
+                sx={{ width: 60, '& input': { textAlign: 'center', px: 0.5 } }}
+              />
+              <Slider
+                value={Number(filters.minDurationMinutes) || 0}
+                onChange={(_, val) => onFilterChange('minDurationMinutes', String(val))}
+                min={0}
+                max={60}
+                step={1}
+                size="small"
+                sx={{ flex: 1, color: 'primary.main' }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.disabled" sx={{ mt: 0.25, display: 'block' }}>
+              Min stop duration (minutes)
+            </Typography>
+          </Box>
+
           <Autocomplete
             {...makeAutoProps(filterOptions.beaconId)}
             value={filters.beaconId || null}
@@ -206,16 +239,6 @@ export default function FilterSidebar({
             renderInput={(params) => (
               <TextField {...params} label="Stock Number" fullWidth />
             )}
-          />
-
-          <TextField
-            label="Min Duration (min)"
-            type="number"
-            value={filters.minDurationMinutes}
-            onChange={(e) => onFilterChange('minDurationMinutes', e.target.value)}
-            slotProps={{ htmlInput: { min: 0 } }}
-            fullWidth
-            size="small"
           />
         </Stack>
       </Box>
