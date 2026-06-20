@@ -31,16 +31,35 @@ function fmtDuration(minutes: number): string {
   return `${minutes}m`
 }
 
-// Generate evenly-spaced time ticks between first and last stop
-function buildTimeTicks(minMs: number, maxMs: number, count = 5) {
-  const ticks: { pct: number; label: string }[] = []
-  const range = maxMs - minMs
-  if (range === 0) return [{ pct: 0, label: fmtTime(minMs) }]
-  for (let i = 0; i < count; i++) {
-    const ms = minMs + range * (i / (count - 1))
-    ticks.push({ pct: (i / (count - 1)) * 100, label: fmtTime(ms) })
+// Time ticks at geofence-transition boundaries.
+// Falls back to evenly-spaced ticks when transitions are too dense.
+function buildTimeTicks(stops: Stop[], minMs: number, maxMs: number, maxTicks = 6) {
+  const totalMs = maxMs - minMs || 1
+  const toPct = (ms: number) => ((ms - minMs) / totalMs) * 100
+
+  // Collect geofence change times
+  const times = new Set<number>([minMs, maxMs])
+  for (let i = 1; i < stops.length; i++) {
+    if (stops[i].geofence !== stops[i - 1].geofence) times.add(stops[i].startMs)
   }
-  return ticks
+
+  let sorted = [...times].sort((a, b) => a - b)
+
+  // If there are more transitions than maxTicks, sample evenly
+  if (sorted.length > maxTicks) {
+    const step = (sorted.length - 1) / (maxTicks - 1)
+    const sampled = [sorted[0]]
+    for (let i = 1; i < maxTicks - 1; i++) sampled.push(sorted[Math.round(i * step)])
+    sampled.push(sorted[sorted.length - 1])
+    sorted = sampled
+  }
+
+  return sorted.map((ms, i, arr) => ({
+    pct: toPct(ms),
+    label: fmtTime(ms),
+    isFirst: i === 0,
+    isLast: i === arr.length - 1,
+  }))
 }
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -97,7 +116,7 @@ export default function JourneyTimeline({
       uniqueGeofences: [...new Set(parsed.map((s) => s.geofence))].filter(Boolean),
       minMs,
       maxMs,
-      timeTicks: buildTimeTicks(minMs, maxMs, Math.min(5, parsed.length + 1)),
+      timeTicks: buildTimeTicks(parsed, minMs, maxMs, 6),
     }
   }, [rows])
 
@@ -146,10 +165,11 @@ export default function JourneyTimeline({
       <Box
         sx={{
           position: 'relative',
-          height: 52,
+          height: 48,
           borderRadius: 1.5,
           overflow: 'hidden',
           bgcolor: 'grey.100',
+          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.08)',
         }}
       >
         {stops.map((stop, i) => (
@@ -186,21 +206,29 @@ export default function JourneyTimeline({
                 bottom: 0,
                 bgcolor: colorMap.get(stop.geofence) ?? '#9E9E9E',
                 cursor: 'pointer',
-                outline: selectedIndex === i ? '3px solid rgba(255,255,255,0.7)' : 'none',
+                // White right-edge separator so adjacent same-colour stops are distinguishable
+                borderRight: i < stops.length - 1 ? '1.5px solid rgba(255,255,255,0.7)' : 'none',
+                outline: selectedIndex === i ? '3px solid rgba(255,255,255,0.85)' : 'none',
                 outlineOffset: '-3px',
                 transition: 'filter 0.15s',
-                '&:hover': { filter: 'brightness(0.85)', zIndex: 1 },
-                // Duration label inside wide blocks
+                '&:hover': { filter: 'brightness(0.82)', zIndex: 1 },
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 overflow: 'hidden',
               }}
             >
-              {stop.minutes >= 45 && (
+              {stop.minutes >= 60 && (
                 <Typography
                   variant="caption"
-                  sx={{ color: '#fff', fontWeight: 700, fontSize: 10, whiteSpace: 'nowrap', px: 0.5, textShadow: '0 1px 2px rgba(0,0,0,0.4)' }}
+                  sx={{
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 10,
+                    whiteSpace: 'nowrap',
+                    px: 0.5,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                  }}
                 >
                   {fmtDuration(stop.minutes)}
                 </Typography>
@@ -211,23 +239,28 @@ export default function JourneyTimeline({
       </Box>
 
       {/* Time axis */}
-      <Box sx={{ position: 'relative', height: 18, mt: 0.5 }}>
+      <Box sx={{ position: 'relative', height: 20, mt: 0.5 }}>
         {timeTicks.map((tick, i) => (
-          <Typography
+          <Box
             key={i}
-            variant="caption"
             sx={{
               position: 'absolute',
               left: `${tick.pct}%`,
-              transform: i === 0 ? 'none' : i === timeTicks.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
-              fontSize: 10,
-              color: 'text.disabled',
-              whiteSpace: 'nowrap',
-              userSelect: 'none',
+              transform: tick.isFirst ? 'none' : tick.isLast ? 'translateX(-100%)' : 'translateX(-50%)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: tick.isFirst ? 'flex-start' : tick.isLast ? 'flex-end' : 'center',
             }}
           >
-            {tick.label}
-          </Typography>
+            {/* Tick mark */}
+            <Box sx={{ width: 1, height: 4, bgcolor: 'divider', mb: 0.25 }} />
+            <Typography
+              variant="caption"
+              sx={{ fontSize: 10, color: 'text.disabled', whiteSpace: 'nowrap', userSelect: 'none' }}
+            >
+              {tick.label}
+            </Typography>
+          </Box>
         ))}
       </Box>
 

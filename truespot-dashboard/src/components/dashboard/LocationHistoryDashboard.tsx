@@ -187,7 +187,7 @@ export default function LocationHistoryDashboard({
   const showLive = filters.dateSeen === 'Today'
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'flex-start' }}>
       {/* ── Left sidebar ───────────────────────────────────────────────────── */}
       <FilterSidebar
         filters={filters}
@@ -200,22 +200,14 @@ export default function LocationHistoryDashboard({
       <Box
         sx={{
           flex: 1,
+          minWidth: 0,
+          bgcolor: '#f8fafc',
+          p: 3,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
-          bgcolor: '#f8fafc',
+          gap: 2.5,
         }}
       >
-        <Box
-          sx={{
-            flex: 1,
-            overflowY: 'auto',
-            p: 3,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2.5,
-          }}
-        >
           {/* Alerts */}
           {tableError && <Alert severity="error">{tableError}</Alert>}
           {kpiQuery.error && <Alert severity="error">{kpiQuery.error}</Alert>}
@@ -371,7 +363,6 @@ export default function LocationHistoryDashboard({
               </Box>
             </>
           )}
-        </Box>
       </Box>
     </Box>
   )
