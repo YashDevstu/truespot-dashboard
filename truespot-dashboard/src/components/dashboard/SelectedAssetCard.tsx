@@ -22,20 +22,23 @@ export default function SelectedAssetCard({ rows }: SelectedAssetCardProps) {
   const info = useMemo(() => {
     const r = rows[0]
     if (!r) return null
+    // Collect all unique asset types present in the loaded rows
+    const types = [...new Set(
+      rows.map((row) => String(row['[AssetType]'] ?? '').trim()).filter(Boolean)
+    )]
     return {
       make:        String(r['[Make]']        ?? ''),
       model:       String(r['[Model]']       ?? ''),
       year:        String(r['[Year]']        ?? ''),
       vin:         String(r['[VIN]']         ?? ''),
       stockNumber: String(r['[StockNumber]'] ?? ''),
-      assetType:   String(r['[AssetType]']   ?? ''),
+      assetTypes:  types,
     }
   }, [rows])
 
   if (!info) return null
 
   const title = [info.year, info.make, info.model].filter(Boolean).join(' ') || '—'
-  const isKey = info.assetType.toLowerCase() === 'key'
 
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
@@ -74,28 +77,34 @@ export default function SelectedAssetCard({ rows }: SelectedAssetCardProps) {
             flexWrap: 'wrap',
           }}
         >
-          {/* Left: asset icon + name + type chip */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-            {isKey
-              ? <VpnKeyOutlinedIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
-              : <DirectionsCarOutlinedIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
-            }
+          {/* Left: icon + name + one chip per asset type present in the data */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
+            <DirectionsCarOutlinedIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
             <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
               {title}
             </Typography>
-            <Chip
-              label={info.assetType || 'Vehicle'}
-              size="small"
-              variant="outlined"
-              sx={{
-                borderColor: 'primary.main',
-                color: 'primary.main',
-                fontWeight: 600,
-                fontSize: 11,
-                height: 22,
-                '& .MuiChip-label': { px: 1 },
-              }}
-            />
+            {info.assetTypes.map((type) => (
+              <Chip
+                key={type}
+                label={type}
+                size="small"
+                variant="outlined"
+                icon={
+                  type.toLowerCase() === 'key'
+                    ? <VpnKeyOutlinedIcon sx={{ fontSize: '14px !important' }} />
+                    : <DirectionsCarOutlinedIcon sx={{ fontSize: '14px !important' }} />
+                }
+                sx={{
+                  borderColor: 'primary.main',
+                  color: 'primary.main',
+                  fontWeight: 600,
+                  fontSize: 11,
+                  height: 22,
+                  '& .MuiChip-label': { px: 0.75 },
+                  '& .MuiChip-icon': { color: 'primary.main', ml: 0.5 },
+                }}
+              />
+            ))}
           </Box>
 
           {/* Right: VIN + Stock # */}
