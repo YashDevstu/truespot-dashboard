@@ -19,6 +19,33 @@ function fmtMinutes(total: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`
 }
 
+// Merge overlapping time intervals so simultaneous beacons (Vehicle + Key on the
+// same VIN) don't double-count the same wall-clock minutes.
+function mergedMinutes(rows: Record<string, unknown>[]): number {
+  const intervals: [number, number][] = []
+  for (const r of rows) {
+    const s = r['[StartTime]'] ? new Date(String(r['[StartTime]'])).getTime() : NaN
+    const e = r['[EndTime]']   ? new Date(String(r['[EndTime]'])).getTime()   : NaN
+    if (!isNaN(s) && !isNaN(e) && e > s) intervals.push([s, e])
+  }
+  if (intervals.length === 0) return 0
+  intervals.sort((a, b) => a[0] - b[0])
+  let totalMs = 0
+  let [curStart, curEnd] = intervals[0]
+  for (let i = 1; i < intervals.length; i++) {
+    const [s, e] = intervals[i]
+    if (s <= curEnd) {
+      curEnd = Math.max(curEnd, e)
+    } else {
+      totalMs += curEnd - curStart
+      curStart = s
+      curEnd = e
+    }
+  }
+  totalMs += curEnd - curStart
+  return totalMs / 60_000
+}
+
 // ── StatCard ──────────────────────────────────────────────────────────────────
 interface StatCardProps {
   title: string
@@ -72,7 +99,6 @@ export default function AssetStatCards({ rows, datePeriod }: AssetStatCardsProps
     const totalStops = rows.length
 
     const geofenceSet = new Set<string>()
-    let totalMinutes = 0
 
     // Find most recent stop via string comparison — ISO 8601 sorts correctly as strings
     let latestRow = rows[0]
@@ -80,13 +106,16 @@ export default function AssetStatCards({ rows, datePeriod }: AssetStatCardsProps
 
     for (const r of rows) {
       geofenceSet.add(String(r['[Geofence]'] ?? ''))
-      totalMinutes += Number(r['[MinutesDiff]'] ?? 0)
       const t = String(r['[StartTime]'] ?? '')
       if (t > latestTime) {
         latestTime = t
         latestRow = r
       }
     }
+
+    // Merge overlapping intervals so Vehicle + Key beacons on the same VIN
+    // don't double-count the same wall-clock time.
+    const totalMinutes = mergedMinutes(rows)
 
     const currentSubZone = String(latestRow['[SubGeoZone]'] ?? '').trim()
     const currentGeofence = String(latestRow['[Geofence]'] ?? '').trim()

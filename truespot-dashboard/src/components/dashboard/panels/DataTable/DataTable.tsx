@@ -18,21 +18,19 @@ function formatDuration(minutes: unknown): string {
   return rem > 0 ? `${h}h ${rem}m` : `${h}h`
 }
 
+// Format: MM/DD/YY H:MM AM/PM  (matches Power BI report display)
 function formatTime(val: unknown): string {
   if (!val) return '—'
-  const str = String(val)
-  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) {
-    const d = new Date(str)
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    }
-  }
-  return str
+  const d = new Date(String(val))
+  if (isNaN(d.getTime())) return String(val)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  const h = d.getHours()
+  const min = String(d.getMinutes()).padStart(2, '0')
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${mm}/${dd}/${yy} ${h12}:${min} ${ampm}`
 }
 
 interface DataTableProps {
@@ -43,34 +41,37 @@ interface DataTableProps {
 
 // Power BI Execute Queries API wraps all column names in square brackets in the response
 const COL_DEFS: ColDef[] = [
-  { field: '[Geofence]', headerName: 'Geofence', flex: 1, minWidth: 130 },
-  { field: '[SubGeoZone]', headerName: 'Sub Zone', flex: 1, minWidth: 130 },
+  { field: '[Make]', headerName: 'Make', width: 90 },
+  { field: '[Model]', headerName: 'Model', minWidth: 150, flex: 1 },
+  { field: '[Year]', headerName: 'Year', width: 70 },
+  { field: '[Geofence]', headerName: 'Geofence', flex: 1, minWidth: 160 },
+  { field: '[SubGeoZone]', headerName: 'Sub Zone', flex: 1, minWidth: 180 },
   {
     field: '[StartTime]',
-    headerName: 'Start Time',
+    headerName: 'First Seen at Location',
+    minWidth: 170,
     flex: 1,
-    minWidth: 160,
     valueFormatter: (p) => formatTime(p.value),
   },
   {
     field: '[EndTime]',
-    headerName: 'End Time',
+    headerName: 'Last Seen at Location',
+    minWidth: 170,
     flex: 1,
-    minWidth: 160,
     valueFormatter: (p) => formatTime(p.value),
   },
   {
     field: '[MinutesDiff]',
     headerName: 'Duration',
-    width: 110,
+    width: 100,
     valueFormatter: (p) => formatDuration(p.value),
     sort: 'desc',
   },
-  { field: '[BeaconId]', headerName: 'Beacon', width: 150 },
-  { field: '[VIN]', headerName: 'VIN', width: 170 },
-  { field: '[StockNumber]', headerName: 'Stock #', width: 110 },
-  { field: '[AssetType]', headerName: 'Asset Type', width: 120 },
-  { field: '[FloorLevel]', headerName: 'Floor', width: 90 },
+  { field: '[BeaconId]', headerName: 'Beacon', width: 140 },
+  { field: '[VIN]', headerName: 'VIN', width: 175 },
+  { field: '[StockNumber]', headerName: 'Stock #', width: 100 },
+  { field: '[AssetType]', headerName: 'Asset Type', width: 110 },
+  { field: '[FloorLevel]', headerName: 'Floor', width: 80 },
   {
     field: '[BatteryLevel]',
     headerName: 'Battery',

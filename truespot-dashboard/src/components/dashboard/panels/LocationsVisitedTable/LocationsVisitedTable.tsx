@@ -4,6 +4,8 @@ import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
+import DirectionsCarOutlinedIcon from '@mui/icons-material/DirectionsCarOutlined'
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function parseMs(val: unknown): number | null {
@@ -19,6 +21,20 @@ function fmtTime(ms: number): string {
   const ampm = h >= 12 ? 'PM' : 'AM'
   const h12 = h % 12 || 12
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+// "Jun 21" short date label
+function fmtDateShort(ms: number): string {
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// Returns the date label to show above the time range.
+// If start and end are on different calendar dates, shows "Jun 21 → Jun 22".
+function fmtDateLabel(startMs: number, endMs: number): string {
+  const startDay = new Date(startMs).toDateString()
+  const endDay   = new Date(endMs).toDateString()
+  if (startDay === endDay) return fmtDateShort(startMs)
+  return `${fmtDateShort(startMs)} → ${fmtDateShort(endMs)}`
 }
 
 function fmtDuration(minutes: number): string {
@@ -44,13 +60,23 @@ interface Stop {
   geofence: string
   subZone: string
   floorLevel: string
+  assetType: string
+  make: string
+  model: string
+  year: string
   startMs: number
   endMs: number
   minutes: number
 }
 
-const COLUMNS = ['#', 'GEOFENCE', 'SUBZONE', 'TIME RANGE', 'DURATION'] as const
-const GRID = '40px 1fr 1fr 195px 110px'
+function AssetIcon({ assetType }: { assetType: string }) {
+  const lower = assetType.toLowerCase()
+  if (lower === 'key') return <VpnKeyOutlinedIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />
+  return <DirectionsCarOutlinedIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />
+}
+
+const COLUMNS = ['#', 'VEHICLE', 'GEOFENCE', 'SUBZONE', 'TIME RANGE', 'DURATION'] as const
+const GRID = '40px minmax(170px, 200px) minmax(140px, 1fr) minmax(160px, 1fr) 195px 95px'
 
 // ── LocationsVisitedTable ─────────────────────────────────────────────────────
 interface LocationsVisitedTableProps {
@@ -79,6 +105,10 @@ export default function LocationsVisitedTable({
             geofence: String(r['[Geofence]'] ?? ''),
             subZone: String(r['[SubGeoZone]'] ?? ''),
             floorLevel: String(r['[FloorLevel]'] ?? ''),
+            assetType: String(r['[AssetType]'] ?? ''),
+            make: String(r['[Make]'] ?? ''),
+            model: String(r['[Model]'] ?? ''),
+            year: String(r['[Year]'] ?? ''),
             startMs,
             endMs,
             minutes: Number(r['[MinutesDiff]'] ?? 0),
@@ -244,7 +274,20 @@ export default function LocationsVisitedTable({
               {i + 1}
             </Typography>
 
-            {/* Geofence + pulsing dot for live row */}
+            {/* Vehicle: asset icon + model + year */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+              <AssetIcon assetType={stop.assetType} />
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'text.primary' }}
+              >
+                {stop.model
+                  ? `${stop.model}${stop.year ? ` '${String(stop.year).slice(-2)}` : ''}`
+                  : stop.make || '—'}
+              </Typography>
+            </Box>
+
+            {/* Geofence: colored dot + name */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
               <Box sx={{ position: 'relative', width: 10, height: 10, flexShrink: 0 }}>
                 {isLive && (
@@ -298,17 +341,20 @@ export default function LocationsVisitedTable({
             </Box>
 
             {/* Time range */}
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              {fmtTime(stop.startMs)}
-              {' → '}
-              {isLive ? (
-                <Box component="span" sx={{ color: 'success.main', fontWeight: 700 }}>
-                  now
-                </Box>
-              ) : (
-                fmtTime(stop.endMs)
-              )}
-            </Typography>
+            <Box>
+              <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', lineHeight: 1.2, mb: 0.25 }}>
+                {isLive ? fmtDateShort(stop.startMs) : fmtDateLabel(stop.startMs, stop.endMs)}
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                {fmtTime(stop.startMs)}
+                {' → '}
+                {isLive ? (
+                  <Box component="span" sx={{ color: 'success.main', fontWeight: 700 }}>now</Box>
+                ) : (
+                  fmtTime(stop.endMs)
+                )}
+              </Typography>
+            </Box>
 
             {/* Duration + Live chip */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>

@@ -38,33 +38,29 @@ function sanitize(val: string): string {
   return val.replace(/["\\]/g, '')
 }
 
-// "MM/DD/YY" → "DATE(YYYY, M, D)";  "Today" → "TODAY()"
-function dateSeenToDax(dateSeen: string): string {
-  if (dateSeen === 'Today') return 'TODAY()'
-  const parts = dateSeen.split('/')
-  if (parts.length !== 3) return ''
-  const month = parseInt(parts[0], 10)
-  const day = parseInt(parts[1], 10)
-  const year = 2000 + parseInt(parts[2], 10)
-  if (isNaN(month) || isNaN(day) || isNaN(year)) return ''
-  return `DATE(${year}, ${month}, ${day})`
-}
+// These conditions are always applied — never show sold/archived assets,
+// zero-duration pings, or manual-entry placeholder records.
+const BASE_CONDITIONS = [
+  'AppendFinal[AssetStatus] <> "Sold"',
+  'AppendFinal[AssetStatus] <> "Archieved"',
+  'AppendFinal[MinuteDifference] <> 0',
+  'AppendFinal[Make] <> "zz_manualentry"',
+]
 
 export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}): string {
   const minDur = filters.minDurationMinutes ?? 0
-  const conditions: string[] = []
+  const conditions: string[] = [...BASE_CONDITIONS]
 
   if (filters.dateSeen) {
-    const dateDax = dateSeenToDax(filters.dateSeen)
-    if (dateDax) {
-      if (filters.timeChunk) {
-        // Narrow to a 6-hour window to stay under the 15 MB API response limit
-        conditions.push(`AppendFinal[Last Seen-Local] >= ${dateDax} + ${filters.timeChunk.startFraction}`)
-        conditions.push(`AppendFinal[Last Seen-Local] < ${dateDax} + ${filters.timeChunk.endFraction}`)
-      } else {
-        // Full-day filter — only safe when row count × column size < 15 MB
-        conditions.push(`INT(AppendFinal[Last Seen-Local]) = ${dateDax}`)
-      }
+    // Filter on the pre-computed date-label column — same field the Power BI report uses.
+    // Values: "Today", "06/21/26", "06/20/26", etc.  No timezone ambiguity.
+    conditions.push(`AppendFinal[LastSeenDateDefault] = "${sanitize(filters.dateSeen)}"`)
+
+    if (filters.timeChunk) {
+      // Split the day into 6-hour windows using the fractional time-of-day of the
+      // arrival timestamp so each chunk stays under the 15 MB API response limit.
+      conditions.push(`MOD(AppendFinal[Last Seen-Local], 1) >= ${filters.timeChunk.startFraction}`)
+      conditions.push(`MOD(AppendFinal[Last Seen-Local], 1) < ${filters.timeChunk.endFraction}`)
     }
   }
 
@@ -100,6 +96,9 @@ SELECTCOLUMNS(
   "StockNumber", AppendFinal[StockNumber],
   "AssetType", AppendFinal[AssetType],
   "FloorLevel", AppendFinal[Floor Level],
-  "BatteryLevel", AppendFinal[BatteryLevel]
+  "BatteryLevel", AppendFinal[BatteryLevel],
+  "Make", AppendFinal[Make],
+  "Model", AppendFinal[Model],
+  "Year", AppendFinal[Year]
 )`
 }

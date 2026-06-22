@@ -120,8 +120,10 @@ export default function LocationHistoryDashboard({
 
   const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
 
-  // ── Single-day rows for timeline + table ──────────────────────────────────
-  // Rows available for the single-bar timeline (capped at TIMELINE_MAX_ROWS).
+  // ── Rows for timeline + locations table ───────────────────────────────────
+  // All rows for the selected asset, capped at TIMELINE_MAX_ROWS to keep the
+  // main thread responsive. "All Dates" passes all 8 days combined — no
+  // per-day filtering so the user sees the full picture.
   const timelineRows = useMemo(() => {
     if (!selectedAsset || tableLoading) return []
     if (tableRows.length > TIMELINE_MAX_ROWS) return []
@@ -130,21 +132,8 @@ export default function LocationHistoryDashboard({
 
   const timelineTooLarge = !!(selectedAsset && !tableLoading && tableRows.length > TIMELINE_MAX_ROWS)
 
-  // When "All Dates" is active, filter the timeline down to the most-recent
-  // calendar day in the result so the single bar makes sense.
-  const singleDayRows = useMemo(() => {
-    if (timelineRows.length === 0) return []
-    if (!isAllDates) return timelineRows
-
-    let latestDate = ''
-    for (const r of timelineRows) {
-      const d = String(r['[StartTime]'] ?? '').slice(0, 10)
-      if (d > latestDate) latestDate = d
-    }
-    return latestDate
-      ? timelineRows.filter((r) => String(r['[StartTime]'] ?? '').startsWith(latestDate))
-      : []
-  }, [timelineRows, isAllDates])
+  // All timeline rows passed directly — no single-day slice.
+  const singleDayRows = timelineRows
 
   // Shared colour map — build once from sorted geofences so both components agree
   const sharedColorMap = useMemo(() => {
@@ -158,33 +147,26 @@ export default function LocationHistoryDashboard({
     return buildGeofenceColorMap(geos)
   }, [singleDayRows])
 
-  // datePeriod for AssetStatCards caption text
+  // Caption text for AssetStatCards
   const datePeriod =
     !filters.dateSeen || filters.dateSeen === 'Today'
       ? 'today'
       : filters.dateSeen === 'all'
-      ? 'all time'
+      ? 'last 8 days'
       : `on ${filters.dateSeen}`
 
-  // The stat cards always show singleDay stats (most recent day)
-  const singleDayPeriod = useMemo(() => {
-    if (!isAllDates || singleDayRows.length === 0) return datePeriod
-    const d = String(singleDayRows[0]['[StartTime]'] ?? '').slice(0, 10)
-    if (!d) return datePeriod
-    const date = new Date(d + 'T00:00:00')
-    return `on ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-  }, [isAllDates, singleDayRows, datePeriod])
+  const singleDayPeriod = datePeriod
 
   // Label above the timeline bar
   const journeyDateLabel =
     filters.dateSeen === 'Today'
       ? "TODAY'S JOURNEY"
       : isAllDates
-      ? 'MOST RECENT JOURNEY'
+      ? 'ALL DATES JOURNEY'
       : `${filters.dateSeen} JOURNEY`
 
-  // Only show Live badge when showing today's data
-  const showLive = filters.dateSeen === 'Today'
+  // Show Live badge when today's data is included (Today filter or All Dates which includes today)
+  const showLive = filters.dateSeen === 'Today' || filters.dateSeen === 'all'
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'flex-start' }}>
