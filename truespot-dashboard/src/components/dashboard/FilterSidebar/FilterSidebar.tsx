@@ -9,7 +9,11 @@ import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Slider from '@mui/material/Slider'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import DirectionsCarOutlinedIcon from '@mui/icons-material/DirectionsCarOutlined'
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 import type { LocationHistoryFilters } from '@/hooks/useFilters'
 
 function buildDateOptions() {
@@ -214,14 +218,49 @@ export default function FilterSidebar({
             )}
           />
 
-          <Autocomplete
-            {...makeAutoProps(filterOptions.assetType)}
-            value={filters.assetType || null}
-            onChange={handleAuto('assetType')}
-            renderInput={(params) => (
-              <TextField {...params} label="Asset Type" fullWidth />
-            )}
-          />
+          {/* Asset Type toggle */}
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, mb: 0.75, display: 'block' }}>
+              Asset Type
+            </Typography>
+            <ToggleButtonGroup
+              value={filters.assetType || null}
+              exclusive
+              onChange={(_, val: string | null) => onFilterChange('assetType', val ?? '')}
+              fullWidth
+              size="small"
+              sx={{
+                '& .MuiToggleButton-root': {
+                  flex: 1,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  gap: 0.75,
+                  borderRadius: '8px !important',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  color: 'text.secondary',
+                  py: 0.75,
+                  '&.Mui-selected': {
+                    bgcolor: 'primary.main',
+                    color: '#fff',
+                    borderColor: 'primary.main',
+                    '&:hover': { bgcolor: 'primary.dark' },
+                  },
+                },
+                gap: 1,
+              }}
+            >
+              <ToggleButton value="Vehicle">
+                <DirectionsCarOutlinedIcon sx={{ fontSize: 15 }} />
+                Vehicle
+              </ToggleButton>
+              <ToggleButton value="Key">
+                <VpnKeyOutlinedIcon sx={{ fontSize: 15 }} />
+                Key
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
 
           <Autocomplete
             {...makeAutoProps(filterOptions.vin)}
