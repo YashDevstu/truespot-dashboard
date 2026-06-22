@@ -8,6 +8,49 @@ export function buildDistinctQuery(tableColumn: string): string {
   return `EVALUATE SELECTCOLUMNS(FILTER(DISTINCT(${tableColumn}), NOT ISBLANK(${tableColumn})), "value", ${tableColumn})`
 }
 
+// Same as buildDistinctQuery but pre-filters the table so only values that
+// exist under the currently active filters are returned — Power BI cross-filter behaviour.
+export function buildDistinctWithFiltersQuery(tableColumn: string, conditions: string[]): string {
+  const source = conditions.length > 0
+    ? `FILTER(AppendFinal, ${conditions.join(' && ')})`
+    : 'AppendFinal'
+  return `EVALUATE SELECTCOLUMNS(FILTER(DISTINCT(SELECTCOLUMNS(${source}, "value", ${tableColumn})), NOT ISBLANK([value])), "value", [value])`
+}
+
+// Active filter values passed from the UI.
+export interface ActiveFilters {
+  dateSeen?: string
+  geofence?: string
+  subGeoZone?: string
+  floorLevel?: string
+  beaconId?: string
+  assetType?: string
+  vin?: string
+  stockNumber?: string
+}
+
+// Maps each filter key to the DAX condition that applies it.
+// excludeKey: the column whose own filter is intentionally omitted so its
+// dropdown still shows all values compatible with the other selections.
+export function buildCascadeConditions(filters: ActiveFilters, excludeKey?: keyof ActiveFilters): string[] {
+  const conditions = [...BASE_CONDITIONS]
+  const map: Record<keyof ActiveFilters, (v: string) => string> = {
+    dateSeen:    (v) => `AppendFinal[LastSeenDateDefault] = "${sanitize(v)}"`,
+    geofence:    (v) => `AppendFinal[Geofence] = "${sanitize(v)}"`,
+    subGeoZone:  (v) => `AppendFinal[SubGeoZone] = "${sanitize(v)}"`,
+    floorLevel:  (v) => `AppendFinal[Floor Level] = "${sanitize(v)}"`,
+    beaconId:    (v) => `AppendFinal[BeaconId] = "${sanitize(v)}"`,
+    assetType:   (v) => `AppendFinal[AssetType] = "${sanitize(v)}"`,
+    vin:         (v) => `AppendFinal[VIN Updated] = "${sanitize(v)}"`,
+    stockNumber: (v) => `AppendFinal[StockNumber] = "${sanitize(v)}"`,
+  }
+  for (const [key, val] of Object.entries(filters) as [keyof ActiveFilters, string][]) {
+    if (key === excludeKey || !val || val === 'all') continue
+    conditions.push(map[key](val))
+  }
+  return conditions
+}
+
 export interface TimeChunk {
   startFraction: number // fraction of a day: 0 = midnight, 0.25 = 6am, 0.5 = noon, 0.75 = 6pm
   endFraction: number   // exclusive upper bound (1 = next midnight)

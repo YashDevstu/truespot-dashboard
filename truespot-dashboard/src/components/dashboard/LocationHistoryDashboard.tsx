@@ -89,6 +89,7 @@ export default function LocationHistoryDashboard({
     clientId,
     dashboardKey,
     panelId: 'location-history-data',
+    filters,
   })
 
   const handleRefresh = useCallback(() => {
