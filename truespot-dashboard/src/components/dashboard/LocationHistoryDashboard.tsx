@@ -19,6 +19,7 @@ import DataTable from './panels/DataTable'
 import JourneyTimeline from './panels/JourneyTimeline/JourneyTimeline'
 import AssetStatCards from './panels/AssetStatCards'
 import LocationsVisitedTable from './panels/LocationsVisitedTable'
+import SelectedAssetCard from './SelectedAssetCard'
 
 interface Props {
   clientId: string
@@ -234,6 +235,11 @@ export default function LocationHistoryDashboard({
                   selectedIndex={selectedStopIndex}
                   onSelectIndex={setSelectedStopIndex}
                 />
+              )}
+
+              {/* Selected asset card */}
+              {!timelineTooLarge && singleDayRows.length > 0 && (
+                <SelectedAssetCard rows={singleDayRows} />
               )}
 
               {/* Locations visited table */}
