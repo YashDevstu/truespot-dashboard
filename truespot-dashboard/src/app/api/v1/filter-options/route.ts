@@ -2,22 +2,24 @@ export const dynamic = 'force-dynamic'
 
 import type { NextRequest } from 'next/server'
 import { getClientConfig } from '@/services/config/clientConfigService'
-import { executeQuery } from '@/services/powerbi/queryService'
-import { buildDistinctQuery, buildDistinctWithFiltersQuery, buildCascadeConditions, type ActiveFilters } from '@/utils/dax'
-import { getOrSet } from '@/services/cache/cacheService'
+import { executeBatchQuery } from '@/services/powerbi/queryService'
+import { buildBatchDistinctQuery, type ActiveFilters } from '@/utils/dax'
 import { CACHE_TTL_LOCATION_HISTORY } from '@/constants/cache'
 
-// GET /api/v1/filter-options?clientId=X&dashboardKey=Y&panelId=Z[&geofence=X&vin=Y&...]
+// GET /api/v1/filter-options?clientId=X&dashboardKey=Y&panelId=Z[&vin=A,B&geofence=X&...]
 //
-// Without active filters → returns full distinct value lists (cached).
-// With active filters    → returns cross-filtered lists matching Power BI behaviour:
-//   each dropdown only shows values that exist under the currently active selections,
-//   but excludes its OWN filter so the dropdown never empties itself.
+// Batches all filter-column DISTINCT queries into a SINGLE Power BI API call.
+// One DAX string contains one EVALUATE per column; the API returns each result
+// as results[0].tables[i]. Reduces N round-trips to 1 regardless of column count.
+//
+// Each EVALUATE excludes that column's own active filter (cascade behaviour) so
+// the dropdown shows all compatible options, not just the already-selected value.
+// Multi-value filters are comma-separated: vin=VIN1,VIN2 → DAX IN {"VIN1","VIN2"}.
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const clientId    = searchParams.get('clientId')
+  const clientId     = searchParams.get('clientId')
   const dashboardKey = searchParams.get('dashboardKey')
-  const panelId     = searchParams.get('panelId')
+  const panelId      = searchParams.get('panelId')
 
   if (!clientId || !dashboardKey || !panelId) {
     return Response.json(
@@ -43,7 +45,7 @@ export async function GET(request: NextRequest) {
   const columnEntries = Object.entries(filterColumns) as [string, string][]
   if (columnEntries.length === 0) return Response.json({})
 
-  // Collect whichever filter values the client is currently applying
+  // Active filter values from the client (comma-separated for multi-select)
   const activeFilters: ActiveFilters = {
     dateSeen:    searchParams.get('dateSeen')    ?? undefined,
     geofence:    searchParams.get('geofence')    ?? undefined,
@@ -56,64 +58,22 @@ export async function GET(request: NextRequest) {
   }
 
   const hasActiveFilters = Object.values(activeFilters).some(Boolean)
+  // Short TTL when filters are active; long TTL for the full uncascaded lists.
+  const ttl = hasActiveFilters ? 60 : CACHE_TTL_LOCATION_HISTORY
 
-  // No active filters → use the long-lived cached full list
-  if (!hasActiveFilters) {
-    const cacheKey = `fopt:${clientId}:${dashboardKey}:${panelId}`
-    try {
-      const options = await getOrSet<Record<string, string[]>>(
-        cacheKey,
-        CACHE_TTL_LOCATION_HISTORY,
-        async () => {
-          const results = await Promise.all(
-            columnEntries.map(([, col]) =>
-              executeQuery(dashboard.dataset_name, buildDistinctQuery(col), CACHE_TTL_LOCATION_HISTORY)
-            )
-          )
-          const built: Record<string, string[]> = {}
-          columnEntries.forEach(([key], i) => {
-            built[key] = results[i]
-              .map((row) => String(row['[value]'] ?? ''))
-              .filter(Boolean)
-              .sort((a, b) => a.localeCompare(b))
-          })
-          return built
-        }
-      )
-      return Response.json(options)
-    } catch (err) {
-      return Response.json({ error: String(err) }, { status: 500 })
-    }
-  }
-
-  // Active filters present → cascade: each column is filtered by all OTHER active selections.
-  // Short TTL since results depend on the specific combination of active filters.
-  const filterHash = JSON.stringify(activeFilters)
-  const cacheKey = `fopt-cascade:${clientId}:${dashboardKey}:${panelId}:${filterHash}`
+  const { dax, keys } = buildBatchDistinctQuery(columnEntries, activeFilters)
 
   try {
-    const options = await getOrSet<Record<string, string[]>>(
-      cacheKey,
-      60, // 60-second TTL for cascaded results
-      async () => {
-        const results = await Promise.all(
-          columnEntries.map(([key, col]) => {
-            // Exclude this column's own filter so its dropdown never collapses to 1 item
-            const conditions = buildCascadeConditions(activeFilters, key as keyof ActiveFilters)
-            const dax = buildDistinctWithFiltersQuery(col, conditions)
-            return executeQuery(dashboard.dataset_name, dax, 60)
-          })
-        )
-        const built: Record<string, string[]> = {}
-        columnEntries.forEach(([key], i) => {
-          built[key] = results[i]
-            .map((row) => String(row['[value]'] ?? ''))
-            .filter(Boolean)
-            .sort((a, b) => a.localeCompare(b))
-        })
-        return built
-      }
-    )
+    const allTables = await executeBatchQuery(dashboard.dataset_name, dax, ttl)
+
+    const options: Record<string, string[]> = {}
+    keys.forEach((key, i) => {
+      options[key] = (allTables[i] ?? [])
+        .map((row) => String(row['[value]'] ?? ''))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+    })
+
     return Response.json(options)
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })

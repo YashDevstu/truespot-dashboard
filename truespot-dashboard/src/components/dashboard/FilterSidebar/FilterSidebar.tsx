@@ -52,18 +52,41 @@ interface FilterSidebarProps {
   filterOptions: FilterOptions
 }
 
-function makeAutoProps(options: string[]) {
-  return {
-    options,
-    filterOptions: (opts: string[], { inputValue }: { inputValue: string }) =>
-      opts
-        .filter((o) => o.toLowerCase().includes(inputValue.toLowerCase()))
-        .slice(0, 100),
-    freeSolo: true as const,
-    clearOnEscape: true,
-    autoHighlight: true,
-    size: 'small' as const,
-  }
+// Parse a comma-separated filter string into an array for multi-select inputs.
+function toArray(val: string | undefined): string[] {
+  if (!val) return []
+  return val.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+// Typed multi-select autocomplete so TypeScript infers renderTags correctly.
+function MultiFilter({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: string[]
+  value: string[]
+  onChange: (vals: string[]) => void
+}) {
+  return (
+    <Autocomplete<string, true, false, false>
+      multiple
+      options={options}
+      value={value}
+      onChange={(_, vals) => onChange(vals)}
+      filterOptions={(opts, { inputValue }) =>
+        opts.filter((o) => o.toLowerCase().includes(inputValue.toLowerCase())).slice(0, 100)
+      }
+      clearOnEscape
+      autoHighlight
+      size="small"
+      limitTags={1}
+      disableCloseOnSelect
+      renderInput={(params) => <TextField {...params} label={label} fullWidth />}
+    />
+  )
 }
 
 export default function FilterSidebar({
@@ -72,10 +95,8 @@ export default function FilterSidebar({
   onReset,
   filterOptions,
 }: FilterSidebarProps) {
-  const handleAuto =
-    (key: keyof LocationHistoryFilters) =>
-    (_: React.SyntheticEvent, value: string | null) =>
-      onFilterChange(key, value ?? '')
+  const handleMulti = (key: keyof LocationHistoryFilters) => (vals: string[]) =>
+    onFilterChange(key, vals.join(','))
 
   return (
     <Box
@@ -135,6 +156,8 @@ export default function FilterSidebar({
       {/* Scrollable filter list */}
       <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 1.5 }}>
         <Stack spacing={1.5}>
+
+          {/* Date Seen — single select (period selector) */}
           <TextField
             select
             label="Date Seen"
@@ -150,83 +173,14 @@ export default function FilterSidebar({
             ))}
           </TextField>
 
-          <Autocomplete
-            {...makeAutoProps(filterOptions.geofence)}
-            value={filters.geofence || null}
-            onChange={handleAuto('geofence')}
-            renderInput={(params) => (
-              <TextField {...params} label="Geofence" fullWidth />
-            )}
-          />
-
-          <Autocomplete
-            {...makeAutoProps(filterOptions.subGeoZone)}
-            value={filters.subGeoZone || null}
-            onChange={handleAuto('subGeoZone')}
-            renderInput={(params) => (
-              <TextField {...params} label="Sub Geo Zone" fullWidth />
-            )}
-          />
-
-          <Autocomplete
-            {...makeAutoProps(filterOptions.floorLevel)}
-            value={filters.floorLevel || null}
-            onChange={handleAuto('floorLevel')}
-            renderInput={(params) => (
-              <TextField {...params} label="Floor Level" fullWidth />
-            )}
-          />
-
-          {/* Bounce Filter Interval — filters out stops shorter than N minutes */}
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, mb: 1, display: 'block' }}>
-              Bounce Filter Interval
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <TextField
-                type="number"
-                value={filters.minDurationMinutes}
-                onChange={(e) => {
-                  const v = Math.max(0, Math.min(60, Number(e.target.value)))
-                  onFilterChange('minDurationMinutes', String(v))
-                }}
-                slotProps={{ htmlInput: { min: 0, max: 60 } }}
-                size="small"
-                sx={{ width: 60, '& input': { textAlign: 'center', px: 0.5 } }}
-              />
-              <Slider
-                value={Number(filters.minDurationMinutes) || 0}
-                onChange={(_, val) => onFilterChange('minDurationMinutes', String(val))}
-                min={0}
-                max={60}
-                step={1}
-                size="small"
-                sx={{ flex: 1, color: 'primary.main' }}
-              />
-            </Box>
-            <Typography variant="caption" color="text.disabled" sx={{ mt: 0.25, display: 'block' }}>
-              Min stop duration (minutes)
-            </Typography>
-          </Box>
-
-          <Autocomplete
-            {...makeAutoProps(filterOptions.beaconId)}
-            value={filters.beaconId || null}
-            onChange={handleAuto('beaconId')}
-            renderInput={(params) => (
-              <TextField {...params} label="Beacon ID" fullWidth />
-            )}
-          />
-
-          {/* Asset Type toggle */}
+          {/* Asset Type — both options can be active simultaneously */}
           <Box>
             <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, mb: 0.75, display: 'block' }}>
               Asset Type
             </Typography>
             <ToggleButtonGroup
-              value={filters.assetType || null}
-              exclusive
-              onChange={(_, val: string | null) => onFilterChange('assetType', val ?? '')}
+              value={toArray(filters.assetType)}
+              onChange={(_, vals: string[]) => onFilterChange('assetType', vals.join(','))}
               fullWidth
               size="small"
               sx={{
@@ -262,23 +216,80 @@ export default function FilterSidebar({
             </ToggleButtonGroup>
           </Box>
 
-          <Autocomplete
-            {...makeAutoProps(filterOptions.vin)}
-            value={filters.vin || null}
-            onChange={handleAuto('vin')}
-            renderInput={(params) => (
-              <TextField {...params} label="VIN" fullWidth />
-            )}
+          <MultiFilter
+            label="Geofence"
+            options={filterOptions.geofence}
+            value={toArray(filters.geofence)}
+            onChange={handleMulti('geofence')}
           />
 
-          <Autocomplete
-            {...makeAutoProps(filterOptions.stockNumber)}
-            value={filters.stockNumber || null}
-            onChange={handleAuto('stockNumber')}
-            renderInput={(params) => (
-              <TextField {...params} label="Stock Number" fullWidth />
-            )}
+          <MultiFilter
+            label="Sub Geo Zone"
+            options={filterOptions.subGeoZone}
+            value={toArray(filters.subGeoZone)}
+            onChange={handleMulti('subGeoZone')}
           />
+
+          <MultiFilter
+            label="Floor Level"
+            options={filterOptions.floorLevel}
+            value={toArray(filters.floorLevel)}
+            onChange={handleMulti('floorLevel')}
+          />
+
+          {/* Bounce Filter Interval */}
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, mb: 1, display: 'block' }}>
+              Bounce Filter Interval
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <TextField
+                type="number"
+                value={filters.minDurationMinutes}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.min(60, Number(e.target.value)))
+                  onFilterChange('minDurationMinutes', String(v))
+                }}
+                slotProps={{ htmlInput: { min: 0, max: 60 } }}
+                size="small"
+                sx={{ width: 60, '& input': { textAlign: 'center', px: 0.5 } }}
+              />
+              <Slider
+                value={Number(filters.minDurationMinutes) || 0}
+                onChange={(_, val) => onFilterChange('minDurationMinutes', String(val))}
+                min={0}
+                max={60}
+                step={1}
+                size="small"
+                sx={{ flex: 1, color: 'primary.main' }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.disabled" sx={{ mt: 0.25, display: 'block' }}>
+              Min stop duration (minutes)
+            </Typography>
+          </Box>
+
+          <MultiFilter
+            label="Beacon ID"
+            options={filterOptions.beaconId}
+            value={toArray(filters.beaconId)}
+            onChange={handleMulti('beaconId')}
+          />
+
+          <MultiFilter
+            label="VIN"
+            options={filterOptions.vin}
+            value={toArray(filters.vin)}
+            onChange={handleMulti('vin')}
+          />
+
+          <MultiFilter
+            label="Stock Number"
+            options={filterOptions.stockNumber}
+            value={toArray(filters.stockNumber)}
+            onChange={handleMulti('stockNumber')}
+          />
+
         </Stack>
       </Box>
 

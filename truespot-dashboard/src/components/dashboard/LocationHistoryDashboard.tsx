@@ -42,7 +42,8 @@ export default function LocationHistoryDashboard({
   const [selectedStopIndex, setSelectedStopIndex] = useState<number | null>(null)
 
   const isAllDates = filters.dateSeen === 'all'
-  const hasAssetFilter = !!(filters.beaconId || filters.vin || filters.stockNumber)
+  // Trim needed because comma-separated multi-values are never empty after join
+  const hasAssetFilter = !!(filters.beaconId?.trim() || filters.vin?.trim() || filters.stockNumber?.trim())
 
   const baseFilters = {
     beaconId: filters.beaconId || undefined,

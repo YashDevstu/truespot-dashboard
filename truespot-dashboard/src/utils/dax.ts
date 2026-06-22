@@ -1,6 +1,41 @@
+// ── Shared primitives ─────────────────────────────────────────────────────────
+
+function sanitize(val: string): string {
+  return val.replace(/["\\]/g, '')
+}
+
+// Inline duration — MinuteDifference is a DAX measure and unreliable in FILTER()
+const DURATION_DAX = `DATEDIFF(AppendFinal[Last Seen-Local], AppendFinal[PreviousLastSeenNew_], MINUTE)`
+
+// Always-on data quality guards: exclude sold/archived assets, zero-duration
+// pings, and manual-entry placeholder records.
+const BASE_CONDITIONS = [
+  'AppendFinal[AssetStatus] <> "Sold"',
+  'AppendFinal[AssetStatus] <> "Archieved"',
+  `${DURATION_DAX} > 0`,
+  'AppendFinal[Make] <> "zz_manualentry"',
+]
+
+// Parse a comma-separated filter value (e.g. "VIN1,VIN2") into a trimmed array.
+// Single values work too: "VIN1" → ["VIN1"]. Empty / undefined → [].
+export function parseMultiValue(val: string | undefined): string[] {
+  if (!val) return []
+  return val.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+// DAX equality condition for 1 value, IN condition for 2+.
+function buildInCondition(column: string, values: string[]): string {
+  if (values.length === 1) return `${column} = "${sanitize(values[0])}"`
+  return `${column} IN {${values.map((v) => `"${sanitize(v)}"`).join(', ')}}`
+}
+
+// ── Measure query ──────────────────────────────────────────────────────────────
+
 export function buildMeasureQuery(measure: string): string {
   return `EVALUATE ROW("Value", ${measure})`
 }
+
+// ── Distinct value queries ─────────────────────────────────────────────────────
 
 // Returns all distinct non-blank values for a single DAX column.
 // Response rows contain one key "[value]" per row.
@@ -11,13 +46,17 @@ export function buildDistinctQuery(tableColumn: string): string {
 // Same as buildDistinctQuery but pre-filters the table so only values that
 // exist under the currently active filters are returned — Power BI cross-filter behaviour.
 export function buildDistinctWithFiltersQuery(tableColumn: string, conditions: string[]): string {
-  const source = conditions.length > 0
-    ? `FILTER(AppendFinal, ${conditions.join(' && ')})`
-    : 'AppendFinal'
+  const source =
+    conditions.length > 0
+      ? `FILTER(AppendFinal, ${conditions.join(' && ')})`
+      : 'AppendFinal'
   return `EVALUATE SELECTCOLUMNS(FILTER(DISTINCT(SELECTCOLUMNS(${source}, "value", ${tableColumn})), NOT ISBLANK([value])), "value", [value])`
 }
 
-// Active filter values passed from the UI.
+// ── Cascading filter conditions ────────────────────────────────────────────────
+
+// Active filter values passed from the UI (all fields accept comma-separated
+// multi-values, e.g. vin = "VIN1,VIN2").
 export interface ActiveFilters {
   dateSeen?: string
   geofence?: string
@@ -29,27 +68,61 @@ export interface ActiveFilters {
   stockNumber?: string
 }
 
-// Maps each filter key to the DAX condition that applies it.
-// excludeKey: the column whose own filter is intentionally omitted so its
-// dropdown still shows all values compatible with the other selections.
-export function buildCascadeConditions(filters: ActiveFilters, excludeKey?: keyof ActiveFilters): string[] {
+// Builds the FILTER() conditions for a cascade distinct query.
+// excludeKey: omit this column's own filter so the dropdown still shows all
+//   compatible options rather than collapsing to a single selected value.
+export function buildCascadeConditions(
+  filters: ActiveFilters,
+  excludeKey?: keyof ActiveFilters
+): string[] {
   const conditions = [...BASE_CONDITIONS]
-  const map: Record<keyof ActiveFilters, (v: string) => string> = {
-    dateSeen:    (v) => `AppendFinal[LastSeenDateDefault] = "${sanitize(v)}"`,
-    geofence:    (v) => `AppendFinal[Geofence] = "${sanitize(v)}"`,
-    subGeoZone:  (v) => `AppendFinal[SubGeoZone] = "${sanitize(v)}"`,
-    floorLevel:  (v) => `AppendFinal[Floor Level] = "${sanitize(v)}"`,
-    beaconId:    (v) => `AppendFinal[BeaconId] = "${sanitize(v)}"`,
-    assetType:   (v) => `AppendFinal[AssetType] = "${sanitize(v)}"`,
-    vin:         (v) => `AppendFinal[VIN Updated] = "${sanitize(v)}"`,
-    stockNumber: (v) => `AppendFinal[StockNumber] = "${sanitize(v)}"`,
+
+  const apply = (key: keyof ActiveFilters, column: string) => {
+    if (key === excludeKey) return
+    const vals = parseMultiValue(filters[key])
+    if (vals.length === 0 || (key === 'dateSeen' && vals[0] === 'all')) return
+    if (key === 'dateSeen') {
+      // dateSeen is always single-value (period selector)
+      conditions.push(`AppendFinal[LastSeenDateDefault] = "${sanitize(vals[0])}"`)
+    } else {
+      conditions.push(buildInCondition(column, vals))
+    }
   }
-  for (const [key, val] of Object.entries(filters) as [keyof ActiveFilters, string][]) {
-    if (key === excludeKey || !val || val === 'all') continue
-    conditions.push(map[key](val))
-  }
+
+  apply('dateSeen',    'AppendFinal[LastSeenDateDefault]')
+  apply('geofence',    'AppendFinal[Geofence]')
+  apply('subGeoZone',  'AppendFinal[SubGeoZone]')
+  apply('floorLevel',  'AppendFinal[Floor Level]')
+  apply('beaconId',    'AppendFinal[BeaconId]')
+  apply('assetType',   'AppendFinal[AssetType]')
+  apply('vin',         'AppendFinal[VIN Updated]')
+  apply('stockNumber', 'AppendFinal[StockNumber]')
+
   return conditions
 }
+
+// ── Batch distinct query (N columns → 1 API call) ─────────────────────────────
+
+// Builds a single DAX string containing one EVALUATE per filter column.
+// The Power BI Execute Queries API returns each EVALUATE as a separate table
+// in results[0].tables[i], so one round-trip fetches all filter option lists.
+// Each column's EVALUATE excludes that column's own active filter — cascading
+// without collapsing the dropdown to a single item.
+export function buildBatchDistinctQuery(
+  entries: [string, string][],  // [filterKey, DAX tableColumn]
+  activeFilters: ActiveFilters
+): { dax: string; keys: string[] } {
+  const parts: string[] = []
+  const keys: string[] = []
+  for (const [key, col] of entries) {
+    const conds = buildCascadeConditions(activeFilters, key as keyof ActiveFilters)
+    parts.push(buildDistinctWithFiltersQuery(col, conds))
+    keys.push(key)
+  }
+  return { dax: parts.join('\n'), keys }
+}
+
+// ── Time chunks ────────────────────────────────────────────────────────────────
 
 export interface TimeChunk {
   startFraction: number // fraction of a day: 0 = midnight, 0.25 = 6am, 0.5 = noon, 0.75 = 6pm
@@ -64,6 +137,8 @@ export const DAY_TIME_CHUNKS: TimeChunk[] = [
   { startFraction: 0.75, endFraction: 1    }, // 18:00 – 24:00
 ]
 
+// ── Location history query ─────────────────────────────────────────────────────
+
 interface LocationHistoryFilters {
   dateSeen?: string
   timeChunk?: TimeChunk
@@ -77,59 +152,39 @@ interface LocationHistoryFilters {
   minDurationMinutes?: number
 }
 
-function sanitize(val: string): string {
-  return val.replace(/["\\]/g, '')
-}
-
-// Inline duration expression — MinuteDifference is a measure so it can't be used
-// reliably in FILTER(); replicate the formula directly with column references.
-const DURATION_DAX = `DATEDIFF(AppendFinal[Last Seen-Local], AppendFinal[PreviousLastSeenNew_], MINUTE)`
-
-// These conditions are always applied — never show sold/archived assets,
-// zero-duration pings, or manual-entry placeholder records.
-const BASE_CONDITIONS = [
-  'AppendFinal[AssetStatus] <> "Sold"',
-  'AppendFinal[AssetStatus] <> "Archieved"',
-  `${DURATION_DAX} > 0`,
-  'AppendFinal[Make] <> "zz_manualentry"',
-]
-
 export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}): string {
   const minDur = filters.minDurationMinutes ?? 0
   const conditions: string[] = [...BASE_CONDITIONS]
 
   if (filters.dateSeen) {
-    // Filter on the pre-computed date-label column — same field the Power BI report uses.
-    // Values: "Today", "06/21/26", "06/20/26", etc.  No timezone ambiguity.
     conditions.push(`AppendFinal[LastSeenDateDefault] = "${sanitize(filters.dateSeen)}"`)
-
     if (filters.timeChunk) {
-      // Split the day into 6-hour windows using the fractional time-of-day of the
-      // arrival timestamp so each chunk stays under the 15 MB API response limit.
       conditions.push(`MOD(AppendFinal[Last Seen-Local], 1) >= ${filters.timeChunk.startFraction}`)
       conditions.push(`MOD(AppendFinal[Last Seen-Local], 1) < ${filters.timeChunk.endFraction}`)
     }
   }
 
-  if (minDur > 0) {
-    conditions.push(`${DURATION_DAX} >= ${minDur}`)
+  if (minDur > 0) conditions.push(`${DURATION_DAX} >= ${minDur}`)
+
+  // Each filter field accepts comma-separated multi-values → DAX IN condition
+  const addFilter = (val: string | undefined, column: string) => {
+    const vals = parseMultiValue(val)
+    if (vals.length > 0) conditions.push(buildInCondition(column, vals))
   }
 
-  if (filters.beaconId)    conditions.push(`AppendFinal[BeaconId] = "${sanitize(filters.beaconId)}"`)
-  if (filters.geofence)    conditions.push(`AppendFinal[Geofence] = "${sanitize(filters.geofence)}"`)
-  if (filters.subGeoZone)  conditions.push(`AppendFinal[SubGeoZone] = "${sanitize(filters.subGeoZone)}"`)
-  if (filters.floorLevel)  conditions.push(`AppendFinal[Floor Level] = "${sanitize(filters.floorLevel)}"`)
-  if (filters.vin)         conditions.push(`AppendFinal[VIN Updated] = "${sanitize(filters.vin)}"`)
-  if (filters.stockNumber) conditions.push(`AppendFinal[StockNumber] = "${sanitize(filters.stockNumber)}"`)
-  if (filters.assetType)   conditions.push(`AppendFinal[AssetType] = "${sanitize(filters.assetType)}"`)
+  addFilter(filters.beaconId,    'AppendFinal[BeaconId]')
+  addFilter(filters.geofence,    'AppendFinal[Geofence]')
+  addFilter(filters.subGeoZone,  'AppendFinal[SubGeoZone]')
+  addFilter(filters.floorLevel,  'AppendFinal[Floor Level]')
+  addFilter(filters.vin,         'AppendFinal[VIN Updated]')
+  addFilter(filters.stockNumber, 'AppendFinal[StockNumber]')
+  addFilter(filters.assetType,   'AppendFinal[AssetType]')
 
   const sourceTable =
     conditions.length > 0
       ? `FILTER(\n    AppendFinal,\n    ${conditions.join('\n    && ')}\n  )`
       : `AppendFinal`
 
-  // No ORDER BY — sorting 49K rows per chunk server-side adds latency.
-  // AG Grid handles client-side sorting via ColDef.sort.
   return `EVALUATE
 SELECTCOLUMNS(
   ${sourceTable},
