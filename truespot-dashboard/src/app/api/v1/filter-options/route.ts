@@ -2,18 +2,16 @@ export const dynamic = 'force-dynamic'
 
 import type { NextRequest } from 'next/server'
 import { getClientConfig } from '@/services/config/clientConfigService'
-import { executeBatchQuery } from '@/services/powerbi/queryService'
-import { buildBatchDistinctQuery, type ActiveFilters } from '@/utils/dax'
+import { executeQuery } from '@/services/powerbi/queryService'
+import { buildDistinctWithFiltersQuery, buildCascadeConditions, type ActiveFilters } from '@/utils/dax'
 import { CACHE_TTL_LOCATION_HISTORY } from '@/constants/cache'
 
-// GET /api/v1/filter-options?clientId=X&dashboardKey=Y&panelId=Z[&vin=A,B&geofence=X&...]
+// GET /api/v1/filter-options?clientId=X&dashboardKey=Y&panelId=Z[&geofence=X&vin=A,B&...]
 //
-// Batches all filter-column DISTINCT queries into a SINGLE Power BI API call.
-// One DAX string contains one EVALUATE per column; the API returns each result
-// as results[0].tables[i]. Reduces N round-trips to 1 regardless of column count.
-//
-// Each EVALUATE excludes that column's own active filter (cascade behaviour) so
-// the dropdown shows all compatible options, not just the already-selected value.
+// Each filter column runs its own parallel DISTINCT query so each dropdown
+// only shows values compatible with the currently active selections (cascade).
+// Each column's query excludes that column's OWN active filter so the dropdown
+// never collapses to a single item — matching Power BI cross-filter behaviour.
 // Multi-value filters are comma-separated: vin=VIN1,VIN2 → DAX IN {"VIN1","VIN2"}.
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -58,17 +56,23 @@ export async function GET(request: NextRequest) {
   }
 
   const hasActiveFilters = Object.values(activeFilters).some(Boolean)
-  // Short TTL when filters are active; long TTL for the full uncascaded lists.
+  // Short TTL when filters are active (results vary per combination).
   const ttl = hasActiveFilters ? 60 : CACHE_TTL_LOCATION_HISTORY
 
-  const { dax, keys } = buildBatchDistinctQuery(columnEntries, activeFilters)
-
   try {
-    const allTables = await executeBatchQuery(dashboard.dataset_name, dax, ttl)
+    // Each column runs its own parallel DISTINCT query.
+    // The cascade conditions for each column include all OTHER active filters
+    // but exclude that column's own filter (so the dropdown isn't locked to 1 item).
+    const results = await Promise.all(
+      columnEntries.map(([key, col]) => {
+        const conds = buildCascadeConditions(activeFilters, key as keyof ActiveFilters)
+        return executeQuery(dashboard.dataset_name, buildDistinctWithFiltersQuery(col, conds), ttl)
+      })
+    )
 
     const options: Record<string, string[]> = {}
-    keys.forEach((key, i) => {
-      options[key] = (allTables[i] ?? [])
+    columnEntries.forEach(([key], i) => {
+      options[key] = results[i]
         .map((row) => String(row['[value]'] ?? ''))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b))
