@@ -38,12 +38,16 @@ function sanitize(val: string): string {
   return val.replace(/["\\]/g, '')
 }
 
+// Inline duration expression — MinuteDifference is a measure so it can't be used
+// reliably in FILTER(); replicate the formula directly with column references.
+const DURATION_DAX = `DATEDIFF(AppendFinal[Last Seen-Local], AppendFinal[PreviousLastSeenNew_], MINUTE)`
+
 // These conditions are always applied — never show sold/archived assets,
 // zero-duration pings, or manual-entry placeholder records.
 const BASE_CONDITIONS = [
   'AppendFinal[AssetStatus] <> "Sold"',
   'AppendFinal[AssetStatus] <> "Archieved"',
-  'AppendFinal[MinuteDifference] <> 0',
+  `${DURATION_DAX} > 0`,
   'AppendFinal[Make] <> "zz_manualentry"',
 ]
 
@@ -65,7 +69,7 @@ export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}):
   }
 
   if (minDur > 0) {
-    conditions.push(`AppendFinal[MinuteDifference] >= ${minDur}`)
+    conditions.push(`${DURATION_DAX} >= ${minDur}`)
   }
 
   if (filters.beaconId)    conditions.push(`AppendFinal[BeaconId] = "${sanitize(filters.beaconId)}"`)
@@ -90,7 +94,7 @@ SELECTCOLUMNS(
   "SubGeoZone", AppendFinal[SubGeoZone],
   "StartTime", AppendFinal[Last Seen-Local],
   "EndTime", AppendFinal[PreviousLastSeenNew_],
-  "MinutesDiff", AppendFinal[MinuteDifference],
+  "MinutesDiff", DATEDIFF(AppendFinal[Last Seen-Local], AppendFinal[PreviousLastSeenNew_], MINUTE),
   "BeaconId", AppendFinal[BeaconId],
   "VIN", AppendFinal[VIN Updated],
   "StockNumber", AppendFinal[StockNumber],
