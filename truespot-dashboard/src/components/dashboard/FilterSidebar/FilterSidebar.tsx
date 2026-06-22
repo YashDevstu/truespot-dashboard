@@ -101,7 +101,7 @@ export default function FilterSidebar({
         }}
       >
         <Image
-          src="/images/logo.png"
+          src="/images/logo.jpg"
           alt="TrueSpot"
           width={140}
           height={36}
