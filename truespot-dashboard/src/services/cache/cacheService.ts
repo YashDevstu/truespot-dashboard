@@ -63,7 +63,8 @@ const SWR_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
 export async function getOrSet<T>(
   key: string,
   ttlSeconds: number,
-  fetcher: () => Promise<T>
+  fetcher: () => Promise<T>,
+  emptyTtlSeconds?: number
 ): Promise<T> {
   const cached = await cacheRead<T>(key)
 
@@ -86,7 +87,11 @@ export async function getOrSet<T>(
 
   const promise = fetcher()
     .then(async (value) => {
-      await cacheWrite(key, value, ttlSeconds)
+      const effectiveTtl =
+        emptyTtlSeconds !== undefined && Array.isArray(value) && value.length === 0
+          ? emptyTtlSeconds
+          : ttlSeconds
+      await cacheWrite(key, value, effectiveTtl)
       inFlight.delete(key)
       return value
     })

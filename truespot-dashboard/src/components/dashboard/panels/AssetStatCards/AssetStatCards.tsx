@@ -1,5 +1,6 @@
 'use client'
 import { useMemo } from 'react'
+import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Paper from '@mui/material/Paper'
@@ -96,7 +97,7 @@ export default function AssetStatCards({ rows, datePeriod }: AssetStatCardsProps
   const stats = useMemo(() => {
     if (rows.length === 0) return null
 
-    const totalStops = rows.length
+    const totalStops = mergeConsecutiveStops(parsePings(rows)).length
 
     const geofenceSet = new Set<string>()
 
@@ -140,7 +141,7 @@ export default function AssetStatCards({ rows, datePeriod }: AssetStatCardsProps
         <StatCard
           title="Stops"
           value={stats.totalStops.toLocaleString()}
-          subtitle={`subzone visits ${datePeriod}`}
+          subtitle={`location stops ${datePeriod}`}
         />
         <StatCard
           title="Geofences"

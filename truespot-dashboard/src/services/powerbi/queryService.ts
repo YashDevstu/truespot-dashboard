@@ -5,6 +5,7 @@ import { ExecuteQueriesResponseSchema } from '@/types/powerbi'
 import { getAccessToken } from '@/services/auth/msalService'
 import { resolveDatasetId } from '@/services/powerbi/datasetResolver'
 import { getOrSet } from '@/services/cache/cacheService'
+import { CACHE_TTL_EMPTY_ROWS } from '@/constants/cache'
 import { withRetry } from '@/utils/retry'
 
 async function callPowerBI(
@@ -55,7 +56,7 @@ export async function executeQuery(
   return getOrSet(`query:${datasetName}:${daxQuery}`, ttlSeconds, async () => {
     const tables = await callPowerBI(datasetName, daxQuery)
     return tables[0] ?? []
-  })
+  }, CACHE_TTL_EMPTY_ROWS)
 }
 
 // Multiple EVALUATEs in one API call — returns one row-array per EVALUATE.
