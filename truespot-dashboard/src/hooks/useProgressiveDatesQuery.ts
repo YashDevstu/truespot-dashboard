@@ -17,10 +17,11 @@ interface UseProgressiveDatesQueryParams {
   dashboardKey: string
   panelId: string
   baseFilters?: BaseFilters
+  dateLabels?: string[]  // override to fetch only specific dates; omit for all 8
   enabled?: boolean
 }
 
-function buildDateLabels(): string[] {
+export function buildAllDateLabels(): string[] {
   const labels: string[] = ['Today']
   for (let i = 1; i <= 7; i++) {
     const d = new Date()
@@ -38,6 +39,7 @@ export function useProgressiveDatesQuery({
   dashboardKey,
   panelId,
   baseFilters,
+  dateLabels: dateLabelsOverride,
   enabled = true,
 }: UseProgressiveDatesQueryParams) {
   // Store per-date row arrays in a ref to avoid the spread-accumulation pattern
@@ -52,7 +54,9 @@ export function useProgressiveDatesQuery({
   const [errors, setErrors] = useState(0)
 
   const filterKey = JSON.stringify(baseFilters ?? {})
-  const dateLabels = buildDateLabels()
+  // Stable key so the effect re-fires when the selected date set changes
+  const dateLabelsKey = JSON.stringify(dateLabelsOverride ?? null)
+  const dateLabels = dateLabelsOverride ?? buildAllDateLabels()
   const totalDates = dateLabels.length
 
   useEffect(() => {
@@ -108,7 +112,7 @@ export function useProgressiveDatesQuery({
       controllers.forEach((c) => c.abort())
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, dashboardKey, panelId, filterKey, enabled])
+  }, [clientId, dashboardKey, panelId, filterKey, dateLabelsKey, enabled])
 
   // Recomputes only when loadedDates changes (a date completed).
   // flat() creates one combined array from the per-date slices stored in the ref.

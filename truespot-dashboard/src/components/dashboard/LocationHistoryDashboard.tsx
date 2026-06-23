@@ -42,7 +42,16 @@ export default function LocationHistoryDashboard({
   const [refreshToken, setRefreshToken] = useState(0)
   const [selectedStopIndex, setSelectedStopIndex] = useState<number | null>(null)
 
-  const isAllDates = filters.dateSeen === 'all'
+  // Parse comma-separated date selection; empty / 'all' = show all 8 dates
+  const selectedDates: string[] | null = (() => {
+    const raw = filters.dateSeen?.trim()
+    if (!raw || raw === 'all') return null
+    return raw.split(',').map((s) => s.trim()).filter(Boolean)
+  })()
+  const isAllDates = selectedDates === null
+  const isMultiDate = selectedDates !== null && selectedDates.length > 1
+  const isSingleDate = selectedDates !== null && selectedDates.length === 1
+
   // Trim needed because comma-separated multi-values are never empty after join
   const hasAssetFilter = !!(filters.beaconId?.trim() || filters.vin?.trim() || filters.stockNumber?.trim())
 
@@ -58,8 +67,11 @@ export default function LocationHistoryDashboard({
     _r: refreshToken,
   }
 
-  // ── Three query modes (see original comments) ─────────────────────────────
-  const useProgressiveMode = isAllDates && !hasAssetFilter
+  // ── Query modes ────────────────────────────────────────────────────────────
+  // Progressive (parallel per-date fetches) when:
+  //   • all dates + no asset filter (avoids single 700K-row query)
+  //   • multiple specific dates selected (any filter state)
+  const useProgressiveMode = (isAllDates && !hasAssetFilter) || isMultiDate
 
   const singleQuery = usePanelQuery({
     clientId,
@@ -67,7 +79,7 @@ export default function LocationHistoryDashboard({
     panelId: 'location-history-data',
     filters: {
       ...baseFilters,
-      dateSeen: isAllDates ? 'all' : (filters.dateSeen || undefined),
+      dateSeen: isAllDates ? 'all' : isSingleDate ? selectedDates![0] : undefined,
     },
     enabled: !useProgressiveMode,
   })
@@ -77,6 +89,9 @@ export default function LocationHistoryDashboard({
     dashboardKey,
     panelId: 'location-history-data',
     baseFilters,
+    // For all-dates mode, pass no override (hook uses full 8-day list).
+    // For multi-date selection, pass only the chosen dates.
+    dateLabels: isMultiDate ? selectedDates! : undefined,
     enabled: useProgressiveMode,
   })
 
@@ -111,11 +126,16 @@ export default function LocationHistoryDashboard({
   const tableLoading = useProgressiveMode ? progressiveQuery.loading : singleQuery.loading
   const tableError = useProgressiveMode ? null : singleQuery.error
 
-  const dateLabel = filters.dateSeen === 'all' || !filters.dateSeen ? 'All Dates' : filters.dateSeen
+  const dateLabel = isAllDates
+    ? 'All Dates'
+    : isSingleDate
+    ? selectedDates![0]
+    : `${selectedDates!.length} dates selected`
 
   const subtitleText = (() => {
     if (useProgressiveMode && progressiveQuery.loading) {
-      return `Loading ${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates · ${tableRows.length.toLocaleString()} records so far…`
+      const ctx = isMultiDate ? `${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} selected dates` : `${progressiveQuery.loadedDates}/${progressiveQuery.totalDates} dates`
+      return `Loading ${ctx} · ${tableRows.length.toLocaleString()} records so far…`
     }
     if (tableLoading) return `${dateLabel} · Loading…`
     return `${dateLabel} · ${tableRows.length.toLocaleString()} records`
@@ -151,25 +171,27 @@ export default function LocationHistoryDashboard({
   }, [singleDayRows])
 
   // Caption text for AssetStatCards
-  const datePeriod =
-    !filters.dateSeen || filters.dateSeen === 'Today'
-      ? 'today'
-      : filters.dateSeen === 'all'
-      ? 'last 8 days'
-      : `on ${filters.dateSeen}`
+  const datePeriod = isAllDates
+    ? 'last 8 days'
+    : isSingleDate && selectedDates![0] === 'Today'
+    ? 'today'
+    : isSingleDate
+    ? `on ${selectedDates![0]}`
+    : `over ${selectedDates!.length} dates`
 
   const singleDayPeriod = datePeriod
 
   // Label above the timeline bar
-  const journeyDateLabel =
-    filters.dateSeen === 'Today'
-      ? "TODAY'S JOURNEY"
-      : isAllDates
-      ? 'ALL DATES JOURNEY'
-      : `${filters.dateSeen} JOURNEY`
+  const journeyDateLabel = isAllDates
+    ? 'ALL DATES JOURNEY'
+    : isSingleDate && selectedDates![0] === 'Today'
+    ? "TODAY'S JOURNEY"
+    : isSingleDate
+    ? `${selectedDates![0]} JOURNEY`
+    : `${selectedDates!.length} DATES JOURNEY`
 
-  // Show Live badge when today's data is included (Today filter or All Dates which includes today)
-  const showLive = filters.dateSeen === 'Today' || filters.dateSeen === 'all'
+  // Show Live badge when Today's data is included
+  const showLive = isAllDates || (selectedDates?.includes('Today') ?? false)
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'flex-start' }}>

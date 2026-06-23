@@ -3,7 +3,6 @@ import Image from 'next/image'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
-import MenuItem from '@mui/material/MenuItem'
 import Autocomplete from '@mui/material/Autocomplete'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
@@ -16,24 +15,20 @@ import DirectionsCarOutlinedIcon from '@mui/icons-material/DirectionsCarOutlined
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 import type { LocationHistoryFilters } from '@/hooks/useFilters'
 
-function buildDateOptions() {
-  const options: { value: string; label: string }[] = [
-    { value: 'all', label: 'All Dates' },
-    { value: 'Today', label: 'Today' },
-  ]
+function buildDateLabels(): string[] {
+  const labels = ['Today']
   for (let i = 1; i <= 7; i++) {
     const d = new Date()
     d.setDate(d.getDate() - i)
     const mm = String(d.getMonth() + 1).padStart(2, '0')
     const dd = String(d.getDate()).padStart(2, '0')
     const yy = String(d.getFullYear()).slice(-2)
-    const label = `${mm}/${dd}/${yy}`
-    options.push({ value: label, label })
+    labels.push(`${mm}/${dd}/${yy}`)
   }
-  return options
+  return labels
 }
 
-const DATE_OPTIONS = buildDateOptions()
+const DATE_LABELS = buildDateLabels()
 
 export interface FilterOptions {
   geofence: string[]
@@ -64,11 +59,13 @@ function MultiFilter({
   options,
   value,
   onChange,
+  placeholder,
 }: {
   label: string
   options: string[]
   value: string[]
   onChange: (vals: string[]) => void
+  placeholder?: string
 }) {
   return (
     <Autocomplete<string, true, false, false>
@@ -84,7 +81,14 @@ function MultiFilter({
       size="small"
       limitTags={1}
       disableCloseOnSelect
-      renderInput={(params) => <TextField {...params} label={label} fullWidth />}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label={label}
+          fullWidth
+          placeholder={value.length === 0 ? placeholder : undefined}
+        />
+      )}
     />
   )
 }
@@ -157,21 +161,14 @@ export default function FilterSidebar({
       <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 1.5 }}>
         <Stack spacing={1.5}>
 
-          {/* Date Seen — single select (period selector) */}
-          <TextField
-            select
+          {/* Date Seen — multi-select; empty = All Dates */}
+          <MultiFilter
             label="Date Seen"
-            value={filters.dateSeen}
-            onChange={(e) => onFilterChange('dateSeen', e.target.value)}
-            fullWidth
-            size="small"
-          >
-            {DATE_OPTIONS.map((o) => (
-              <MenuItem key={o.value} value={o.value}>
-                {o.label}
-              </MenuItem>
-            ))}
-          </TextField>
+            options={DATE_LABELS}
+            value={toArray(filters.dateSeen)}
+            onChange={(vals) => onFilterChange('dateSeen', vals.join(','))}
+            placeholder="All dates (8 days)"
+          />
 
           {/* Asset Type — both options can be active simultaneously */}
           <Box>
