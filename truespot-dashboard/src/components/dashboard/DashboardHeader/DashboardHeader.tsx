@@ -5,12 +5,16 @@ import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import ExportButton from '@/components/dashboard/ExportButton'
 
 interface DashboardHeaderProps {
   clientName: string
   dashboardLabel: string
   lastRefresh?: string
   onRefresh?: () => void
+  onExportPdf?: () => Promise<void>
+  onExportExcel?: () => Promise<void>
+  exportDisabled?: boolean
 }
 
 export default function DashboardHeader({
@@ -18,6 +22,9 @@ export default function DashboardHeader({
   dashboardLabel,
   lastRefresh,
   onRefresh,
+  onExportPdf,
+  onExportExcel,
+  exportDisabled,
 }: DashboardHeaderProps) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
@@ -33,13 +40,22 @@ export default function DashboardHeader({
         />
       </Box>
 
-      {/* Last refresh + refresh button */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexShrink: 0 }}>
+      {/* Controls: last refresh + export + refresh */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexShrink: 0 }}>
         {lastRefresh && (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="text.secondary" sx={{ mr: 0.5 }}>
             Last refresh: {lastRefresh}
           </Typography>
         )}
+
+        {(onExportPdf || onExportExcel) && (
+          <ExportButton
+            onExportPdf={onExportPdf ?? (() => Promise.resolve())}
+            onExportExcel={onExportExcel ?? (() => Promise.resolve())}
+            disabled={exportDisabled}
+          />
+        )}
+
         {onRefresh && (
           <Tooltip title="Refresh data">
             <IconButton onClick={onRefresh} size="small" sx={{ color: 'text.secondary' }}>

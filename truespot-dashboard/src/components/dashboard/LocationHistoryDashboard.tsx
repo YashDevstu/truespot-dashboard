@@ -181,6 +181,16 @@ export default function LocationHistoryDashboard({
 
   const singleDayPeriod = datePeriod
 
+  const handleExportPdf = async () => {
+    const { exportPdf } = await import('@/utils/exportReport')
+    await exportPdf({ clientName: displayName, dashboardLabel, dateLabel, filters, tableRows, selectedAsset: selectedAsset || undefined, datePeriod })
+  }
+
+  const handleExportExcel = async () => {
+    const { exportExcel } = await import('@/utils/exportReport')
+    await exportExcel({ clientName: displayName, dashboardLabel, dateLabel, filters, tableRows, selectedAsset: selectedAsset || undefined, datePeriod })
+  }
+
   // Label above the timeline bar
   const journeyDateLabel = isAllDates
     ? 'ALL DATES JOURNEY'
@@ -225,6 +235,9 @@ export default function LocationHistoryDashboard({
             dashboardLabel={dashboardLabel}
             lastRefresh={lastRefreshValue}
             onRefresh={handleRefresh}
+            onExportPdf={handleExportPdf}
+            onExportExcel={handleExportExcel}
+            exportDisabled={tableLoading && tableRows.length === 0}
           />
 
           {/* ── Asset selected: stat cards + timeline + locations table ─── */}
