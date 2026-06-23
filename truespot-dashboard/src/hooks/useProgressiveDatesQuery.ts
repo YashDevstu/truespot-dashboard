@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useReducer, useEffect, useRef } from 'react'
 
 interface BaseFilters {
   beaconId?: string
@@ -21,6 +21,37 @@ interface UseProgressiveDatesQueryParams {
   enabled?: boolean
 }
 
+// ── state machine ─────────────────────────────────────────────────────────────
+
+interface QueryState {
+  rows: Record<string, unknown>[]
+  loadedDates: number
+  errors: number
+}
+
+type QueryAction =
+  | { type: 'reset' }
+  | { type: 'date_success'; newRows: Record<string, unknown>[] }
+  | { type: 'date_empty' }
+  | { type: 'date_error' }
+
+const INITIAL: QueryState = { rows: [], loadedDates: 0, errors: 0 }
+
+function queryReducer(state: QueryState, action: QueryAction): QueryState {
+  switch (action.type) {
+    case 'reset':
+      return INITIAL
+    case 'date_success':
+      return { ...state, rows: state.rows.concat(action.newRows), loadedDates: state.loadedDates + 1 }
+    case 'date_empty':
+      return { ...state, loadedDates: state.loadedDates + 1 }
+    case 'date_error':
+      return { ...state, loadedDates: state.loadedDates + 1, errors: state.errors + 1 }
+  }
+}
+
+// ── date label helpers ────────────────────────────────────────────────────────
+
 export function buildAllDateLabels(): string[] {
   const labels: string[] = ['Today']
   for (let i = 1; i <= 7; i++) {
@@ -34,6 +65,8 @@ export function buildAllDateLabels(): string[] {
   return labels
 }
 
+// ── hook ──────────────────────────────────────────────────────────────────────
+
 export function useProgressiveDatesQuery({
   clientId,
   dashboardKey,
@@ -42,37 +75,23 @@ export function useProgressiveDatesQuery({
   dateLabels: dateLabelsOverride,
   enabled = true,
 }: UseProgressiveDatesQueryParams) {
-  // Store per-date row arrays in a ref to avoid the spread-accumulation pattern
-  // that previously created increasingly large intermediate arrays on every date
-  // response: [100K], [200K], [300K]... [700K] = 2.8M total object allocations.
-  // With ref storage, each date gets its own fixed-size slice; the final flat()
-  // runs once per date completion instead of re-allocating the whole dataset.
-  const rowsByDateRef = useRef<Record<string, unknown>[][]>([])
-
-  // Counter-only state: only re-renders when a date completes, not on row append.
-  const [loadedDates, setLoadedDates] = useState(0)
-  const [errors, setErrors] = useState(0)
+  const [state, dispatch] = useReducer(queryReducer, INITIAL)
 
   const filterKey = JSON.stringify(baseFilters ?? {})
-  // Stable key so the effect re-fires when the selected date set changes
   const dateLabelsKey = JSON.stringify(dateLabelsOverride ?? null)
   const dateLabels = dateLabelsOverride ?? buildAllDateLabels()
   const totalDates = dateLabels.length
 
+  // Track the current fetch session so stale responses from a previous run
+  // don't land in the current state.
+  const sessionRef = useRef(0)
+
   useEffect(() => {
-    if (!enabled) {
-      rowsByDateRef.current = []
-      setLoadedDates(0)
-      setErrors(0)
-      return
-    }
+    dispatch({ type: 'reset' })
 
-    // Reset — clearing the ref is O(1) regardless of how many rows were stored
-    rowsByDateRef.current = []
-    setLoadedDates(0)
-    setErrors(0)
+    if (!enabled) return
 
-    let cancelled = false
+    const session = ++sessionRef.current
     const controllers = dateLabels.map(() => new AbortController())
 
     dateLabels.forEach((dateSeen, i) => {
@@ -89,44 +108,34 @@ export function useProgressiveDatesQuery({
       })
         .then((r) => r.json())
         .then((json: { rows?: Record<string, unknown>[]; error?: string }) => {
-          if (cancelled) return
+          if (sessionRef.current !== session) return
           if (json.rows && json.rows.length > 0) {
-            // Push the per-date slice into the ref; no spreading of prior data
-            rowsByDateRef.current.push(json.rows)
+            dispatch({ type: 'date_success', newRows: json.rows })
+          } else {
+            dispatch({ type: 'date_empty' })
           }
-          // Incrementing the counter is the only thing that triggers a re-render.
-          // The memo below re-flattens at that point — one flat() instead of
-          // N allocations of ever-growing arrays.
-          setLoadedDates((prev) => prev + 1)
         })
         .catch((err: Error) => {
-          if (!cancelled && err.name !== 'AbortError') {
-            setErrors((prev) => prev + 1)
-            setLoadedDates((prev) => prev + 1)
+          if (sessionRef.current === session && err.name !== 'AbortError') {
+            dispatch({ type: 'date_error' })
           }
         })
     })
 
     return () => {
-      cancelled = true
+      // Write-only: advance past this session so in-flight callbacks are ignored.
+      // We never read sessionRef.current here — avoids the stale-ref-in-cleanup warning.
+      sessionRef.current = session + 1
       controllers.forEach((c) => c.abort())
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, dashboardKey, panelId, filterKey, dateLabelsKey, enabled])
 
-  // Recomputes only when loadedDates changes (a date completed).
-  // flat() creates one combined array from the per-date slices stored in the ref.
-  const rows = useMemo(
-    () => rowsByDateRef.current.flat(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loadedDates]
-  )
-
   return {
-    rows,
-    loading: loadedDates < totalDates,
-    loadedDates,
+    rows: state.rows,
+    loading: state.loadedDates < totalDates,
+    loadedDates: state.loadedDates,
     totalDates,
-    errors,
+    errors: state.errors,
   }
 }
