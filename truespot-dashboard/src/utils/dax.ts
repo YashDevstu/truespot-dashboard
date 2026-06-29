@@ -150,6 +150,8 @@ interface LocationHistoryFilters {
   stockNumber?: string
   assetType?: string
   minDurationMinutes?: number
+  limit?: number   // when set: bypasses time chunks, wraps result in TOPN
+  cursor?: number  // DAX datetime serial — if set, adds < cursor condition for next-page
 }
 
 export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}): string {
@@ -165,6 +167,11 @@ export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}):
   }
 
   if (minDur > 0) conditions.push(`${DURATION_DAX} >= ${minDur}`)
+
+  // Cursor: only return rows older than the last-seen timestamp (next-page condition)
+  if (filters.cursor !== undefined) {
+    conditions.push(`AppendFinal[Last Seen-Local] < ${filters.cursor}`)
+  }
 
   // Each filter field accepts comma-separated multi-values → DAX IN condition
   const addFilter = (val: string | undefined, column: string) => {
@@ -185,9 +192,7 @@ export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}):
       ? `FILTER(\n    AppendFinal,\n    ${conditions.join('\n    && ')}\n  )`
       : `AppendFinal`
 
-  return `EVALUATE
-SELECTCOLUMNS(
-  ${sourceTable},
+  const columns = `
   "Geofence", AppendFinal[Geofence],
   "SubGeoZone", AppendFinal[SubGeoZone],
   "StartTime", AppendFinal[Last Seen-Local],
@@ -203,6 +208,23 @@ SELECTCOLUMNS(
   "Model", AppendFinal[Model],
   "Year", AppendFinal[Year],
   "Latitude", AppendFinal[Latitude],
-  "Longitude", AppendFinal[Longitude]
+  "Longitude", AppendFinal[Longitude]`
+
+  // Paginated mode: TOPN wraps SELECTCOLUMNS, ordered descending by StartTime.
+  // One single query — no time chunks needed since TOPN already caps the result.
+  if (filters.limit !== undefined) {
+    return `EVALUATE
+TOPN(
+  ${filters.limit},
+  SELECTCOLUMNS(
+    ${sourceTable},${columns}
+  ),
+  [StartTime], 0
+)`
+  }
+
+  return `EVALUATE
+SELECTCOLUMNS(
+  ${sourceTable},${columns}
 )`
 }

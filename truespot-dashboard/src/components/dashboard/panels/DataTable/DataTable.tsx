@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ModuleRegistry, AllCommunityModule, type ColDef } from 'ag-grid-community'
 import Box from '@mui/material/Box'
@@ -37,6 +37,8 @@ interface DataTableProps {
   rows: Record<string, unknown>[]
   loading?: boolean
   error?: string | null
+  hasMore?: boolean
+  onLoadMore?: () => void
 }
 
 // Power BI Execute Queries API wraps all column names in square brackets in the response
@@ -81,14 +83,45 @@ const COL_DEFS: ColDef[] = [
   },
 ]
 
-export default function DataTable({ rows, loading, error }: DataTableProps) {
+export default function DataTable({ rows, loading, error, hasMore, onLoadMore }: DataTableProps) {
   const gridRef = useRef<AgGridReact>(null)
 
+  // Stable refs so the AG Grid event handler never needs to be re-registered
+  const hasMoreRef = useRef(hasMore)
+  const onLoadMoreRef = useRef(onLoadMore)
+  useEffect(() => { hasMoreRef.current = hasMore }, [hasMore])
+  useEffect(() => { onLoadMoreRef.current = onLoadMore }, [onLoadMore])
+
+  // Skip the first onPaginationChanged fire (AG Grid fires it on initialisation)
+  const paginationReadyRef = useRef(false)
+
   useEffect(() => {
-    if (gridRef.current?.api) {
-      gridRef.current.api.sizeColumnsToFit()
-    }
+    if (gridRef.current?.api) gridRef.current.api.sizeColumnsToFit()
   }, [rows])
+
+  // When the user navigates to the last loaded page, fetch the next batch.
+  // Stable callback — deps live in refs so AG Grid keeps one handler reference.
+  const handlePaginationChanged = useCallback(() => {
+    // Skip the init fire
+    if (!paginationReadyRef.current) { paginationReadyRef.current = true; return }
+    if (!gridRef.current?.api) return
+    if (!hasMoreRef.current || !onLoadMoreRef.current) return
+
+    const api = gridRef.current.api
+    const currentPage = api.paginationGetCurrentPage()  // 0-indexed
+    const totalPages  = api.paginationGetTotalPages()
+
+    // User navigated forward to the last currently-loaded page → load more
+    if (totalPages > 0 && currentPage === totalPages - 1) {
+      onLoadMoreRef.current()
+    }
+  }, [])
+
+  const handleGridReady = useCallback(() => {
+    // Reset so the first paginationChanged after a new grid mount is skipped
+    paginationReadyRef.current = false
+    if (gridRef.current?.api) gridRef.current.api.sizeColumnsToFit()
+  }, [])
 
   if (loading) {
     return (
@@ -135,6 +168,8 @@ export default function DataTable({ rows, loading, error }: DataTableProps) {
         paginationPageSizeSelector={[50, 100, 250, 500]}
         suppressMovableColumns={false}
         domLayout="autoHeight"
+        onGridReady={handleGridReady}
+        onPaginationChanged={handlePaginationChanged}
       />
     </Box>
   )

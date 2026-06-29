@@ -106,6 +106,19 @@ export async function POST(request: NextRequest) {
         minDurationMinutes: filters?.minDurationMinutes,
       }
 
+      // Paginated mode: single TOPN query, no chunking needed.
+      // TOPN already caps the result so the 15 MB per-call limit is not a concern.
+      if (filters?.limit !== undefined) {
+        const q = buildLocationHistoryQuery({
+          ...baseFilters,
+          dateSeen: filters.dateSeen ?? undefined,
+          limit: filters.limit,
+          cursor: filters.cursor ?? undefined,
+        })
+        const rows = await executeQuery(dashboard.dataset_name, q, ttl)
+        return Response.json({ rows, refreshedAt: null } satisfies QueryResponse)
+      }
+
       if (filters?.dateSeen && filters.dateSeen !== 'all') {
         // Single date: 4 parallel 6-hour chunks → each chunk < 15 MB → merge
         const rows = await fetchDateChunked(dashboard.dataset_name, filters.dateSeen, baseFilters, ttl)

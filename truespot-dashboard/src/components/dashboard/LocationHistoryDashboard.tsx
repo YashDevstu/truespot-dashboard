@@ -9,6 +9,7 @@ import Paper from '@mui/material/Paper'
 import TimelineIcon from '@mui/icons-material/Timeline'
 import { useFilters } from '@/hooks/useFilters'
 import { usePanelQuery } from '@/hooks/usePanelQuery'
+import { usePaginatedQuery } from '@/hooks/usePaginatedQuery'
 import { useProgressiveDatesQuery } from '@/hooks/useProgressiveDatesQuery'
 import { useFilterOptions } from '@/hooks/useFilterOptions'
 import { buildGeofenceColorMap } from '@/utils/geofenceColors'
@@ -78,6 +79,10 @@ export default function LocationHistoryDashboard({
   //   • multiple specific dates selected (any filter state)
   const useProgressiveMode = (isAllDates && !hasAssetFilter) || isMultiDate
 
+  const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
+
+  // Vehicle-selected query: full data needed for timeline + map + locations table.
+  // Only enabled when an asset filter is active (no pagination — data is already small).
   const singleQuery = usePanelQuery({
     clientId,
     dashboardKey,
@@ -86,7 +91,18 @@ export default function LocationHistoryDashboard({
       ...baseFilters,
       dateSeen: isAllDates ? 'all' : isSingleDate ? selectedDates![0] : undefined,
     },
-    enabled: !useProgressiveMode,
+    enabled: !useProgressiveMode && !!selectedAsset,
+  })
+
+  // Browse query: server-side TOPN pagination for the no-asset explore table.
+  // Sends limit+1 rows to detect hasMore without changing QueryResponse schema.
+  const paginatedQuery = usePaginatedQuery({
+    clientId,
+    dashboardKey,
+    panelId: 'location-history-data',
+    baseFilters,
+    dateSeen: isAllDates ? undefined : isSingleDate ? selectedDates![0] : undefined,
+    enabled: !useProgressiveMode && !selectedAsset,
   })
 
   const progressiveQuery = useProgressiveDatesQuery({
@@ -114,17 +130,6 @@ export default function LocationHistoryDashboard({
     filters,
   })
 
-  // Auto-select the first VIN on initial load when nothing is selected yet.
-  // Uses a ref so it only fires once — subsequent resets stay as the user left them.
-  const didAutoSelect = useRef(false)
-  useEffect(() => {
-    if (didAutoSelect.current) return
-    if (!filters.vin && !filters.beaconId && !filters.stockNumber && filterOptions.vin.length > 0) {
-      setFilter('vin', filterOptions.vin[0])
-      didAutoSelect.current = true
-    }
-  }, [filterOptions.vin, filters.vin, filters.beaconId, filters.stockNumber, setFilter])
-
   const handleRefresh = useCallback(() => {
     setRefreshToken((t) => t + 1)
   }, [])
@@ -135,12 +140,37 @@ export default function LocationHistoryDashboard({
 
   const tableRows = useMemo(() => {
     if (useProgressiveMode) return progressiveQuery.rows
-    if (singleQuery.loading) return []
-    return (singleQuery.data?.rows ?? []) as Record<string, unknown>[]
-  }, [useProgressiveMode, progressiveQuery.rows, singleQuery.loading, singleQuery.data?.rows])
+    if (selectedAsset) {
+      if (singleQuery.loading) return []
+      return (singleQuery.data?.rows ?? []) as Record<string, unknown>[]
+    }
+    return paginatedQuery.rows
+  }, [useProgressiveMode, progressiveQuery.rows, selectedAsset, singleQuery.loading, singleQuery.data?.rows, paginatedQuery.rows])
 
-  const tableLoading = useProgressiveMode ? progressiveQuery.loading : singleQuery.loading
-  const tableError = useProgressiveMode ? null : singleQuery.error
+  const tableLoading = useProgressiveMode
+    ? progressiveQuery.loading
+    : selectedAsset
+    ? singleQuery.loading
+    : paginatedQuery.loading
+  const tableError = useProgressiveMode ? null : selectedAsset ? singleQuery.error : null
+
+  // Auto-select the most-recently-seen VIN once the first data batch arrives.
+  // Picks by max StartTime rather than alphabetical, so the user lands on the
+  // vehicle with the latest activity for the current date filter.
+  const didAutoSelect = useRef(false)
+  useEffect(() => {
+    if (didAutoSelect.current) return
+    if (filters.vin || filters.beaconId || filters.stockNumber) return
+    if (tableLoading || tableRows.length === 0) return
+    let bestVin = ''
+    let bestTime = -Infinity
+    for (const r of tableRows) {
+      const vin = String(r['[VIN]'] ?? '').trim()
+      const t   = Number(r['[StartTime]'] ?? 0)
+      if (vin && t > bestTime) { bestTime = t; bestVin = vin }
+    }
+    if (bestVin) { setFilter('vin', bestVin); didAutoSelect.current = true }
+  }, [tableLoading, tableRows, filters.vin, filters.beaconId, filters.stockNumber, setFilter])
 
   const dateLabel = isAllDates
     ? 'All Dates'
@@ -156,8 +186,6 @@ export default function LocationHistoryDashboard({
     if (tableLoading) return `${dateLabel} · Loading…`
     return `${dateLabel} · ${tableRows.length.toLocaleString()} records`
   })()
-
-  const selectedAsset = filters.beaconId || filters.vin || filters.stockNumber || undefined
 
   // ── Rows for timeline + locations table ───────────────────────────────────
   // All rows for the selected asset, capped at TIMELINE_MAX_ROWS to keep the
@@ -474,7 +502,7 @@ export default function LocationHistoryDashboard({
                 </Box>
               </Paper>
 
-              {/* Full AG Grid table */}
+              {/* Full AG Grid table — server-side paginated browse */}
               <Box
                 sx={{
                   flex: 1,
@@ -489,7 +517,13 @@ export default function LocationHistoryDashboard({
               >
                 <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
                   <Typography variant="h6">Location History</Typography>
-                  <Typography variant="caption" color="text.secondary">{subtitleText}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {tableLoading && tableRows.length === 0
+                      ? `${dateLabel} · Loading…`
+                      : paginatedQuery.hasMore
+                      ? `${dateLabel} · ${tableRows.length.toLocaleString()} records loaded · more available`
+                      : `${dateLabel} · ${tableRows.length.toLocaleString()} records`}
+                  </Typography>
                 </Box>
 
                 {useProgressiveMode && progressiveQuery.loading && (
@@ -505,6 +539,8 @@ export default function LocationHistoryDashboard({
                     rows={tableRows}
                     loading={tableLoading && tableRows.length === 0}
                     error={tableError}
+                    hasMore={!useProgressiveMode ? paginatedQuery.hasMore : undefined}
+                    onLoadMore={!useProgressiveMode ? paginatedQuery.loadMore : undefined}
                   />
                 </Box>
               </Box>

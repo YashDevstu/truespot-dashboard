@@ -16,7 +16,7 @@ export interface LocationHistoryFilters {
 
 const DEFAULTS: LocationHistoryFilters = {
   beaconId: '',
-  dateSeen: '',  // '' = All Dates (no date filter)
+  dateSeen: 'Today',
   geofence: '',
   subGeoZone: '',
   floorLevel: '',

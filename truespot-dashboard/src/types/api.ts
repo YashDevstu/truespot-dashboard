@@ -18,6 +18,8 @@ export const QueryRequestSchema = z.object({
       vin: z.string().optional(),
       stockNumber: z.string().optional(),
       assetType: z.string().optional(),
+      limit:     z.coerce.number().int().positive().optional(),
+      cursor:    z.coerce.number().optional(),
     })
     .optional(),
 })
