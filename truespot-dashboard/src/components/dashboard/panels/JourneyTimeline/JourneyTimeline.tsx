@@ -156,12 +156,19 @@ function buildDayGroups(
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
+export interface VehicleLane {
+  label: string
+  dotColor: string
+  rows: Record<string, unknown>[]
+}
+
 interface JourneyTimelineProps {
   rows: Record<string, unknown>[]
   colorMap: Map<string, string>
   dateLabel?: string
   selectedIndex?: number | null
   onSelectIndex?: (i: number | null) => void
+  vehicleLanes?: VehicleLane[]
 }
 
 export default function JourneyTimeline({
@@ -170,7 +177,26 @@ export default function JourneyTimeline({
   dateLabel = "TODAY'S JOURNEY",
   selectedIndex,
   onSelectIndex,
+  vehicleLanes,
 }: JourneyTimelineProps) {
+  // Multi-vehicle data (rendered as one row per vehicle, shared x-axis)
+  const multiVehicleResult = useMemo(() => {
+    if (!vehicleLanes || vehicleLanes.length === 0) return null
+    const lanes = vehicleLanes
+      .map((lane) => {
+        const pings  = parsePings(lane.rows)
+        const blocks = mergeConsecutiveStops(pings)
+        return { label: lane.label, dotColor: lane.dotColor, pings, blocks }
+      })
+      .filter((l) => l.pings.length > 0)
+    if (lanes.length === 0) return null
+    const allPings    = lanes.flatMap((l) => l.pings)
+    const globalMinMs = Math.min(...allPings.map((p) => p.startMs))
+    const globalMaxMs = Math.max(...allPings.map((p) => p.endMs))
+    const uniqueGeofences = [...new Set(lanes.flatMap((l) => l.blocks.map((b) => b.geofence)))]
+    return { lanes, globalMinMs, globalMaxMs, timeTicks: buildTimeTicks(globalMinMs, globalMaxMs), uniqueGeofences }
+  }, [vehicleLanes])
+
   const { pings, allBlocks, uniqueGeofences, minMs, maxMs, timeTicks, isMultiDay, dayGroups } =
     useMemo(() => {
       const pings = parsePings(rows)
@@ -199,6 +225,128 @@ export default function JourneyTimeline({
       }
     }, [rows])
 
+  // Shared tooltip content for any stop block
+  const blockTooltip = (block: MergedStop) => (
+    <Box>
+      <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>{block.geofence}</Typography>
+      {block.subGeoZone && block.subGeoZone !== block.geofence && (
+        <Typography variant="caption" sx={{ display: 'block', opacity: 0.75 }}>{block.subGeoZone}</Typography>
+      )}
+      <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
+        {fmtTime(block.startMs)} – {fmtTime(block.endMs)}
+      </Typography>
+      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+        {fmtDuration(block.totalMinutes)}
+        {block.pingCount > 1 ? ` · ${block.pingCount} readings` : ''}
+      </Typography>
+    </Box>
+  )
+
+  // ── Multi-vehicle view (one row per VIN) ────────────────────────────────────
+  if (multiVehicleResult) {
+    const { lanes, globalMinMs, globalMaxMs, timeTicks: mvTicks, uniqueGeofences: mvGeos } = multiVehicleResult
+    const totalRange  = globalMaxMs - globalMinMs || 1
+    const toLaneLeft  = (ms: number)           => `${((ms - globalMinMs) / totalRange) * 100}%`
+    const toLaneWidth = (s: number, e: number) => `${Math.max(0.3, ((e - s) / totalRange) * 100)}%`
+    const totalStops  = lanes.reduce((t, l) => t + l.blocks.length, 0)
+
+    return (
+      <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+        {/* Header */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: 1.5, color: 'text.secondary', textTransform: 'uppercase', lineHeight: 1 }}>
+            {dateLabel}
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          <Typography variant="caption" color="text.disabled">
+            hover segments
+          </Typography>
+          <Typography variant="caption" color="text.disabled" sx={{ ml: 1 }}>
+            {totalStops} stop{totalStops !== 1 ? 's' : ''} · {lanes.length} vehicles
+          </Typography>
+        </Box>
+
+        {/* One row per vehicle */}
+        {lanes.map((lane, li) => (
+          <Box key={li} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+            {/* Vehicle label */}
+            <Box sx={{ width: 128, flexShrink: 0, textAlign: 'right' }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: lane.dotColor, lineHeight: 1.35, wordBreak: 'break-word' }}>
+                {lane.label}
+              </Typography>
+            </Box>
+
+            {/* Timeline bar */}
+            <Box sx={{ flex: 1, position: 'relative', height: 40, borderRadius: 1.5, overflow: 'hidden', bgcolor: 'grey.100', border: '1px solid', borderColor: 'divider' }}>
+              {lane.blocks.length === 0 ? (
+                <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10 }}>No activity</Typography>
+                </Box>
+              ) : (
+                lane.blocks.map((block, bi) => {
+                  const color = colorMap.get(block.geofence) ?? '#9E9E9E'
+                  return (
+                    <Tooltip key={bi} arrow placement="top" title={blockTooltip(block)}>
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          left:   toLaneLeft(block.startMs),
+                          width:  toLaneWidth(block.startMs, block.endMs),
+                          top: 0, bottom: 0,
+                          bgcolor: color,
+                          borderRight: bi < lane.blocks.length - 1 ? '2px solid rgba(255,255,255,0.85)' : 'none',
+                          display: 'flex', alignItems: 'center', overflow: 'hidden', px: 0.75,
+                          transition: 'filter 0.15s',
+                          cursor: 'default',
+                          '&:hover': { filter: 'brightness(0.85)', zIndex: 1 },
+                        }}
+                      >
+                        {block.totalMinutes >= 30 && (
+                          <Typography sx={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.25)', pointerEvents: 'none', userSelect: 'none' }}>
+                            {fmtDuration(block.totalMinutes)}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Tooltip>
+                  )
+                })
+              )}
+            </Box>
+
+            {/* Live dot for last lane entry */}
+            <Box sx={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: lane.dotColor, opacity: 0.8 }} />
+            </Box>
+          </Box>
+        ))}
+
+        {/* Shared x-axis */}
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mt: 0.5 }}>
+          <Box sx={{ width: 128, flexShrink: 0 }} />
+          <Box sx={{ flex: 1, position: 'relative', height: 22 }}>
+            {mvTicks.map((tick, i) => (
+              <Box key={i} sx={{ position: 'absolute', left: `${tick.pct}%`, transform: tick.isFirst ? 'none' : tick.isLast ? 'translateX(-100%)' : 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: tick.isFirst ? 'flex-start' : tick.isLast ? 'flex-end' : 'center' }}>
+                <Box sx={{ width: 1, height: 4, bgcolor: 'divider', mb: 0.25 }} />
+                <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', whiteSpace: 'nowrap', userSelect: 'none' }}>{tick.label}</Typography>
+              </Box>
+            ))}
+          </Box>
+          <Box sx={{ width: 16, flexShrink: 0 }} />
+        </Box>
+
+        {/* Legend */}
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider', alignItems: 'center' }}>
+          {mvGeos.map((g) => (
+            <Box key={g} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 12, height: 12, borderRadius: '3px', bgcolor: colorMap.get(g) ?? '#9E9E9E', flexShrink: 0 }} />
+              <Typography variant="caption" color="text.secondary">{g}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </Paper>
+    )
+  }
+
   if (pings.length === 0) {
     return (
       <Paper
@@ -223,22 +371,6 @@ export default function JourneyTimeline({
   const toDayLeft  = (ms: number, base: number) => `${Math.max(0, ((ms - base) / DAY_MS) * 100)}%`
   const toDayWidth = (s: number, e: number, base: number) =>
     `${Math.max(0.3, (Math.min(e, base + DAY_MS) - s) / DAY_MS * 100)}%`
-
-  const blockTooltip = (block: MergedStop) => (
-    <Box>
-      <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>{block.geofence}</Typography>
-      {block.subGeoZone && block.subGeoZone !== block.geofence && (
-        <Typography variant="caption" sx={{ display: 'block', opacity: 0.75 }}>{block.subGeoZone}</Typography>
-      )}
-      <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
-        {fmtTime(block.startMs)} – {fmtTime(block.endMs)}
-      </Typography>
-      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-        {fmtDuration(block.totalMinutes)}
-        {block.pingCount > 1 ? ` · ${block.pingCount} readings` : ''}
-      </Typography>
-    </Box>
-  )
 
   return (
     <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>

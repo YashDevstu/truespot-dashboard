@@ -66,6 +66,7 @@ interface Stop {
   make: string
   model: string
   year: string
+  vin: string
   startMs: number
   endMs: number
   minutes: number
@@ -139,7 +140,7 @@ export default function LocationsVisitedTable({
   const [sortMode, setSortMode] = useState<SortMode>(showLive ? 'live' : 'oldest')
   const [collapsed, setCollapsed] = useState(false)
 
-  const { stops, liveStop } = useMemo(() => {
+  const { stops, liveStop, liveByVin, isMultiVehicle } = useMemo(() => {
     const parsed = rows
       .map((r) => {
         const startMs = parseMs(r['[StartTime]'])
@@ -153,6 +154,7 @@ export default function LocationsVisitedTable({
           make:       String(r['[Make]']        ?? ''),
           model:      String(r['[Model]']       ?? ''),
           year:       String(r['[Year]']        ?? ''),
+          vin:        String(r['[VIN]']         ?? ''),
           startMs,
           endMs,
           minutes: Number(r['[MinutesDiff]'] ?? 0),
@@ -160,29 +162,38 @@ export default function LocationsVisitedTable({
       })
       .filter((s): s is Stop => s !== null)
 
-    // The live stop is always the chronologically most recent, regardless of display order
+    // Per-VIN most-recent startMs — each vehicle's own live stop
+    const liveByVin = new Map<string, number>()
+    if (showLive) {
+      for (const s of parsed) {
+        const cur = liveByVin.get(s.vin)
+        if (cur === undefined || s.startMs > cur) liveByVin.set(s.vin, s.startMs)
+      }
+    }
+    const isMultiVehicle = liveByVin.size > 1
+
+    // Single-vehicle banner: the one globally-most-recent stop (unchanged behaviour)
     const maxStartMs = parsed.length > 0 ? Math.max(...parsed.map((s) => s.startMs)) : -Infinity
-    const liveStop   = showLive ? (parsed.find((s) => s.startMs === maxStartMs) ?? null) : null
+    const liveStop   = showLive && !isMultiVehicle
+      ? (parsed.find((s) => s.startMs === maxStartMs) ?? null)
+      : null
 
     let sorted: Stop[]
     switch (sortMode) {
       case 'live':
-        // Most recent (live) stop at top → newest-first
         sorted = [...parsed].sort((a, b) => b.startMs - a.startMs)
         break
       case 'oldest':
-        // Chronological journey order → oldest-first
         sorted = [...parsed].sort((a, b) => a.startMs - b.startMs)
         break
       case 'duration':
-        // Longest stays first — useful for understanding where the asset spent most time
         sorted = [...parsed].sort((a, b) => b.minutes - a.minutes)
         break
       default:
         sorted = [...parsed].sort((a, b) => a.startMs - b.startMs)
     }
 
-    return { stops: sorted, liveStop }
+    return { stops: sorted, liveStop, liveByVin, isMultiVehicle }
   }, [rows, sortMode, showLive])
 
   if (stops.length === 0) return null
@@ -313,8 +324,13 @@ export default function LocationsVisitedTable({
       {/* ── Data rows ────────────────────────────────────────────────────── */}
       <Collapse in={!collapsed}>
         {stops.map((stop, i) => {
-          // isLive is based on startMs identity, not position — survives any sort order
-          const isLive     = showLive && liveStop !== null && stop.startMs === liveStop.startMs
+          // Multi-vehicle: each VIN's own most-recent stop is "live"
+          // Single-vehicle: the one globally-most-recent stop is "live"
+          const isLive = showLive && (
+            isMultiVehicle
+              ? stop.startMs === liveByVin.get(stop.vin)
+              : liveStop !== null && stop.startMs === liveStop.startMs
+          )
           const isSelected = selectedIndex === i
           const dotColor   = colorMap.get(stop.geofence) ?? '#9E9E9E'
 

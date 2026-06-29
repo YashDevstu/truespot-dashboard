@@ -90,41 +90,39 @@ function StatCard({ title, value, subtitle, valueColor }: StatCardProps) {
 // ── AssetStatCards ────────────────────────────────────────────────────────────
 interface AssetStatCardsProps {
   rows: Record<string, unknown>[]
-  datePeriod: string  // "today" | "all time" | specific date string
+  datePeriod: string
+  showLive?: boolean
 }
 
-export default function AssetStatCards({ rows, datePeriod }: AssetStatCardsProps) {
+export default function AssetStatCards({ rows, datePeriod, showLive = false }: AssetStatCardsProps) {
   const stats = useMemo(() => {
     if (rows.length === 0) return null
 
     const totalStops = mergeConsecutiveStops(parsePings(rows)).length
 
     const geofenceSet = new Set<string>()
+    const vinSet      = new Set<string>()
 
-    // Find most recent stop via string comparison — ISO 8601 sorts correctly as strings
-    let latestRow = rows[0]
+    let latestRow  = rows[0]
     let latestTime = String(rows[0]?.['[StartTime]'] ?? '')
 
     for (const r of rows) {
       geofenceSet.add(String(r['[Geofence]'] ?? ''))
+      const vin = String(r['[VIN]'] ?? '').trim()
+      if (vin) vinSet.add(vin)
       const t = String(r['[StartTime]'] ?? '')
-      if (t > latestTime) {
-        latestTime = t
-        latestRow = r
-      }
+      if (t > latestTime) { latestTime = t; latestRow = r }
     }
 
-    // Merge overlapping intervals so Vehicle + Key beacons on the same VIN
-    // don't double-count the same wall-clock time.
-    const totalMinutes = mergedMinutes(rows)
-
-    const currentSubZone = String(latestRow['[SubGeoZone]'] ?? '').trim()
-    const currentGeofence = String(latestRow['[Geofence]'] ?? '').trim()
+    const totalMinutes    = mergedMinutes(rows)
+    const currentSubZone  = String(latestRow['[SubGeoZone]'] ?? '').trim()
+    const currentGeofence = String(latestRow['[Geofence]']   ?? '').trim()
 
     return {
       totalStops,
       uniqueGeofences: geofenceSet.size,
       totalMinutes,
+      activeVehicles: vinSet.size,
       currentZoneLabel: currentSubZone || currentGeofence || '—',
       currentZoneSubtitle:
         currentSubZone && currentGeofence && currentSubZone !== currentGeofence
@@ -134,6 +132,8 @@ export default function AssetStatCards({ rows, datePeriod }: AssetStatCardsProps
   }, [rows])
 
   if (!stats) return null
+
+  const isMultiVehicle = stats.activeVehicles > 1
 
   return (
     <Box>
@@ -153,12 +153,21 @@ export default function AssetStatCards({ rows, datePeriod }: AssetStatCardsProps
           value={fmtMinutes(stats.totalMinutes)}
           subtitle={`total ${datePeriod}`}
         />
-        <StatCard
-          title="Current Zone"
-          value={stats.currentZoneLabel}
-          subtitle={stats.currentZoneSubtitle}
-          valueColor="#27AE60"
-        />
+        {isMultiVehicle ? (
+          <StatCard
+            title="Active Vehicles"
+            value={stats.activeVehicles}
+            subtitle={showLive ? 'all live now' : 'vehicles selected'}
+            valueColor={showLive ? '#27AE60' : undefined}
+          />
+        ) : (
+          <StatCard
+            title="Current Zone"
+            value={stats.currentZoneLabel}
+            subtitle={stats.currentZoneSubtitle}
+            valueColor="#27AE60"
+          />
+        )}
       </Grid>
     </Box>
   )

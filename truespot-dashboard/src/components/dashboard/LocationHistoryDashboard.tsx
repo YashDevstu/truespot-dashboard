@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
@@ -13,10 +13,11 @@ import { useProgressiveDatesQuery } from '@/hooks/useProgressiveDatesQuery'
 import { useFilterOptions } from '@/hooks/useFilterOptions'
 import { buildGeofenceColorMap } from '@/utils/geofenceColors'
 import FilterSidebar from './FilterSidebar'
+import DateQuickFilter from './DateQuickFilter'
 import DashboardHeader from './DashboardHeader'
 import KpiCard from './panels/KpiCard'
 import DataTable from './panels/DataTable'
-import JourneyTimeline from './panels/JourneyTimeline/JourneyTimeline'
+import JourneyTimeline, { type VehicleLane } from './panels/JourneyTimeline/JourneyTimeline'
 import AssetStatCards from './panels/AssetStatCards'
 import LocationsVisitedTable from './panels/LocationsVisitedTable'
 import SelectedAssetCard from './SelectedAssetCard'
@@ -28,9 +29,8 @@ interface Props {
   dashboardLabel: string
 }
 
-// Above this threshold we skip the timeline/table and show the AG Grid instead,
-// preventing the main thread from being blocked by a huge useMemo.
 const TIMELINE_MAX_ROWS = 5_000
+const DOT_COLORS = ['#4285F4', '#9C27B0', '#4CAF50', '#FF5722', '#00BCD4', '#FF9800', '#E91E63', '#607D8B']
 
 export default function LocationHistoryDashboard({
   clientId,
@@ -109,6 +109,17 @@ export default function LocationHistoryDashboard({
     filters,
   })
 
+  // Auto-select the first VIN on initial load when nothing is selected yet.
+  // Uses a ref so it only fires once — subsequent resets stay as the user left them.
+  const didAutoSelect = useRef(false)
+  useEffect(() => {
+    if (didAutoSelect.current) return
+    if (!filters.vin && !filters.beaconId && !filters.stockNumber && filterOptions.vin.length > 0) {
+      setFilter('vin', filterOptions.vin[0])
+      didAutoSelect.current = true
+    }
+  }, [filterOptions.vin, filters.vin, filters.beaconId, filters.stockNumber, setFilter])
+
   const handleRefresh = useCallback(() => {
     setRefreshToken((t) => t + 1)
   }, [])
@@ -169,6 +180,56 @@ export default function LocationHistoryDashboard({
       .map((r) => String(r['[Geofence]'] ?? ''))
     return buildGeofenceColorMap(geos)
   }, [singleDayRows])
+
+  // When 2+ values of VIN, Beacon ID, or Stock Number are selected, build one
+  // timeline lane per selected identifier. First multi-select field wins.
+  const vehicleLanes = useMemo((): VehicleLane[] | undefined => {
+    if (timelineRows.length === 0) return undefined
+
+    const split = (v: string | undefined) =>
+      v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []
+
+    const vins    = split(filters.vin)
+    const beacons = split(filters.beaconId)
+    const stocks  = split(filters.stockNumber)
+
+    let keys: string[]
+    let rowKey: string
+    let makeLabel: (key: string, first: Record<string, unknown> | undefined) => string
+
+    if (vins.length >= 2) {
+      keys = vins; rowKey = '[VIN]'
+      makeLabel = (key, first) => {
+        const yr = first ? String(first['[Year]']  ?? '') : ''
+        const mo = first ? String(first['[Model]'] ?? '') : ''
+        return yr && mo ? `${yr} ${mo}` : key.slice(-8)
+      }
+    } else if (beacons.length >= 2) {
+      keys = beacons; rowKey = '[BeaconId]'
+      makeLabel = (key, first) => {
+        const yr = first ? String(first['[Year]']  ?? '') : ''
+        const mo = first ? String(first['[Model]'] ?? '') : ''
+        return yr && mo ? `${yr} ${mo}` : key
+      }
+    } else if (stocks.length >= 2) {
+      keys = stocks; rowKey = '[StockNumber]'
+      makeLabel = (key, first) => {
+        const yr = first ? String(first['[Year]']  ?? '') : ''
+        const mo = first ? String(first['[Model]'] ?? '') : ''
+        return yr && mo ? `${yr} ${mo}` : `#${key}`
+      }
+    } else {
+      return undefined
+    }
+
+    return keys
+      .map((key, idx) => {
+        const rows  = timelineRows.filter((r) => String(r[rowKey] ?? '') === key)
+        const first = rows[0]
+        return { label: makeLabel(key, first), dotColor: DOT_COLORS[idx % DOT_COLORS.length], rows }
+      })
+      .filter((l) => l.rows.length > 0)
+  }, [filters.vin, filters.beaconId, filters.stockNumber, timelineRows])
 
   // Caption text for AssetStatCards
   const datePeriod = isAllDates
@@ -240,12 +301,18 @@ export default function LocationHistoryDashboard({
             exportDisabled={tableLoading && tableRows.length === 0}
           />
 
+          {/* Date quick-filter pills */}
+          <DateQuickFilter
+            value={filters.dateSeen ?? ''}
+            onChange={(v) => setFilter('dateSeen', v)}
+          />
+
           {/* ── Asset selected: stat cards + timeline + locations table ─── */}
           {selectedAsset ? (
             <>
               {/* Stat cards */}
               {!tableLoading && singleDayRows.length > 0 && (
-                <AssetStatCards rows={singleDayRows} datePeriod={singleDayPeriod} />
+                <AssetStatCards rows={singleDayRows} datePeriod={singleDayPeriod} showLive={showLive} />
               )}
 
               {/* Journey timeline */}
@@ -269,6 +336,7 @@ export default function LocationHistoryDashboard({
                   dateLabel={journeyDateLabel}
                   selectedIndex={selectedStopIndex}
                   onSelectIndex={setSelectedStopIndex}
+                  vehicleLanes={vehicleLanes}
                 />
               )}
 
