@@ -38,6 +38,8 @@ SELECTCOLUMNS(
   "Make", AppendFinal[Make],
   "Model", AppendFinal[Model],
   "Year", AppendFinal[Year],
+  "Latitude", AppendFinal[Latitude],
+  "Longitude", AppendFinal[Longitude],
   "DateLabel", AppendFinal[LastSeenDateDefault]
 )`
 }

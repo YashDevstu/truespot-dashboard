@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import 'azure-maps-control/dist/atlas.min.css'
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter'
 import ThemeProvider from '@/providers/ThemeProvider'
 

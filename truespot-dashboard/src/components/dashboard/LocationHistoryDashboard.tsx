@@ -21,12 +21,16 @@ import JourneyTimeline, { type VehicleLane } from './panels/JourneyTimeline/Jour
 import AssetStatCards from './panels/AssetStatCards'
 import LocationsVisitedTable from './panels/LocationsVisitedTable'
 import SelectedAssetCard from './SelectedAssetCard'
+import dynamic from 'next/dynamic'
+import type { MapMarker } from './panels/MapPanel/MapPanel'
+const MapPanel = dynamic(() => import('./panels/MapPanel/MapPanel'), { ssr: false })
 
 interface Props {
   clientId: string
   dashboardKey: string
   displayName: string
   dashboardLabel: string
+  azureMapsKey?: string
 }
 
 const TIMELINE_MAX_ROWS = 5_000
@@ -37,6 +41,7 @@ export default function LocationHistoryDashboard({
   dashboardKey,
   displayName,
   dashboardLabel,
+  azureMapsKey,
 }: Props) {
   const { filters, setFilter, resetFilters } = useFilters()
   const [refreshToken, setRefreshToken] = useState(0)
@@ -231,6 +236,50 @@ export default function LocationHistoryDashboard({
       .filter((l) => l.rows.length > 0)
   }, [filters.vin, filters.beaconId, filters.stockNumber, timelineRows])
 
+  // Most-recent position per vehicle — used to render the Azure Maps panel.
+  // Colors mirror the vehicleLanes dotColors so map markers match the timeline.
+  const mapMarkers = useMemo((): MapMarker[] => {
+    if (!selectedAsset || timelineRows.length === 0) return []
+
+    // Multi-vehicle: derive one marker per lane (colors already assigned)
+    if (vehicleLanes && vehicleLanes.length > 0) {
+      return vehicleLanes.flatMap((lane) => {
+        let bestRow: Record<string, unknown> | undefined
+        let bestTime = -Infinity
+        for (const r of lane.rows) {
+          const t = Number(r['[StartTime]'] ?? 0)
+          if (t > bestTime) { bestTime = t; bestRow = r }
+        }
+        if (!bestRow) return []
+        const lat = Number(bestRow['[Latitude]'] ?? 0)
+        const lng = Number(bestRow['[Longitude]'] ?? 0)
+        if (!lat || !lng) return []
+        return [{ lat, lng, label: lane.label, geofence: String(bestRow['[Geofence]'] ?? ''), subGeoZone: String(bestRow['[SubGeoZone]'] ?? ''), dotColor: lane.dotColor }]
+      })
+    }
+
+    // Single vehicle: most recent row with valid coordinates
+    let bestRow: Record<string, unknown> | undefined
+    let bestTime = -Infinity
+    for (const r of timelineRows) {
+      const t = Number(r['[StartTime]'] ?? 0)
+      if (t > bestTime) { bestTime = t; bestRow = r }
+    }
+    if (!bestRow) return []
+    const lat = Number(bestRow['[Latitude]'] ?? 0)
+    const lng = Number(bestRow['[Longitude]'] ?? 0)
+    if (!lat || !lng) return []
+    const yr = String(bestRow['[Year]'] ?? '')
+    const mo = String(bestRow['[Model]'] ?? '')
+    return [{
+      lat, lng,
+      label:      yr && mo ? `${yr} ${mo}` : String(bestRow['[VIN]'] ?? '').slice(-8),
+      geofence:   String(bestRow['[Geofence]']   ?? ''),
+      subGeoZone: String(bestRow['[SubGeoZone]'] ?? ''),
+      dotColor:   DOT_COLORS[0],
+    }]
+  }, [selectedAsset, timelineRows, vehicleLanes, azureMapsKey])
+
   // Caption text for AssetStatCards
   const datePeriod = isAllDates
     ? 'last 8 days'
@@ -343,6 +392,11 @@ export default function LocationHistoryDashboard({
               {/* Selected asset card */}
               {!timelineTooLarge && singleDayRows.length > 0 && (
                 <SelectedAssetCard rows={singleDayRows} />
+              )}
+
+              {/* Azure Maps — last known positions */}
+              {!timelineTooLarge && azureMapsKey && (
+                <MapPanel markers={mapMarkers} subscriptionKey={azureMapsKey} />
               )}
 
               {/* Locations visited table */}

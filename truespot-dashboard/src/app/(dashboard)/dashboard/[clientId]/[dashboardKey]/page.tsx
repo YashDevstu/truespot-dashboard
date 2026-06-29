@@ -36,6 +36,7 @@ export default async function DashboardPage({ params }: PageProps) {
         dashboardKey={dashboardKey}
         displayName={config.display_name}
         dashboardLabel={dashboard.label}
+        azureMapsKey={process.env.AZURE_MAPS_KEY}
       />
     </Suspense>
   )

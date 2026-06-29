@@ -201,6 +201,8 @@ SELECTCOLUMNS(
   "BatteryLevel", AppendFinal[BatteryLevel],
   "Make", AppendFinal[Make],
   "Model", AppendFinal[Model],
-  "Year", AppendFinal[Year]
+  "Year", AppendFinal[Year],
+  "Latitude", AppendFinal[Latitude],
+  "Longitude", AppendFinal[Longitude]
 )`
 }
