@@ -301,7 +301,16 @@ export default function LocationHistoryDashboard({
         const bestRow = bestWithCoords(lane.rows)
         if (!bestRow) return []
         const { lat, lng } = validCoords(bestRow)!
-        return [{ lat, lng, label: lane.label, geofence: String(bestRow['[Geofence]'] ?? ''), subGeoZone: String(bestRow['[SubGeoZone]'] ?? ''), dotColor: lane.dotColor }]
+        return [{
+          lat, lng,
+          label:       lane.label,
+          geofence:    String(bestRow['[Geofence]']    ?? ''),
+          subGeoZone:  String(bestRow['[SubGeoZone]']  ?? ''),
+          dotColor:    lane.dotColor,
+          lastSeenAt:  String(bestRow['[StartTime]']   ?? ''),
+          vin:         String(bestRow['[VIN]']          ?? ''),
+          stockNumber: String(bestRow['[StockNumber]'] ?? ''),
+        }]
       })
     }
 
@@ -313,10 +322,13 @@ export default function LocationHistoryDashboard({
     const mo = String(bestRow['[Model]'] ?? '')
     return [{
       lat, lng,
-      label:      yr && mo ? `${yr} ${mo}` : String(bestRow['[VIN]'] ?? '').slice(-8),
-      geofence:   String(bestRow['[Geofence]']   ?? ''),
-      subGeoZone: String(bestRow['[SubGeoZone]'] ?? ''),
-      dotColor:   DOT_COLORS[0],
+      label:       yr && mo ? `${yr} ${mo}` : String(bestRow['[VIN]'] ?? '').slice(-8),
+      geofence:    String(bestRow['[Geofence]']    ?? ''),
+      subGeoZone:  String(bestRow['[SubGeoZone]']  ?? ''),
+      dotColor:    DOT_COLORS[0],
+      lastSeenAt:  String(bestRow['[StartTime]']   ?? ''),
+      vin:         String(bestRow['[VIN]']          ?? ''),
+      stockNumber: String(bestRow['[StockNumber]'] ?? ''),
     }]
   }, [selectedAsset, timelineRows, vehicleLanes, azureMapsKey])
 

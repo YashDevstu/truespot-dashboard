@@ -19,6 +19,9 @@ export interface MapMarker {
   geofence: string
   subGeoZone: string
   dotColor: string
+  lastSeenAt?: string   // ISO timestamp of the most recent position row
+  vin?: string
+  stockNumber?: string
 }
 
 interface MapPanelProps {
@@ -81,24 +84,58 @@ function makeLiveMarker(): HTMLElement {
   return wrapper
 }
 
+function fmtTime(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function fmtCoord(v: number): string {
+  return v.toFixed(5)
+}
+
 function popupHtml(m: MapMarker): string {
   const sub = m.subGeoZone && m.subGeoZone !== m.geofence
-    ? `<div style="font-size:11px;color:#999;padding-left:19px;margin-top:2px">${m.subGeoZone}</div>`
+    ? `<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#888;padding-left:18px;margin-top:1px">
+         <span>↳</span><span>${m.subGeoZone}</span>
+       </div>`
     : ''
+  const time  = fmtTime(m.lastSeenAt)
+  const vinStr = m.vin ? m.vin.slice(-6) : ''
+  const stkStr = m.stockNumber || ''
+
+  const metaRow = (time || vinStr || stkStr)
+    ? `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:9px;padding-top:8px;
+         border-top:1px solid #f0f0f0;font-size:10.5px;color:#aaa">
+         ${time    ? `<span>🕐 <b style="color:#555">${time}</b></span>` : ''}
+         ${vinStr  ? `<span>VIN ···<b style="color:#555">${vinStr}</b></span>` : ''}
+         ${stkStr  ? `<span>Stock <b style="color:#555">${stkStr}</b></span>` : ''}
+       </div>`
+    : ''
+
+  const coordRow = `<div style="margin-top:4px;font-size:10px;color:#ccc;letter-spacing:.2px">
+    ${fmtCoord(m.lat)}, ${fmtCoord(m.lng)}
+  </div>`
+
   return `
-    <div style="padding:14px 16px;font-family:system-ui,-apple-system,sans-serif;min-width:210px;line-height:1.7">
-      <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
-        <div style="width:11px;height:11px;border-radius:50%;background:${LIVE_GREEN};
-          box-shadow:0 0 0 3px ${LIVE_GREEN}30;flex-shrink:0"></div>
-        <span style="font-weight:700;font-size:13.5px;color:#111;letter-spacing:-.1px">${m.label}</span>
-        <span style="margin-left:auto;font-size:9.5px;font-weight:700;color:#16a34a;letter-spacing:.7px;
-          background:#f0fdf4;border:1px solid #bbf7d0;border-radius:5px;padding:2px 7px">LIVE</span>
+    <div style="padding:13px 15px;font-family:system-ui,-apple-system,sans-serif;min-width:220px;line-height:1.6">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="width:10px;height:10px;border-radius:50%;background:${LIVE_GREEN};
+          box-shadow:0 0 0 3px ${LIVE_GREEN}28;flex-shrink:0"></div>
+        <span style="font-weight:700;font-size:13px;color:#111;letter-spacing:-.1px;flex:1">${m.label}</span>
+        <span style="font-size:9px;font-weight:700;color:#16a34a;letter-spacing:.8px;
+          background:#f0fdf4;border:1px solid #bbf7d0;border-radius:4px;padding:2px 6px">LIVE</span>
       </div>
-      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#444;margin-bottom:2px">
-        <span style="color:#aaa">📍</span>
-        <span style="font-weight:600">${m.geofence}</span>
+      <div style="display:flex;align-items:flex-start;gap:5px;font-size:12px;color:#333">
+        <span style="margin-top:1px;font-size:13px">📍</span>
+        <div>
+          <div style="font-weight:600">${m.geofence}</div>
+          ${sub}
+        </div>
       </div>
-      ${sub}
+      ${metaRow}
+      ${coordRow}
     </div>`
 }
 
@@ -134,7 +171,32 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
       map.on('load', () => {
         if (destroyed) return
 
-        const popupRef = { current: null as mapboxgl.Popup | null }
+        // Shared popup + hover-intent timer — prevents flicker when mouse
+        // moves from marker to popup card (they are separate DOM elements).
+        let activePopup: mapboxgl.Popup | null = null
+        let hideTimer: ReturnType<typeof setTimeout> | null = null
+
+        const clearHide = () => { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null } }
+        const scheduleHide = () => {
+          clearHide()
+          hideTimer = setTimeout(() => { activePopup?.remove(); activePopup = null }, 180)
+        }
+
+        const openPopup = (m: MapMarker) => {
+          clearHide()
+          activePopup?.remove()
+          const popup = new mapboxgl.Popup({
+            closeButton: false, anchor: 'top', offset: [0, 26], maxWidth: '300px',
+          }).setLngLat([m.lng, m.lat]).setHTML(popupHtml(m)).addTo(map)
+          activePopup = popup
+
+          // Keep popup alive while the mouse is over the card itself
+          const cardEl = popup.getElement()
+          if (cardEl) {
+            cardEl.addEventListener('mouseenter', clearHide)
+            cardEl.addEventListener('mouseleave', scheduleHide)
+          }
+        }
 
         markers.forEach((m) => {
           const el = makeLiveMarker()
@@ -142,16 +204,8 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
             .setLngLat([m.lng, m.lat])
             .addTo(map)
 
-          el.addEventListener('mouseenter', () => {
-            popupRef.current?.remove()
-            popupRef.current = new mapboxgl.Popup({
-              closeButton: false, anchor: 'top', offset: [0, 26], maxWidth: '280px',
-            }).setLngLat([m.lng, m.lat]).setHTML(popupHtml(m)).addTo(map)
-          })
-          el.addEventListener('mouseleave', () => {
-            popupRef.current?.remove()
-            popupRef.current = null
-          })
+          el.addEventListener('mouseenter', () => openPopup(m))
+          el.addEventListener('mouseleave', scheduleHide)
         })
 
         if (markers.length === 1) {
