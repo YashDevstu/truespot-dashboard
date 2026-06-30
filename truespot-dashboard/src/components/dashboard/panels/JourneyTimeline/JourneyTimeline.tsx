@@ -207,10 +207,16 @@ export default function JourneyTimeline({
         }
       }
 
-      const allBlocks       = mergeConsecutiveStops(pings)
-      const minMs           = pings[0].startMs
-      const maxMs           = pings.reduce((m, p) => Math.max(m, p.endMs), pings[0].endMs)
-      const isMultiDay      = (maxMs - minMs) > 26 * 3_600_000
+      const allBlocks   = mergeConsecutiveStops(pings)
+      const minMs       = pings[0].startMs
+      const maxMs       = pings.reduce((m, p) => Math.max(m, p.endMs), pings[0].endMs)
+      // Use last ping's START (not endMs) for day-range decisions.
+      // An ongoing stop has endMs = now, which can push a single-day filter
+      // (e.g. "Yesterday") past midnight and create a phantom empty "today" row.
+      const lastStartMs = pings.reduce((m, p) => Math.max(m, p.startMs), pings[0].startMs)
+      const d0 = new Date(minMs);       d0.setHours(0, 0, 0, 0)
+      const d1 = new Date(lastStartMs); d1.setHours(0, 0, 0, 0)
+      const isMultiDay      = d1.getTime() > d0.getTime()
       const uniqueGeofences = [...new Set(allBlocks.map((b) => b.geofence))].filter(Boolean)
 
       return {
@@ -221,7 +227,8 @@ export default function JourneyTimeline({
         maxMs,
         timeTicks: isMultiDay ? [] : buildTimeTicks(minMs, maxMs),
         isMultiDay,
-        dayGroups: isMultiDay ? buildDayGroups(pings, minMs, maxMs) : [],
+        // Pass lastStartMs so buildDayGroups ends at the last day pings actually started
+        dayGroups: isMultiDay ? buildDayGroups(pings, minMs, lastStartMs) : [],
       }
     }, [rows])
 
