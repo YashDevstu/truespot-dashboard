@@ -347,6 +347,31 @@ export default function LocationHistoryDashboard({
   const routeLines = useMemo((): RouteSegment[] => {
     if (!selectedAsset || timelineRows.length === 0) return []
 
+    // Haversine distance in metres between two lat/lng points
+    const distM = (a: { lat: number; lng: number }, b: { lat: number; lng: number }): number => {
+      const R  = 6_371_000
+      const φ1 = (a.lat * Math.PI) / 180
+      const φ2 = (b.lat * Math.PI) / 180
+      const Δφ = ((b.lat - a.lat) * Math.PI) / 180
+      const Δλ = ((b.lng - a.lng) * Math.PI) / 180
+      const s  = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
+      return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s))
+    }
+
+    // Skip GPS pings that are within MIN_MOVE_M metres of the previous kept point.
+    // Eliminates the parking-lot spiderweb while preserving real movement paths.
+    const MIN_MOVE_M = 6
+    const simplify = <T extends { lat: number; lng: number }>(pts: T[]): T[] => {
+      if (pts.length === 0) return []
+      const out: T[] = [pts[0]]
+      for (let i = 1; i < pts.length - 1; i++) {
+        if (distM(out[out.length - 1], pts[i]) >= MIN_MOVE_M) out.push(pts[i])
+      }
+      // Always include the final point so the trail ends at the true last position
+      if (pts.length > 1) out.push(pts[pts.length - 1])
+      return out
+    }
+
     const toGpsPoints = (rows: Record<string, unknown>[]) =>
       rows
         .map((r) => ({
@@ -359,18 +384,18 @@ export default function LocationHistoryDashboard({
         .sort((a, b) => a.t - b.t)
 
     if (vehicleLanes && vehicleLanes.length > 0) {
-      // Multi-vehicle: one solid color per vehicle lane (too many lanes to also split by geofence)
+      // Multi-vehicle: one solid color per vehicle lane
       return vehicleLanes
         .map((lane) => ({
-          coords: toGpsPoints(lane.rows).map(({ lat, lng }) => ({ lat, lng })),
+          coords: simplify(toGpsPoints(lane.rows)).map(({ lat, lng }) => ({ lat, lng })),
           color:  lane.dotColor,
         }))
         .filter((l) => l.coords.length >= 2)
     }
 
-    // Single vehicle: split into contiguous runs by geofence
-    // Each run gets the same color as its geofence block in the Journey Timeline bar
-    const pts = toGpsPoints(timelineRows)
+    // Single vehicle: simplify then split into contiguous runs by geofence.
+    // Each run's color matches the Journey Timeline bar block for that geofence.
+    const pts = simplify(toGpsPoints(timelineRows))
     if (pts.length < 2) return []
 
     const segments: RouteSegment[] = []
@@ -380,8 +405,7 @@ export default function LocationHistoryDashboard({
       if (pts[i].geofence === run[0].geofence) {
         run.push(pts[i])
       } else {
-        // Close the current run; share its last point as the first of the next
-        // so segments connect seamlessly with no gap
+        // Share the boundary coordinate so adjacent segments connect with no gap
         segments.push({
           coords: run.map(({ lat, lng }) => ({ lat, lng })),
           color:  sharedColorMap.get(run[0].geofence) ?? '#9e9e9e',
