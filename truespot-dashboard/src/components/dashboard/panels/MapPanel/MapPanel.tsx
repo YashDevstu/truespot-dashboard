@@ -40,15 +40,21 @@ function injectMapStyles() {
       0%   { transform:scale(.35); opacity:.9 }
       100% { transform:scale(2.9); opacity:0  }
     }
+    @keyframes popupDotPulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,.55) }
+      50%     { box-shadow: 0 0 0 6px rgba(34,197,94,0)  }
+    }
     .mapboxgl-popup-content {
       padding: 0 !important;
-      border-radius: 10px !important;
-      box-shadow: 0 8px 30px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.12) !important;
-      border: 1px solid rgba(0,0,0,.07) !important;
+      border-radius: 14px !important;
+      box-shadow: 0 24px 64px rgba(0,0,0,.26), 0 6px 20px rgba(0,0,0,.16) !important;
+      border: 1px solid rgba(255,255,255,.08) !important;
       overflow: hidden;
+      backdrop-filter: blur(2px);
     }
     .mapboxgl-popup-tip { display:none !important; }
     .mapboxgl-popup    { z-index: 10 !important; }
+    .mbpopup-row { display:flex; align-items:center; gap:8px }
     .mapboxgl-ctrl-group {
       border-radius: 8px !important;
       box-shadow: 0 2px 8px rgba(0,0,0,.3) !important;
@@ -91,52 +97,78 @@ function fmtTime(iso?: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function fmtCoord(v: number): string {
-  return v.toFixed(5)
-}
+// Inline SVG icons — no emoji, consistent cross-platform rendering
+const PIN_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="#f87171" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-top:1px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`
+const CLK_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
 
 function popupHtml(m: MapMarker): string {
-  const sub = m.subGeoZone && m.subGeoZone !== m.geofence
-    ? `<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#888;padding-left:18px;margin-top:1px">
-         <span>↳</span><span>${m.subGeoZone}</span>
-       </div>`
-    : ''
-  const time  = fmtTime(m.lastSeenAt)
-  const vinStr = m.vin ? m.vin.slice(-6) : ''
-  const stkStr = m.stockNumber || ''
+  const time   = fmtTime(m.lastSeenAt)
+  const vin6   = m.vin && m.vin.trim() ? `···${m.vin.trim().slice(-6)}` : ''
+  const stk    = m.stockNumber && m.stockNumber.trim() && m.stockNumber !== 'undefined' ? m.stockNumber.trim() : ''
+  const sub    = m.subGeoZone && m.subGeoZone !== m.geofence ? m.subGeoZone : ''
+  const coords = `${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}`
 
-  const metaRow = (time || vinStr || stkStr)
-    ? `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:9px;padding-top:8px;
-         border-top:1px solid #f0f0f0;font-size:10.5px;color:#aaa">
-         ${time    ? `<span>🕐 <b style="color:#555">${time}</b></span>` : ''}
-         ${vinStr  ? `<span>VIN ···<b style="color:#555">${vinStr}</b></span>` : ''}
-         ${stkStr  ? `<span>Stock <b style="color:#555">${stkStr}</b></span>` : ''}
+  // Header meta (VIN / Stock) — only if data exists
+  const metaSub = (vin6 || stk)
+    ? `<div style="display:flex;gap:14px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
+         ${vin6 ? `<span style="font-size:10px;color:#64748b;font-weight:500">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.3px">${vin6}</span></span>` : ''}
+         ${stk  ? `<span style="font-size:10px;color:#64748b;font-weight:500">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
        </div>`
     : ''
 
-  const coordRow = `<div style="margin-top:4px;font-size:10px;color:#ccc;letter-spacing:.2px">
-    ${fmtCoord(m.lat)}, ${fmtCoord(m.lng)}
-  </div>`
+  // Last-seen row — only if we have a valid time
+  const timeRow = time
+    ? `<div style="display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9">
+         ${CLK_SVG}
+         <span style="font-size:11.5px;color:#64748b">Last seen</span>
+         <span style="font-size:11.5px;font-weight:700;color:#0f172a;margin-left:auto">${time}</span>
+       </div>`
+    : ''
 
   return `
-    <div style="padding:13px 15px;font-family:system-ui,-apple-system,sans-serif;min-width:220px;line-height:1.6">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <div style="width:10px;height:10px;border-radius:50%;background:${LIVE_GREEN};
-          box-shadow:0 0 0 3px ${LIVE_GREEN}28;flex-shrink:0"></div>
-        <span style="font-weight:700;font-size:13px;color:#111;letter-spacing:-.1px;flex:1">${m.label}</span>
-        <span style="font-size:9px;font-weight:700;color:#16a34a;letter-spacing:.8px;
-          background:#f0fdf4;border:1px solid #bbf7d0;border-radius:4px;padding:2px 6px">LIVE</span>
-      </div>
-      <div style="display:flex;align-items:flex-start;gap:5px;font-size:12px;color:#333">
-        <span style="margin-top:1px;font-size:13px">📍</span>
-        <div>
-          <div style="font-weight:600">${m.geofence}</div>
-          ${sub}
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;width:270px">
+
+  <!-- ── Dark header ─────────────────────────────────────────── -->
+  <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:14px 16px">
+
+    <!-- Vehicle name row -->
+    <div style="display:flex;align-items:center;gap:9px">
+      <!-- Pulsing live dot -->
+      <div style="width:10px;height:10px;border-radius:50%;background:${LIVE_GREEN};flex-shrink:0;
+        animation:popupDotPulse 1.8s ease-in-out infinite"></div>
+      <span style="color:#f8fafc;font-weight:700;font-size:14px;letter-spacing:-.2px;flex:1;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.label}</span>
+      <!-- LIVE pill -->
+      <div style="background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.32);
+        border-radius:20px;padding:2px 9px;font-size:9px;font-weight:800;
+        color:#4ade80;letter-spacing:1.3px;white-space:nowrap">LIVE</div>
+    </div>
+
+    ${metaSub}
+  </div>
+
+  <!-- ── White body ──────────────────────────────────────────── -->
+  <div style="background:#fff;padding:14px 16px">
+
+    <!-- Geofence -->
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      ${PIN_SVG}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:12.5px;color:#1e293b;line-height:1.35">
+          ${m.geofence || '—'}
         </div>
+        ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:2px;line-height:1.35">↳&nbsp;${sub}</div>` : ''}
       </div>
-      ${metaRow}
-      ${coordRow}
-    </div>`
+    </div>
+
+    ${timeRow}
+
+    <!-- Coordinates (subtle footer) -->
+    <div style="margin-top:8px;font-size:9.5px;color:#cbd5e1;letter-spacing:.3px;
+      text-align:right;font-variant-numeric:tabular-nums">${coords}</div>
+  </div>
+
+</div>`
 }
 
 export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
