@@ -103,16 +103,15 @@ const CLK_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" str
 
 function popupHtml(m: MapMarker): string {
   const time   = fmtTime(m.lastSeenAt)
-  const vin6   = m.vin && m.vin.trim() ? `···${m.vin.trim().slice(-6)}` : ''
-  const stk    = m.stockNumber && m.stockNumber.trim() && m.stockNumber !== 'undefined' ? m.stockNumber.trim() : ''
-  const sub    = m.subGeoZone && m.subGeoZone !== m.geofence ? m.subGeoZone : ''
-  const coords = `${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}`
+  const vinFull = m.vin && m.vin.trim() && m.vin.trim() !== 'undefined' ? m.vin.trim() : ''
+  const stk     = m.stockNumber && m.stockNumber.trim() && m.stockNumber.trim() !== 'undefined' ? m.stockNumber.trim() : ''
+  const sub     = m.subGeoZone && m.subGeoZone !== m.geofence ? m.subGeoZone : ''
 
   // Header meta (VIN / Stock) — only if data exists
-  const metaSub = (vin6 || stk)
+  const metaSub = (vinFull || stk)
     ? `<div style="display:flex;gap:14px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
-         ${vin6 ? `<span style="font-size:10px;color:#64748b;font-weight:500">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.3px">${vin6}</span></span>` : ''}
-         ${stk  ? `<span style="font-size:10px;color:#64748b;font-weight:500">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
+         ${vinFull ? `<span style="font-size:10px;color:#64748b;font-weight:500">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
+         ${stk     ? `<span style="font-size:10px;color:#64748b;font-weight:500">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
        </div>`
     : ''
 
@@ -162,10 +161,6 @@ function popupHtml(m: MapMarker): string {
     </div>
 
     ${timeRow}
-
-    <!-- Coordinates (subtle footer) -->
-    <div style="margin-top:8px;font-size:9.5px;color:#cbd5e1;letter-spacing:.3px;
-      text-align:right;font-variant-numeric:tabular-nums">${coords}</div>
   </div>
 
 </div>`
