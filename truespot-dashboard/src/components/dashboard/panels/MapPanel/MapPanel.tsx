@@ -364,10 +364,9 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscriptionKey, JSON.stringify(markers), routeLinesKey])
 
-  // ── Focus effect: fly to selected stop + place a teardrop pin ────────────
+  // ── Focus effect: fly to selected stop + place a hoverable teardrop pin ──
   useEffect(() => {
-    // Remove previous stop marker + popup unconditionally so clicking a
-    // segment a second time (deselect) also clears the pin
+    // Always clear previous pin + popup (handles deselect when stopFocus=null)
     focusPopupRef.current?.remove()
     focusPopupRef.current = null
     stopMarkerRef.current?.remove()
@@ -381,18 +380,40 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
 
     // Teardrop pin — anchor 'bottom' so the tip points to the exact coord
     const pinEl = makeStopPin()
-    stopMarkerRef.current = new mapboxgl.Marker({ element: pinEl, anchor: 'bottom', offset: [0, 0] })
+    stopMarkerRef.current = new mapboxgl.Marker({ element: pinEl, anchor: 'bottom' })
       .setLngLat([stopFocus.lng, stopFocus.lat])
       .addTo(map)
 
-    // Popup sits just above the pin tip (pin SVG is 42px tall)
-    const popup = new mapboxgl.Popup({
-      closeButton: true, anchor: 'bottom', offset: [0, -46], maxWidth: '280px',
-    })
-      .setLngLat([stopFocus.lng, stopFocus.lat])
-      .setHTML(stopFocusHtml(stopFocus))
-      .addTo(map)
-    focusPopupRef.current = popup
+    // Hover-intent: popup appears on mouseenter, hides 180ms after mouseleave
+    let stopHideTimer: ReturnType<typeof setTimeout> | null = null
+    const clearStopHide = () => { if (stopHideTimer) { clearTimeout(stopHideTimer); stopHideTimer = null } }
+    const scheduleStopHide = () => {
+      clearStopHide()
+      stopHideTimer = setTimeout(() => {
+        focusPopupRef.current?.remove()
+        focusPopupRef.current = null
+      }, 180)
+    }
+    const showStopPopup = () => {
+      clearStopHide()
+      if (focusPopupRef.current) return // already visible
+      const popup = new mapboxgl.Popup({
+        closeButton: false, anchor: 'bottom', offset: [0, -46], maxWidth: '280px',
+      })
+        .setLngLat([stopFocus.lng, stopFocus.lat])
+        .setHTML(stopFocusHtml(stopFocus))
+        .addTo(map)
+      focusPopupRef.current = popup
+
+      const cardEl = popup.getElement()
+      if (cardEl) {
+        cardEl.addEventListener('mouseenter', clearStopHide)
+        cardEl.addEventListener('mouseleave', scheduleStopHide)
+      }
+    }
+
+    pinEl.addEventListener('mouseenter', showStopPopup)
+    pinEl.addEventListener('mouseleave', scheduleStopHide)
   }, [stopFocus])
 
   const hasMarkers = markers.length > 0
