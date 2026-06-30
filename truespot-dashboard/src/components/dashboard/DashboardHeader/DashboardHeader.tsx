@@ -48,7 +48,8 @@ export default function DashboardHeader({
           </Typography>
         )}
 
-        {(onExportPdf || onExportExcel) && (
+        {/* TODO: re-enable export when ready */}
+        {false && (onExportPdf || onExportExcel) && (
           <ExportButton
             onExportPdf={onExportPdf ?? (() => Promise.resolve())}
             onExportExcel={onExportExcel ?? (() => Promise.resolve())}
