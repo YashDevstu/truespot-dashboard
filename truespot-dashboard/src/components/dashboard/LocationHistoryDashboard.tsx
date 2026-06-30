@@ -269,13 +269,20 @@ export default function LocationHistoryDashboard({
   const mapMarkers = useMemo((): MapMarker[] => {
     if (!selectedAsset || timelineRows.length === 0) return []
 
+    const parseTime = (r: Record<string, unknown>) => {
+      const v = r['[StartTime]']
+      if (!v) return -Infinity
+      const ms = new Date(String(v)).getTime()
+      return isNaN(ms) ? -Infinity : ms
+    }
+
     // Multi-vehicle: derive one marker per lane (colors already assigned)
     if (vehicleLanes && vehicleLanes.length > 0) {
       return vehicleLanes.flatMap((lane) => {
         let bestRow: Record<string, unknown> | undefined
         let bestTime = -Infinity
         for (const r of lane.rows) {
-          const t = Number(r['[StartTime]'] ?? 0)
+          const t = parseTime(r)
           if (t > bestTime) { bestTime = t; bestRow = r }
         }
         if (!bestRow) return []
@@ -290,7 +297,7 @@ export default function LocationHistoryDashboard({
     let bestRow: Record<string, unknown> | undefined
     let bestTime = -Infinity
     for (const r of timelineRows) {
-      const t = Number(r['[StartTime]'] ?? 0)
+      const t = parseTime(r)
       if (t > bestTime) { bestTime = t; bestRow = r }
     }
     if (!bestRow) return []
