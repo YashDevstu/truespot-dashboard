@@ -23,7 +23,8 @@ import AssetStatCards from './panels/AssetStatCards'
 import LocationsVisitedTable from './panels/LocationsVisitedTable'
 import SelectedAssetCard from './SelectedAssetCard'
 import dynamic from 'next/dynamic'
-import type { MapMarker } from './panels/MapPanel/MapPanel'
+import type { MapMarker, RouteSegment, StopFocus } from './panels/MapPanel/MapPanel'
+import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 const MapPanel = dynamic(() => import('./panels/MapPanel/MapPanel'), { ssr: false })
 
 interface Props {
@@ -342,6 +343,65 @@ export default function LocationHistoryDashboard({
     }]
   }, [selectedAsset, timelineRows, vehicleLanes, azureMapsKey])
 
+  // Route trail: ordered GPS coords per vehicle for the polyline overlay
+  const routeLines = useMemo((): RouteSegment[] => {
+    if (!selectedAsset || timelineRows.length === 0) return []
+
+    const toCoords = (rows: Record<string, unknown>[]) =>
+      rows
+        .map((r) => ({
+          lat: Number(r['[Latitude]']  ?? 0),
+          lng: Number(r['[Longitude]'] ?? 0),
+          t:   new Date(String(r['[StartTime]'] ?? '')).getTime(),
+        }))
+        .filter((c) => isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0) && !isNaN(c.t))
+        .sort((a, b) => a.t - b.t)
+        .map(({ lat, lng }) => ({ lat, lng }))
+
+    if (vehicleLanes && vehicleLanes.length > 0) {
+      return vehicleLanes
+        .map((lane) => ({ coords: toCoords(lane.rows), color: lane.dotColor }))
+        .filter((l) => l.coords.length >= 2)
+    }
+
+    const coords = toCoords(timelineRows)
+    return coords.length >= 2 ? [{ coords, color: DOT_COLORS[0] }] : []
+  }, [selectedAsset, timelineRows, vehicleLanes])
+
+  // Stop focus: fly the map to the selected journey segment's location
+  const stopFocus = useMemo((): StopFocus | null => {
+    if (selectedStopIndex === null || timelineRows.length === 0) return null
+
+    const stops = mergeConsecutiveStops(parsePings(timelineRows))
+    const stop  = stops[selectedStopIndex]
+    if (!stop) return null
+
+    // Find the first row in the stop's time window that has valid GPS
+    const row = timelineRows.find((r) => {
+      const t   = new Date(String(r['[StartTime]'] ?? '')).getTime()
+      const lat = Number(r['[Latitude]']  ?? 0)
+      const lng = Number(r['[Longitude]'] ?? 0)
+      return (
+        t >= stop.startMs && t <= stop.endMs &&
+        String(r['[Geofence]'] ?? '') === stop.geofence &&
+        isFinite(lat) && isFinite(lng) && !(lat === 0 && lng === 0)
+      )
+    })
+    if (!row) return null
+
+    const yr = String(row['[Year]']  ?? '')
+    const mo = String(row['[Model]'] ?? '')
+    return {
+      lat:        Number(row['[Latitude]']),
+      lng:        Number(row['[Longitude]']),
+      label:      yr && mo ? `${yr} ${mo}` : String(row['[VIN]'] ?? '').slice(-8),
+      geofence:   stop.geofence,
+      subGeoZone: stop.subGeoZone,
+      startMs:    stop.startMs,
+      endMs:      stop.endMs,
+    }
+  }, [selectedStopIndex, timelineRows])
+
   // Caption text for AssetStatCards
   const datePeriod = isAllDates
     ? 'last 8 days'
@@ -456,9 +516,14 @@ export default function LocationHistoryDashboard({
                 <SelectedAssetCard rows={singleDayRows} />
               )}
 
-              {/* Azure Maps — last known positions */}
+              {/* Map — last known positions + route trail */}
               {!timelineTooLarge && azureMapsKey && (
-                <MapPanel markers={mapMarkers} subscriptionKey={azureMapsKey} />
+                <MapPanel
+                  markers={mapMarkers}
+                  subscriptionKey={azureMapsKey}
+                  routeLines={routeLines}
+                  stopFocus={stopFocus}
+                />
               )}
 
               {/* Locations visited table */}
