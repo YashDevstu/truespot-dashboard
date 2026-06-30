@@ -276,34 +276,39 @@ export default function LocationHistoryDashboard({
       return isNaN(ms) ? -Infinity : ms
     }
 
+    const validCoords = (r: Record<string, unknown>) => {
+      const lat = Number(r['[Latitude]']  ?? 0)
+      const lng = Number(r['[Longitude]'] ?? 0)
+      return isFinite(lat) && isFinite(lng) && !(lat === 0 && lng === 0)
+        ? { lat, lng } : null
+    }
+
+    // Most-recent row WITH valid coordinates from a set of rows
+    const bestWithCoords = (rows: Record<string, unknown>[]) => {
+      let bestRow: Record<string, unknown> | undefined
+      let bestTime = -Infinity
+      for (const r of rows) {
+        if (!validCoords(r)) continue          // skip rows with no GPS
+        const t = parseTime(r)
+        if (t > bestTime) { bestTime = t; bestRow = r }
+      }
+      return bestRow
+    }
+
     // Multi-vehicle: derive one marker per lane (colors already assigned)
     if (vehicleLanes && vehicleLanes.length > 0) {
       return vehicleLanes.flatMap((lane) => {
-        let bestRow: Record<string, unknown> | undefined
-        let bestTime = -Infinity
-        for (const r of lane.rows) {
-          const t = parseTime(r)
-          if (t > bestTime) { bestTime = t; bestRow = r }
-        }
+        const bestRow = bestWithCoords(lane.rows)
         if (!bestRow) return []
-        const lat = Number(bestRow['[Latitude]'] ?? 0)
-        const lng = Number(bestRow['[Longitude]'] ?? 0)
-        if (!lat || !lng) return []
+        const { lat, lng } = validCoords(bestRow)!
         return [{ lat, lng, label: lane.label, geofence: String(bestRow['[Geofence]'] ?? ''), subGeoZone: String(bestRow['[SubGeoZone]'] ?? ''), dotColor: lane.dotColor }]
       })
     }
 
     // Single vehicle: most recent row with valid coordinates
-    let bestRow: Record<string, unknown> | undefined
-    let bestTime = -Infinity
-    for (const r of timelineRows) {
-      const t = parseTime(r)
-      if (t > bestTime) { bestTime = t; bestRow = r }
-    }
+    const bestRow = bestWithCoords(timelineRows)
     if (!bestRow) return []
-    const lat = Number(bestRow['[Latitude]'] ?? 0)
-    const lng = Number(bestRow['[Longitude]'] ?? 0)
-    if (!lat || !lng) return []
+    const { lat, lng } = validCoords(bestRow)!
     const yr = String(bestRow['[Year]'] ?? '')
     const mo = String(bestRow['[Model]'] ?? '')
     return [{
