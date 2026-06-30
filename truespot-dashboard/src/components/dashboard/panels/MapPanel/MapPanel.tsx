@@ -49,6 +49,33 @@ interface MapPanelProps {
 
 const LIVE_GREEN = '#22c55e'
 
+// Convert a 6-char hex color to rgba() string — needed for line-gradient expressions
+function hexAlpha(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+// Build a tiny right-pointing-chevron image for the direction-arrow symbol layer
+function buildArrowImage(size = 14): { width: number; height: number; data: Uint8ClampedArray } {
+  const canvas  = document.createElement('canvas')
+  canvas.width  = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, size, size)
+  ctx.fillStyle = 'rgba(255,255,255,0.88)'
+  ctx.beginPath()
+  // Simple right-pointing triangle as a direction indicator
+  ctx.moveTo(size * 0.15, size * 0.18)
+  ctx.lineTo(size * 0.85, size * 0.5)
+  ctx.lineTo(size * 0.15, size * 0.82)
+  ctx.closePath()
+  ctx.fill()
+  return { width: size, height: size, data: ctx.getImageData(0, 0, size, size).data }
+}
+
 function injectMapStyles() {
   if (document.getElementById('mbDashMapStyles')) return
   const s = document.createElement('style')
@@ -283,29 +310,80 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
       map.on('load', () => {
         if (destroyed) return
 
-        // ── Route trail polylines ──────────────────────────────────────────
+        // ── Route trail polylines (professional gradient + direction arrows) ──
+        // Register the direction-arrow icon once per map instance
+        if (!map.hasImage('route-arrow')) {
+          map.addImage('route-arrow', buildArrowImage(14))
+        }
+
         routeLines?.forEach((line, li) => {
           if (line.coords.length < 2) return
+          const coordinates = line.coords.map(c => [c.lng, c.lat])
+
+          // lineMetrics: true is required for line-gradient to work
           map.addSource(`route-${li}`, {
             type: 'geojson',
+            lineMetrics: true,
             data: {
               type: 'Feature',
               properties: {},
-              geometry: { type: 'LineString', coordinates: line.coords.map(c => [c.lng, c.lat]) },
+              geometry: { type: 'LineString', coordinates },
             },
           })
-          // Soft glow behind the dashed line
+
+          // Layer 1 — dark outer case for contrast on bright/dark satellite tiles
           map.addLayer({
-            id: `route-glow-${li}`, type: 'line', source: `route-${li}`,
+            id: `route-case-${li}`, type: 'line', source: `route-${li}`,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': line.color, 'line-width': 8, 'line-opacity': 0.12, 'line-blur': 4 },
+            paint: { 'line-color': '#000000', 'line-width': 7, 'line-opacity': 0.22 },
           })
-          // Dashed route line
+
+          // Layer 2 — gradient trail: fades from near-transparent (trip start)
+          // to full color (most recent position), so direction is obvious at a glance
           map.addLayer({
             id: `route-line-${li}`, type: 'line', source: `route-${li}`,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': line.color, 'line-width': 2.5, 'line-dasharray': [3, 2.5], 'line-opacity': 0.75 },
+            paint: {
+              'line-width': 3.5,
+              'line-gradient': [
+                'interpolate', ['linear'], ['line-progress'],
+                0,    hexAlpha(line.color, 0.10),
+                0.25, hexAlpha(line.color, 0.38),
+                0.6,  hexAlpha(line.color, 0.72),
+                1,    line.color,
+              ],
+            },
           })
+
+          // Layer 3 — white directional chevrons every ~90px, rotated with the line
+          map.addLayer({
+            id: `route-arrows-${li}`,
+            type: 'symbol',
+            source: `route-${li}`,
+            layout: {
+              'symbol-placement': 'line',
+              'symbol-spacing': 90,
+              'icon-image': 'route-arrow',
+              'icon-size': 0.85,
+              'icon-rotation-alignment': 'map',
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true,
+            },
+            paint: { 'icon-opacity': 0.72 },
+          })
+
+          // Trip-start dot — small hollow circle at the oldest GPS position
+          const [startLng, startLat] = coordinates[0]
+          const startEl = document.createElement('div')
+          startEl.style.cssText = [
+            'width:9px', 'height:9px', 'border-radius:50%',
+            `background:white`, `border:2.5px solid ${line.color}`,
+            'box-shadow:0 1px 5px rgba(0,0,0,0.55)',
+            'pointer-events:none',
+          ].join(';')
+          new mapboxgl.Marker({ element: startEl, anchor: 'center' })
+            .setLngLat([startLng as number, startLat as number])
+            .addTo(map)
         })
 
         // ── Live markers ───────────────────────────────────────────────────
