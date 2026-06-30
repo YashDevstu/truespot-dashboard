@@ -1,7 +1,7 @@
 'use client'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useEffect, useRef, useState } from 'react'
-import type mapboxgl from 'mapbox-gl'
+
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
@@ -9,7 +9,7 @@ import IconButton from '@mui/material/IconButton'
 import Collapse from '@mui/material/Collapse'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import PlaceIcon from '@mui/icons-material/Place'
+import MyLocationIcon from '@mui/icons-material/MyLocation'
 import GpsOffIcon from '@mui/icons-material/GpsOff'
 
 export interface MapMarker {
@@ -25,6 +25,8 @@ interface MapPanelProps {
   markers: MapMarker[]
   subscriptionKey: string
 }
+
+const LIVE_GREEN = '#22c55e'
 
 function injectMapStyles() {
   if (document.getElementById('mbDashMapStyles')) return
@@ -43,7 +45,7 @@ function injectMapStyles() {
       overflow: hidden;
     }
     .mapboxgl-popup-tip { display:none !important; }
-    .mapboxgl-popup { z-index: 10 !important; }
+    .mapboxgl-popup    { z-index: 10 !important; }
     .mapboxgl-ctrl-group {
       border-radius: 8px !important;
       box-shadow: 0 2px 8px rgba(0,0,0,.3) !important;
@@ -63,17 +65,18 @@ function injectMapStyles() {
   document.head.appendChild(s)
 }
 
-function makeMarkerEl(color: string): HTMLElement {
+// Always green sonar-ping live marker
+function makeLiveMarker(): HTMLElement {
   injectMapStyles()
   const wrapper = document.createElement('div')
   wrapper.style.cssText = 'position:relative;width:44px;height:44px;cursor:pointer'
   wrapper.innerHTML = `
-    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${color};
+    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${LIVE_GREEN};
       animation:dashSonarRing 2.3s ease-out infinite;pointer-events:none"></div>
-    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${color};
+    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${LIVE_GREEN};
       animation:dashSonarRing 2.3s ease-out .9s infinite;pointer-events:none"></div>
-    <div style="position:absolute;inset:11px;border-radius:50%;background:${color};
-      border:2.5px solid #fff;box-shadow:0 0 0 3px ${color}35,0 2px 10px rgba(0,0,0,.5)"></div>
+    <div style="position:absolute;inset:11px;border-radius:50%;background:${LIVE_GREEN};
+      border:2.5px solid #fff;box-shadow:0 0 0 3px ${LIVE_GREEN}35,0 2px 10px rgba(0,0,0,.5)"></div>
   `
   return wrapper
 }
@@ -83,12 +86,17 @@ function popupHtml(m: MapMarker): string {
     ? `<div style="font-size:11px;color:#999;padding-left:19px;margin-top:2px">${m.subGeoZone}</div>`
     : ''
   return `
-    <div style="padding:14px 16px;font-family:system-ui,-apple-system,sans-serif;min-width:200px;line-height:1.7">
-      <div style="font-weight:700;font-size:13.5px;color:#111;margin-bottom:8px;letter-spacing:-.1px">${m.label}</div>
-      <div style="display:flex;align-items:center;gap:7px">
-        <div style="width:10px;height:10px;border-radius:50%;background:${m.dotColor};
-          box-shadow:0 0 0 2px ${m.dotColor}30;flex-shrink:0"></div>
-        <span style="font-size:12px;color:#444;font-weight:600">${m.geofence}</span>
+    <div style="padding:14px 16px;font-family:system-ui,-apple-system,sans-serif;min-width:210px;line-height:1.7">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
+        <div style="width:11px;height:11px;border-radius:50%;background:${LIVE_GREEN};
+          box-shadow:0 0 0 3px ${LIVE_GREEN}30;flex-shrink:0"></div>
+        <span style="font-weight:700;font-size:13.5px;color:#111;letter-spacing:-.1px">${m.label}</span>
+        <span style="margin-left:auto;font-size:9.5px;font-weight:700;color:#16a34a;letter-spacing:.7px;
+          background:#f0fdf4;border:1px solid #bbf7d0;border-radius:5px;padding:2px 7px">LIVE</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#444;margin-bottom:2px">
+        <span style="color:#aaa">📍</span>
+        <span style="font-weight:600">${m.geofence}</span>
       </div>
       ${sub}
     </div>`
@@ -97,10 +105,8 @@ function popupHtml(m: MapMarker): string {
 export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef       = useRef<mapboxgl.Map | null>(null)
-  const popupRef     = useRef<mapboxgl.Popup | null>(null)
   const [collapsed, setCollapsed] = useState(false)
 
-  // Initialise map once
   useEffect(() => {
     if (!containerRef.current || !subscriptionKey) return
     let destroyed = false
@@ -128,23 +134,24 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
       map.on('load', () => {
         if (destroyed) return
 
-        const popup = new mapboxgl.Popup({
-          closeButton: true, anchor: 'top', offset: [0, 26], maxWidth: '280px',
-        })
-        popupRef.current = popup
+        const popupRef = { current: null as mapboxgl.Popup | null }
 
         markers.forEach((m) => {
-          const el = makeMarkerEl(m.dotColor)
-          const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+          const el = makeLiveMarker()
+          new mapboxgl.Marker({ element: el, anchor: 'center' })
             .setLngLat([m.lng, m.lat])
             .addTo(map)
 
-          el.addEventListener('click', () => {
-            popup.setLngLat([m.lng, m.lat]).setHTML(popupHtml(m)).addTo(map)
+          el.addEventListener('mouseenter', () => {
+            popupRef.current?.remove()
+            popupRef.current = new mapboxgl.Popup({
+              closeButton: false, anchor: 'top', offset: [0, 26], maxWidth: '280px',
+            }).setLngLat([m.lng, m.lat]).setHTML(popupHtml(m)).addTo(map)
           })
-
-          // Keep reference for cleanup
-          ;(marker as unknown as { _el: HTMLElement })._el
+          el.addEventListener('mouseleave', () => {
+            popupRef.current?.remove()
+            popupRef.current = null
+          })
         })
 
         if (markers.length === 1) {
@@ -159,19 +166,18 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
 
     return () => {
       destroyed = true
-      popupRef.current?.remove()
-      popupRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
     }
-  // Re-initialise when key or markers change
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscriptionKey, JSON.stringify(markers)])
 
+  const hasMarkers = markers.length > 0
+
   return (
-    // No overflow:hidden — lets popups float above panel without being clipped
     <Paper variant="outlined" sx={{ borderRadius: 2, bgcolor: 'background.paper', position: 'relative' }}>
-      {/* Header */}
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <Box
         onClick={() => setCollapsed((v) => !v)}
         sx={{
@@ -183,7 +189,7 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
           '&:hover': { bgcolor: 'grey.50' },
         }}
       >
-        <PlaceIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+        <MyLocationIcon sx={{ fontSize: 16, color: '#22c55e' }} />
         <Typography
           variant="caption"
           sx={{ fontWeight: 700, letterSpacing: 1.5, color: 'text.secondary', textTransform: 'uppercase', lineHeight: 1 }}
@@ -192,17 +198,40 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
         </Typography>
         <Box sx={{ flex: 1 }} />
 
-        {/* Vehicle legend dots */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 1 }}>
-          {markers.map((m, i) => (
-            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: m.dotColor }} />
-              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
-                {m.label.split(' ').slice(-1)[0]}
+        {/* LIVE badge + vehicle legend */}
+        {hasMarkers && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 1 }}>
+            {/* Pulsing LIVE badge */}
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 0.75,
+              px: 1.25, py: 0.4,
+              bgcolor: '#f0fdf4', border: '1px solid #bbf7d0',
+              borderRadius: 1.5,
+            }}>
+              <Box sx={{
+                width: 7, height: 7, borderRadius: '50%', bgcolor: '#22c55e', flexShrink: 0,
+                '@keyframes livePulse': {
+                  '0%,100%': { boxShadow: '0 0 0 0 #22c55e80' },
+                  '50%':     { boxShadow: '0 0 0 4px transparent' },
+                },
+                animation: 'livePulse 1.8s ease-in-out infinite',
+              }} />
+              <Typography sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '.7px', color: '#16a34a', lineHeight: 1 }}>
+                LIVE
               </Typography>
             </Box>
-          ))}
-        </Box>
+
+            {/* One dot + short label per vehicle */}
+            {markers.map((m, i) => (
+              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: m.dotColor, boxShadow: `0 0 0 2px ${m.dotColor}30` }} />
+                <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+                  {m.label.split(' ').slice(-1)[0]}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        )}
 
         <Typography variant="caption" color="text.disabled">satellite</Typography>
         <IconButton size="small" tabIndex={-1} sx={{ ml: 0.5 }}>
@@ -210,15 +239,16 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
         </IconButton>
       </Box>
 
-      {/* Map or no-data placeholder */}
+      {/* ── Map / placeholder ─────────────────────────────────────────────── */}
       <Collapse in={!collapsed}>
-        {markers.length === 0 ? (
+        {!hasMarkers ? (
           <Box sx={{
-            height: 180, display: 'flex', flexDirection: 'column',
+            height: 200, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             gap: 1, color: 'text.disabled', bgcolor: 'grey.50',
+            borderRadius: '0 0 8px 8px',
           }}>
-            <GpsOffIcon sx={{ fontSize: 32 }} />
+            <GpsOffIcon sx={{ fontSize: 36 }} />
             <Typography variant="body2" sx={{ fontWeight: 600 }}>No location coordinates in data</Typography>
             <Typography variant="caption" align="center" sx={{ maxWidth: 340 }}>
               Latitude / Longitude columns were not found for this vehicle.
@@ -226,7 +256,7 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
             </Typography>
           </Box>
         ) : (
-          <Box ref={containerRef} sx={{ height: 360, width: '100%' }} />
+          <Box ref={containerRef} sx={{ height: 420, width: '100%', borderRadius: '0 0 8px 8px', overflow: 'hidden' }} />
         )}
       </Collapse>
     </Paper>
