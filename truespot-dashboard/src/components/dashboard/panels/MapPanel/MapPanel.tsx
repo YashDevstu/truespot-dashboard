@@ -90,17 +90,46 @@ function injectMapStyles() {
   document.head.appendChild(s)
 }
 
-function makeLiveMarker(): HTMLElement {
+// Live → green sonar ping  |  Last seen → orange solid dot
+function makePositionMarker(isLive: boolean): HTMLElement {
   injectMapStyles()
+  const color = isLive ? LIVE_GREEN : '#f59e0b'
   const wrapper = document.createElement('div')
   wrapper.style.cssText = 'position:relative;width:44px;height:44px;cursor:pointer'
+
+  if (isLive) {
+    wrapper.innerHTML = `
+      <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${color};
+        animation:dashSonarRing 2.3s ease-out infinite;pointer-events:none"></div>
+      <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${color};
+        animation:dashSonarRing 2.3s ease-out .9s infinite;pointer-events:none"></div>
+      <div style="position:absolute;inset:11px;border-radius:50%;background:${color};
+        border:2.5px solid #fff;box-shadow:0 0 0 3px ${color}35,0 2px 10px rgba(0,0,0,.5)"></div>
+    `
+  } else {
+    // Amber dot — single slow pulse, no expanding rings
+    wrapper.innerHTML = `
+      <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${color};
+        animation:dashSonarRing 3.5s ease-out infinite;pointer-events:none;opacity:.55"></div>
+      <div style="position:absolute;inset:11px;border-radius:50%;background:${color};
+        border:2.5px solid #fff;box-shadow:0 0 0 3px ${color}40,0 2px 10px rgba(0,0,0,.45)"></div>
+    `
+  }
+  return wrapper
+}
+
+// Blue teardrop pin for the journey-selected stop
+function makeStopPin(): HTMLElement {
+  const PIN_COLOR = '#3b82f6'
+  const wrapper = document.createElement('div')
+  wrapper.style.cssText = 'cursor:pointer;filter:drop-shadow(0 3px 6px rgba(0,0,0,.4))'
   wrapper.innerHTML = `
-    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${LIVE_GREEN};
-      animation:dashSonarRing 2.3s ease-out infinite;pointer-events:none"></div>
-    <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${LIVE_GREEN};
-      animation:dashSonarRing 2.3s ease-out .9s infinite;pointer-events:none"></div>
-    <div style="position:absolute;inset:11px;border-radius:50%;background:${LIVE_GREEN};
-      border:2.5px solid #fff;box-shadow:0 0 0 3px ${LIVE_GREEN}35,0 2px 10px rgba(0,0,0,.5)"></div>
+    <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
+      <path d="M16 0C7.163 0 0 7.163 0 16c0 6.179 3.478 11.558 8.593 14.322L16 42l7.407-11.678C28.522 27.558 32 22.179 32 16 32 7.163 24.837 0 16 0z"
+        fill="${PIN_COLOR}"/>
+      <circle cx="16" cy="16" r="7" fill="white"/>
+      <circle cx="16" cy="16" r="4" fill="${PIN_COLOR}"/>
+    </svg>
   `
   return wrapper
 }
@@ -213,11 +242,13 @@ function stopFocusHtml(sf: StopFocus): string {
 }
 
 export default function MapPanel({ markers, subscriptionKey, routeLines, stopFocus }: MapPanelProps) {
-  const containerRef  = useRef<HTMLDivElement>(null)
-  const mapRef        = useRef<mapboxgl.Map | null>(null)
+  const containerRef   = useRef<HTMLDivElement>(null)
+  const mapRef         = useRef<mapboxgl.Map | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mapboxglRef   = useRef<any>(null)
-  const focusPopupRef = useRef<mapboxgl.Popup | null>(null)
+  const mapboxglRef    = useRef<any>(null)
+  const focusPopupRef  = useRef<mapboxgl.Popup   | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stopMarkerRef  = useRef<any>(null)
   const [collapsed, setCollapsed] = useState(false)
 
   // Stable cheap change-key for routeLines — avoids JSON.stringify on large coord arrays
@@ -303,7 +334,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
         }
 
         markers.forEach((m) => {
-          const el = makeLiveMarker()
+          const el = makePositionMarker(m.isLive ?? true)
           new mapboxgl.Marker({ element: el, anchor: 'center' })
             .setLngLat([m.lng, m.lat])
             .addTo(map)
@@ -325,27 +356,43 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
       destroyed = true
       focusPopupRef.current?.remove()
       focusPopupRef.current = null
+      stopMarkerRef.current?.remove()
+      stopMarkerRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscriptionKey, JSON.stringify(markers), routeLinesKey])
 
-  // ── Focus effect: fly to selected stop without re-initializing the map ────
+  // ── Focus effect: fly to selected stop + place a teardrop pin ────────────
   useEffect(() => {
+    // Remove previous stop marker + popup unconditionally so clicking a
+    // segment a second time (deselect) also clears the pin
+    focusPopupRef.current?.remove()
+    focusPopupRef.current = null
+    stopMarkerRef.current?.remove()
+    stopMarkerRef.current = null
+
     if (!stopFocus || !mapRef.current || !mapboxglRef.current) return
     const map      = mapRef.current
     const mapboxgl = mapboxglRef.current
 
     map.flyTo({ center: [stopFocus.lng, stopFocus.lat], zoom: 17, duration: 500, essential: true })
 
-    focusPopupRef.current?.remove()
-    focusPopupRef.current = new mapboxgl.Popup({
-      closeButton: true, anchor: 'top', offset: [0, 12], maxWidth: '280px',
+    // Teardrop pin — anchor 'bottom' so the tip points to the exact coord
+    const pinEl = makeStopPin()
+    stopMarkerRef.current = new mapboxgl.Marker({ element: pinEl, anchor: 'bottom', offset: [0, 0] })
+      .setLngLat([stopFocus.lng, stopFocus.lat])
+      .addTo(map)
+
+    // Popup sits just above the pin tip (pin SVG is 42px tall)
+    const popup = new mapboxgl.Popup({
+      closeButton: true, anchor: 'bottom', offset: [0, -46], maxWidth: '280px',
     })
       .setLngLat([stopFocus.lng, stopFocus.lat])
       .setHTML(stopFocusHtml(stopFocus))
       .addTo(map)
+    focusPopupRef.current = popup
   }, [stopFocus])
 
   const hasMarkers = markers.length > 0
