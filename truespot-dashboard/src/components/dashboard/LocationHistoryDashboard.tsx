@@ -343,30 +343,59 @@ export default function LocationHistoryDashboard({
     }]
   }, [selectedAsset, timelineRows, vehicleLanes, azureMapsKey])
 
-  // Route trail: ordered GPS coords per vehicle for the polyline overlay
+  // Route trail: geofence-colored contiguous segments so trail colors match Journey Timeline bar
   const routeLines = useMemo((): RouteSegment[] => {
     if (!selectedAsset || timelineRows.length === 0) return []
 
-    const toCoords = (rows: Record<string, unknown>[]) =>
+    const toGpsPoints = (rows: Record<string, unknown>[]) =>
       rows
         .map((r) => ({
-          lat: Number(r['[Latitude]']  ?? 0),
-          lng: Number(r['[Longitude]'] ?? 0),
-          t:   new Date(String(r['[StartTime]'] ?? '')).getTime(),
+          lat:      Number(r['[Latitude]']  ?? 0),
+          lng:      Number(r['[Longitude]'] ?? 0),
+          t:        new Date(String(r['[StartTime]'] ?? '')).getTime(),
+          geofence: String(r['[Geofence]'] ?? ''),
         }))
         .filter((c) => isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0) && !isNaN(c.t))
         .sort((a, b) => a.t - b.t)
-        .map(({ lat, lng }) => ({ lat, lng }))
 
     if (vehicleLanes && vehicleLanes.length > 0) {
+      // Multi-vehicle: one solid color per vehicle lane (too many lanes to also split by geofence)
       return vehicleLanes
-        .map((lane) => ({ coords: toCoords(lane.rows), color: lane.dotColor }))
+        .map((lane) => ({
+          coords: toGpsPoints(lane.rows).map(({ lat, lng }) => ({ lat, lng })),
+          color:  lane.dotColor,
+        }))
         .filter((l) => l.coords.length >= 2)
     }
 
-    const coords = toCoords(timelineRows)
-    return coords.length >= 2 ? [{ coords, color: DOT_COLORS[0] }] : []
-  }, [selectedAsset, timelineRows, vehicleLanes])
+    // Single vehicle: split into contiguous runs by geofence
+    // Each run gets the same color as its geofence block in the Journey Timeline bar
+    const pts = toGpsPoints(timelineRows)
+    if (pts.length < 2) return []
+
+    const segments: RouteSegment[] = []
+    let run = [pts[0]]
+
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].geofence === run[0].geofence) {
+        run.push(pts[i])
+      } else {
+        // Close the current run; share its last point as the first of the next
+        // so segments connect seamlessly with no gap
+        segments.push({
+          coords: run.map(({ lat, lng }) => ({ lat, lng })),
+          color:  sharedColorMap.get(run[0].geofence) ?? '#9e9e9e',
+        })
+        run = [run[run.length - 1], pts[i]]
+      }
+    }
+    segments.push({
+      coords: run.map(({ lat, lng }) => ({ lat, lng })),
+      color:  sharedColorMap.get(run[0].geofence) ?? '#9e9e9e',
+    })
+
+    return segments.filter((s) => s.coords.length >= 2)
+  }, [selectedAsset, timelineRows, vehicleLanes, sharedColorMap])
 
   // Stop focus: fly the map to the selected journey segment's location
   const stopFocus = useMemo((): StopFocus | null => {
