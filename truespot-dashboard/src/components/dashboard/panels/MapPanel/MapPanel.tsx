@@ -22,6 +22,7 @@ export interface MapMarker {
   lastSeenAt?: string   // ISO timestamp of the most recent position row
   vin?: string
   stockNumber?: string
+  isLive?: boolean      // true only when lastSeenAt is from today
 }
 
 interface MapPanelProps {
@@ -102,12 +103,27 @@ const PIN_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="#f87171" 
 const CLK_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
 
 function popupHtml(m: MapMarker): string {
-  const time   = fmtTime(m.lastSeenAt)
+  const time    = fmtTime(m.lastSeenAt)
   const vinFull = m.vin && m.vin.trim() && m.vin.trim() !== 'undefined' ? m.vin.trim() : ''
   const stk     = m.stockNumber && m.stockNumber.trim() && m.stockNumber.trim() !== 'undefined' ? m.stockNumber.trim() : ''
   const sub     = m.subGeoZone && m.subGeoZone !== m.geofence ? m.subGeoZone : ''
+  const live    = m.isLive !== false   // default true for backwards compat
 
-  // Header meta (VIN / Stock) — only if data exists
+  // Status badge — green LIVE when today, amber LAST SEEN for historical
+  const statusBadge = live
+    ? `<div style="background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.32);
+        border-radius:20px;padding:2px 9px;font-size:9px;font-weight:800;
+        color:#4ade80;letter-spacing:1.3px;white-space:nowrap">LIVE</div>`
+    : `<div style="background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.32);
+        border-radius:20px;padding:2px 9px;font-size:9px;font-weight:800;
+        color:#fbbf24;letter-spacing:1px;white-space:nowrap">LAST SEEN</div>`
+
+  // Header dot — pulsing green when live, static amber when historical
+  const dotStyle = live
+    ? `background:${LIVE_GREEN};animation:popupDotPulse 1.8s ease-in-out infinite`
+    : `background:#f59e0b`
+
+  // Header meta (VIN / Stock)
   const metaSub = (vinFull || stk)
     ? `<div style="display:flex;gap:14px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
          ${vinFull ? `<span style="font-size:10px;color:#64748b;font-weight:500">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
@@ -115,11 +131,12 @@ function popupHtml(m: MapMarker): string {
        </div>`
     : ''
 
-  // Last-seen row — only if we have a valid time
+  // Time row label changes with live state
+  const timeLabel = live ? 'Last seen' : 'Last recorded'
   const timeRow = time
     ? `<div style="display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9">
          ${CLK_SVG}
-         <span style="font-size:11.5px;color:#64748b">Last seen</span>
+         <span style="font-size:11.5px;color:#64748b">${timeLabel}</span>
          <span style="font-size:11.5px;font-weight:700;color:#0f172a;margin-left:auto">${time}</span>
        </div>`
     : ''
@@ -129,37 +146,24 @@ function popupHtml(m: MapMarker): string {
 
   <!-- ── Dark header ─────────────────────────────────────────── -->
   <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:14px 16px">
-
-    <!-- Vehicle name row -->
     <div style="display:flex;align-items:center;gap:9px">
-      <!-- Pulsing live dot -->
-      <div style="width:10px;height:10px;border-radius:50%;background:${LIVE_GREEN};flex-shrink:0;
-        animation:popupDotPulse 1.8s ease-in-out infinite"></div>
+      <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;${dotStyle}"></div>
       <span style="color:#f8fafc;font-weight:700;font-size:14px;letter-spacing:-.2px;flex:1;
         white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.label}</span>
-      <!-- LIVE pill -->
-      <div style="background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.32);
-        border-radius:20px;padding:2px 9px;font-size:9px;font-weight:800;
-        color:#4ade80;letter-spacing:1.3px;white-space:nowrap">LIVE</div>
+      ${statusBadge}
     </div>
-
     ${metaSub}
   </div>
 
   <!-- ── White body ──────────────────────────────────────────── -->
   <div style="background:#fff;padding:14px 16px">
-
-    <!-- Geofence -->
     <div style="display:flex;gap:8px;align-items:flex-start">
       ${PIN_SVG}
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:12.5px;color:#1e293b;line-height:1.35">
-          ${m.geofence || '—'}
-        </div>
+        <div style="font-weight:700;font-size:12.5px;color:#1e293b;line-height:1.35">${m.geofence || '—'}</div>
         ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:2px;line-height:1.35">↳&nbsp;${sub}</div>` : ''}
       </div>
     </div>
-
     ${timeRow}
   </div>
 
@@ -254,6 +258,7 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
   }, [subscriptionKey, JSON.stringify(markers)])
 
   const hasMarkers = markers.length > 0
+  const anyLive    = hasMarkers && markers.some((m) => m.isLive !== false)
 
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, bgcolor: 'background.paper', position: 'relative' }}>
@@ -279,26 +284,34 @@ export default function MapPanel({ markers, subscriptionKey }: MapPanelProps) {
         </Typography>
         <Box sx={{ flex: 1 }} />
 
-        {/* LIVE badge + vehicle legend */}
+        {/* Status badge + vehicle legend */}
         {hasMarkers && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 1 }}>
-            {/* Pulsing LIVE badge */}
+            {/* LIVE (green) or LAST KNOWN (amber) */}
             <Box sx={{
               display: 'flex', alignItems: 'center', gap: 0.75,
               px: 1.25, py: 0.4,
-              bgcolor: '#f0fdf4', border: '1px solid #bbf7d0',
+              bgcolor: anyLive ? '#f0fdf4' : '#fffbeb',
+              border: '1px solid',
+              borderColor: anyLive ? '#bbf7d0' : '#fde68a',
               borderRadius: 1.5,
             }}>
               <Box sx={{
-                width: 7, height: 7, borderRadius: '50%', bgcolor: '#22c55e', flexShrink: 0,
-                '@keyframes livePulse': {
-                  '0%,100%': { boxShadow: '0 0 0 0 #22c55e80' },
-                  '50%':     { boxShadow: '0 0 0 4px transparent' },
-                },
-                animation: 'livePulse 1.8s ease-in-out infinite',
+                width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                bgcolor: anyLive ? '#22c55e' : '#f59e0b',
+                ...(anyLive ? {
+                  '@keyframes livePulse': {
+                    '0%,100%': { boxShadow: '0 0 0 0 #22c55e80' },
+                    '50%':     { boxShadow: '0 0 0 4px transparent' },
+                  },
+                  animation: 'livePulse 1.8s ease-in-out infinite',
+                } : {}),
               }} />
-              <Typography sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '.7px', color: '#16a34a', lineHeight: 1 }}>
-                LIVE
+              <Typography sx={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '.7px', lineHeight: 1,
+                color: anyLive ? '#16a34a' : '#d97706',
+              }}>
+                {anyLive ? 'LIVE' : 'LAST KNOWN'}
               </Typography>
             </Box>
 

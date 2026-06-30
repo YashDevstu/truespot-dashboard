@@ -269,6 +269,14 @@ export default function LocationHistoryDashboard({
   const mapMarkers = useMemo((): MapMarker[] => {
     if (!selectedAsset || timelineRows.length === 0) return []
 
+    const todayStr = new Date().toDateString()
+    const isLiveRow = (r: Record<string, unknown>) => {
+      const v = r['[StartTime]']
+      if (!v) return false
+      const d = new Date(String(v))
+      return !isNaN(d.getTime()) && d.toDateString() === todayStr
+    }
+
     const parseTime = (r: Record<string, unknown>) => {
       const v = r['[StartTime]']
       if (!v) return -Infinity
@@ -310,6 +318,7 @@ export default function LocationHistoryDashboard({
           lastSeenAt:  String(bestRow['[StartTime]']   ?? ''),
           vin:         String(bestRow['[VIN]']          ?? ''),
           stockNumber: String(bestRow['[StockNumber]'] ?? ''),
+          isLive:      isLiveRow(bestRow),
         }]
       })
     }
@@ -329,6 +338,7 @@ export default function LocationHistoryDashboard({
       lastSeenAt:  String(bestRow['[StartTime]']   ?? ''),
       vin:         String(bestRow['[VIN]']          ?? ''),
       stockNumber: String(bestRow['[StockNumber]'] ?? ''),
+      isLive:      isLiveRow(bestRow),
     }]
   }, [selectedAsset, timelineRows, vehicleLanes, azureMapsKey])
 
