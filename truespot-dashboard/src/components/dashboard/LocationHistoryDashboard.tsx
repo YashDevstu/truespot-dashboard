@@ -323,6 +323,11 @@ export default function LocationHistoryDashboard({
     }
 
     // Multi-vehicle: derive one marker per lane (colors already assigned)
+    const resolveAssetType = (row: Record<string, unknown>): 'Vehicle' | 'Key' | 'Mixed' => {
+      const v = String(row['[AssetType]'] ?? 'Vehicle').toLowerCase()
+      return v === 'key' ? 'Key' : 'Vehicle'
+    }
+
     if (vehicleLanes && vehicleLanes.length > 0) {
       return vehicleLanes.flatMap((lane) => {
         const bestRow = bestWithCoords(lane.rows)
@@ -338,6 +343,7 @@ export default function LocationHistoryDashboard({
           vin:         String(bestRow['[VIN]']          ?? ''),
           stockNumber: String(bestRow['[StockNumber]'] ?? ''),
           isLive:      isLiveRow(bestRow),
+          assetType:   resolveAssetType(bestRow),
         }]
       })
     }
@@ -358,6 +364,7 @@ export default function LocationHistoryDashboard({
       vin:         String(bestRow['[VIN]']          ?? ''),
       stockNumber: String(bestRow['[StockNumber]'] ?? ''),
       isLive:      isLiveRow(bestRow),
+      assetType:   resolveAssetType(bestRow),
     }]
   }, [selectedAsset, timelineRows, vehicleLanes, azureMapsKey])
 
@@ -500,6 +507,7 @@ export default function LocationHistoryDashboard({
         index:      idx,
         startMs:    stop.startMs,
         endMs:      stop.endMs,
+        assetType:  stop.assetType,
       })
       return acc
     }, [])

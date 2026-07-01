@@ -25,6 +25,7 @@ export interface MapMarker {
   vin?: string
   stockNumber?: string
   isLive?: boolean
+  assetType?: 'Vehicle' | 'Key' | 'Mixed'
 }
 
 export interface RouteSegment {
@@ -51,6 +52,7 @@ export interface MapStop {
   index: number       // matches stop index in Journey Timeline
   startMs?: number
   endMs?: number
+  assetType?: 'Vehicle' | 'Key' | 'Mixed'
 }
 
 interface MapPanelProps {
@@ -132,8 +134,25 @@ function injectMapStyles() {
   document.head.appendChild(s)
 }
 
+// SVG icons for the asset-type badge on position markers
+const CAR_SVG  = `<svg width="10" height="10" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>`
+const KEY_SVG  = `<svg width="10" height="10" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>`
+const MIX_SVG  = `<svg width="10" height="10" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`
+
+function assetBadgeHtml(assetType: 'Vehicle' | 'Key' | 'Mixed' = 'Vehicle'): string {
+  const isKey   = assetType === 'Key'
+  const isMixed = assetType === 'Mixed'
+  const bg    = isKey ? '#f59e0b' : isMixed ? '#a855f7' : '#3b82f6'
+  const icon  = isKey ? KEY_SVG  : isMixed ? MIX_SVG  : CAR_SVG
+  return `<div style="position:absolute;bottom:-3px;right:-3px;
+    width:18px;height:18px;border-radius:50%;
+    background:${bg};border:2px solid #fff;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 1px 5px rgba(0,0,0,0.45);pointer-events:none">${icon}</div>`
+}
+
 // Live → green sonar ping  |  Last seen → orange solid dot
-function makePositionMarker(isLive: boolean): HTMLElement {
+function makePositionMarker(isLive: boolean, assetType: 'Vehicle' | 'Key' | 'Mixed' = 'Vehicle'): HTMLElement {
   injectMapStyles()
   const color = isLive ? LIVE_GREEN : '#f59e0b'
   const wrapper = document.createElement('div')
@@ -147,26 +166,32 @@ function makePositionMarker(isLive: boolean): HTMLElement {
         animation:dashSonarRing 2.3s ease-out .9s infinite;pointer-events:none"></div>
       <div style="position:absolute;inset:11px;border-radius:50%;background:${color};
         border:2.5px solid #fff;box-shadow:0 0 0 3px ${color}35,0 2px 10px rgba(0,0,0,.5)"></div>
+      ${assetBadgeHtml(assetType)}
     `
   } else {
-    // Amber dot — single slow pulse, no expanding rings
     wrapper.innerHTML = `
       <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${color};
         animation:dashSonarRing 3.5s ease-out infinite;pointer-events:none;opacity:.55"></div>
       <div style="position:absolute;inset:11px;border-radius:50%;background:${color};
         border:2.5px solid #fff;box-shadow:0 0 0 3px ${color}40,0 2px 10px rgba(0,0,0,.45)"></div>
+      ${assetBadgeHtml(assetType)}
     `
   }
   return wrapper
 }
 
 // Small solid dot marking each journey stop — no transform (avoids Mapbox anchor shift)
-function makeStopDot(color: string): HTMLElement {
+// Key stops get an amber ring border; Vehicle stops get a white border.
+function makeStopDot(color: string, assetType: 'Vehicle' | 'Key' | 'Mixed' = 'Vehicle'): HTMLElement {
+  const isKey   = assetType === 'Key'
+  const isMixed = assetType === 'Mixed'
+  const borderColor = isKey ? '#f59e0b' : isMixed ? '#a855f7' : '#fff'
+  const size        = isKey || isMixed ? '12px' : '10px'  // slightly larger for non-Vehicle
   const el = document.createElement('div')
   el.style.cssText = [
-    'width:10px', 'height:10px', 'border-radius:50%',
+    `width:${size}`, `height:${size}`, 'border-radius:50%',
     `background:${color}`,
-    'border:2px solid #fff',
+    `border:2px solid ${borderColor}`,
     'box-shadow:0 1px 5px rgba(0,0,0,0.55)',
     'cursor:pointer',
     'transition:box-shadow 0.15s ease',
@@ -217,6 +242,7 @@ function popupHtml(m: MapMarker): string {
   const stk     = m.stockNumber && m.stockNumber.trim() && m.stockNumber.trim() !== 'undefined' ? m.stockNumber.trim() : ''
   const sub     = m.subGeoZone && m.subGeoZone !== m.geofence ? m.subGeoZone : ''
   const live    = m.isLive !== false
+  const asset   = m.assetType ?? 'Vehicle'
 
   const statusBadge = live
     ? `<div style="background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.32);
@@ -230,12 +256,27 @@ function popupHtml(m: MapMarker): string {
     ? `background:${LIVE_GREEN};animation:popupDotPulse 1.8s ease-in-out infinite`
     : `background:#f59e0b`
 
-  const metaSub = (vinFull || stk)
-    ? `<div style="display:flex;gap:14px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
-         ${vinFull ? `<span style="font-size:10px;color:#64748b;font-weight:500">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
-         ${stk     ? `<span style="font-size:10px;color:#64748b;font-weight:500">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
-       </div>`
-    : ''
+  // Asset-type indicator row — colored chip with icon
+  const assetColor = asset === 'Key' ? '#f59e0b' : asset === 'Mixed' ? '#a855f7' : '#3b82f6'
+  const assetBg    = asset === 'Key' ? 'rgba(245,158,11,.18)' : asset === 'Mixed' ? 'rgba(168,85,247,.18)' : 'rgba(59,130,246,.18)'
+  const assetBorder= asset === 'Key' ? 'rgba(245,158,11,.35)' : asset === 'Mixed' ? 'rgba(168,85,247,.35)' : 'rgba(59,130,246,.35)'
+  const assetLabel = asset === 'Key' ? 'KEY TAG' : asset === 'Mixed' ? 'MIXED' : 'VEHICLE'
+  const assetIcon  = asset === 'Key'
+    ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>`
+    : asset === 'Mixed'
+    ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`
+    : `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>`
+
+  const assetRow = `
+    <div style="display:flex;align-items:center;gap:5px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
+      ${assetIcon}
+      <span style="font-size:9.5px;font-weight:800;color:${assetColor};letter-spacing:.9px">${assetLabel}</span>
+      ${(vinFull || stk) ? `
+        <span style="margin-left:auto;display:flex;gap:10px">
+          ${vinFull ? `<span style="font-size:10px;color:#64748b">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
+          ${stk     ? `<span style="font-size:10px;color:#64748b">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
+        </span>` : ''}
+    </div>`
 
   const timeLabel = live ? 'Last seen' : 'Last recorded'
   const timeRow = time
@@ -255,7 +296,7 @@ function popupHtml(m: MapMarker): string {
         white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.label}</span>
       ${statusBadge}
     </div>
-    ${metaSub}
+    ${assetRow}
   </div>
   <div style="background:#fff;padding:14px 16px">
     <div style="display:flex;gap:8px;align-items:flex-start">
@@ -474,7 +515,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
         // Rendered before position markers so live/amber dots sit on top.
         // No CSS transforms — avoids the Mapbox anchor-shift bug.
         stops?.forEach((stop) => {
-          const el = makeStopDot(stop.color)
+          const el = makeStopDot(stop.color, stop.assetType)
           el.addEventListener('click', (e) => {
             e.stopPropagation()
             onStopClickRef.current?.(stop.index)
@@ -485,7 +526,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
         })
 
         markers.forEach((m) => {
-          const el = makePositionMarker(m.isLive ?? true)
+          const el = makePositionMarker(m.isLive ?? true, m.assetType)
           new mapboxgl.Marker({ element: el, anchor: 'center' })
             .setLngLat([m.lng, m.lat])
             .addTo(map)
@@ -683,7 +724,71 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
             </Typography>
           </Box>
         ) : (
-          <Box ref={containerRef} sx={{ height: 420, width: '100%', borderRadius: '0 0 8px 8px', overflow: 'hidden' }} />
+          <Box sx={{ position: 'relative', height: 420, borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
+            <Box ref={containerRef} sx={{ height: '100%', width: '100%' }} />
+
+            {/* Map legend overlay — bottom-right corner */}
+            <Box sx={{
+              position: 'absolute', bottom: 28, right: 8, zIndex: 1,
+              background: 'rgba(15,23,42,0.82)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: '10px',
+              px: 1.5, py: 1,
+              display: 'flex', flexDirection: 'column', gap: 0.75,
+              pointerEvents: 'none',
+            }}>
+              <Typography sx={{ fontSize: 8.5, fontWeight: 800, color: 'rgba(255,255,255,0.35)', letterSpacing: 1.2, lineHeight: 1, mb: 0.25 }}>
+                LEGEND
+              </Typography>
+
+              {/* Status rows */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{
+                  width: 8, height: 8, borderRadius: '50%', bgcolor: '#22c55e', flexShrink: 0,
+                  '@keyframes lgPulse': { '0%,100%': { boxShadow: '0 0 0 0 #22c55e80' }, '50%': { boxShadow: '0 0 0 4px transparent' } },
+                  animation: 'lgPulse 1.8s ease-in-out infinite',
+                }} />
+                <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>Live position</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', flexShrink: 0 }} />
+                <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>Last known</Typography>
+              </Box>
+
+              {/* Divider */}
+              <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.10)', my: 0.25 }} />
+
+              {/* Asset type rows */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>
+                </Box>
+                <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>Vehicle</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+                </Box>
+                <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>Key tag</Typography>
+              </Box>
+              {markers.some((m) => m.assetType === 'Mixed') && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                  </Box>
+                  <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>Mixed</Typography>
+                </Box>
+              )}
+
+              {/* Stop dot hint */}
+              <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.10)', mt: 0.25, pt: 0.5 }}>
+                <Typography sx={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', lineHeight: 1.3 }}>
+                  Tap dots on route to<br/>select a journey stop
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
         )}
       </Collapse>
     </Paper>
