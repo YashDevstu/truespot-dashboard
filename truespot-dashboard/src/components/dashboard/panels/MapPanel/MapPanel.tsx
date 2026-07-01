@@ -237,6 +237,26 @@ function fmtMs(ms?: number): string {
 const PIN_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="#f87171" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-top:1px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`
 const CLK_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
 
+// Clean pill badge for asset type — icon directly in pill, no nested circles.
+// Used in both position-marker hover popup and selected-stop popup.
+function makeAssetPill(asset: 'Vehicle' | 'Key' | 'Mixed'): string {
+  const isKey   = asset === 'Key'
+  const isMixed = asset === 'Mixed'
+
+  const pillBg     = isKey ? 'rgba(245,158,11,.15)' : isMixed ? 'rgba(168,85,247,.15)' : 'rgba(59,130,246,.15)'
+  const pillBorder = isKey ? 'rgba(245,158,11,.40)' : isMixed ? 'rgba(168,85,247,.40)' : 'rgba(59,130,246,.40)'
+  const textColor  = isKey ? '#fbbf24'              : isMixed ? '#c084fc'               : '#60a5fa'
+  const label      = isKey ? 'Key Tag'              : isMixed ? 'Mixed'                 : 'Vehicle'
+
+  const icon = isKey
+    ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="${textColor}" style="flex-shrink:0"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>`
+    : isMixed
+    ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="${textColor}" style="flex-shrink:0"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`
+    : `<svg width="13" height="13" viewBox="0 0 24 24" fill="${textColor}" style="flex-shrink:0"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>`
+
+  return `<div style="display:inline-flex;align-items:center;gap:6px;background:${pillBg};border:1.5px solid ${pillBorder};border-radius:20px;padding:4px 11px 4px 8px">${icon}<span style="font-size:11.5px;font-weight:700;color:${textColor};letter-spacing:.15px;line-height:1">${label}</span></div>`
+}
+
 function popupHtml(m: MapMarker): string {
   const time    = fmtTime(m.lastSeenAt)
   const vinFull = m.vin && m.vin.trim() && m.vin.trim() !== 'undefined' ? m.vin.trim() : ''
@@ -257,27 +277,14 @@ function popupHtml(m: MapMarker): string {
     ? `background:${LIVE_GREEN};animation:popupDotPulse 1.8s ease-in-out infinite`
     : `background:#f59e0b`
 
-  // Asset-type indicator row — colored chip with icon (own row, no VIN crammed in)
-  const assetColor = asset === 'Key' ? '#f59e0b' : asset === 'Mixed' ? '#a855f7' : '#3b82f6'
-  const assetLabel = asset === 'Key' ? 'KEY TAG' : asset === 'Mixed' ? 'MIXED' : 'VEHICLE'
-  const assetIcon  = asset === 'Key'
-    ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>`
-    : asset === 'Mixed'
-    ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`
-    : `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>`
+  // Asset-type pill badge
+  const assetRow = `<div style="margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.08)">${makeAssetPill(asset)}</div>`
 
-  // Row 1: asset type chip
-  const assetRow = `
-    <div style="display:flex;align-items:center;gap:5px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
-      ${assetIcon}
-      <span style="font-size:9.5px;font-weight:800;color:${assetColor};letter-spacing:.9px">${assetLabel}</span>
-    </div>`
-
-  // Row 2: VIN + Stock (separate row so nothing gets cut off)
+  // VIN + Stock row — lighter text colours for dark header background
   const metaSub = (vinFull || stk)
     ? `<div style="display:flex;gap:14px;margin-top:6px">
-         ${vinFull ? `<span style="font-size:10px;color:#64748b;font-weight:500">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
-         ${stk     ? `<span style="font-size:10px;color:#64748b;font-weight:500">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
+         ${vinFull ? `<span style="font-size:10px;color:rgba(255,255,255,.38);font-weight:500">VIN&nbsp;<span style="color:rgba(255,255,255,.72);font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
+         ${stk     ? `<span style="font-size:10px;color:rgba(255,255,255,.38);font-weight:500">Stock&nbsp;<span style="color:rgba(255,255,255,.72);font-weight:700">${stk}</span></span>` : ''}
        </div>`
     : ''
 
@@ -322,12 +329,6 @@ function stopFocusHtml(sf: StopFocus): string {
   const range = t0 && t1 ? `${t0} → ${t1}` : t0 || ''
   const asset = sf.assetType ?? 'Vehicle'
 
-  const assetColor = asset === 'Key' ? '#f59e0b' : asset === 'Mixed' ? '#a855f7' : '#3b82f6'
-  const assetLabel = asset === 'Key' ? 'KEY TAG' : asset === 'Mixed' ? 'MIXED' : 'VEHICLE'
-  const assetIcon  = asset === 'Key'
-    ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>`
-    : `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>`
-
   return `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;width:250px">
   <div style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);padding:12px 15px">
@@ -337,10 +338,7 @@ function stopFocusHtml(sf: StopFocus): string {
       <div style="background:rgba(148,163,184,.15);border:1px solid rgba(148,163,184,.3);
         border-radius:20px;padding:2px 8px;font-size:9px;font-weight:700;color:#94a3b8;letter-spacing:.8px">SELECTED</div>
     </div>
-    <div style="display:flex;align-items:center;gap:5px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
-      ${assetIcon}
-      <span style="font-size:9.5px;font-weight:800;color:${assetColor};letter-spacing:.9px">${assetLabel}</span>
-    </div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">${makeAssetPill(asset)}</div>
   </div>
   <div style="background:#fff;padding:12px 15px">
     <div style="display:flex;gap:7px;align-items:flex-start">
