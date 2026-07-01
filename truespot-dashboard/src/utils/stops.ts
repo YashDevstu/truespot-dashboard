@@ -15,6 +15,7 @@ export interface ParsedPing {
   startMs: number
   endMs: number
   minutes: number
+  assetType: string
 }
 
 export interface MergedStop {
@@ -24,6 +25,7 @@ export interface MergedStop {
   endMs: number
   totalMinutes: number  // wall-clock: Math.round((endMs - startMs) / 60_000)
   pingCount: number
+  assetType: 'Vehicle' | 'Key' | 'Mixed'
 }
 
 export function parsePings(rows: Record<string, unknown>[]): ParsedPing[] {
@@ -37,11 +39,17 @@ export function parsePings(rows: Record<string, unknown>[]): ParsedPing[] {
         subGeoZone: String(r['[SubGeoZone]'] ?? ''),
         startMs,
         endMs,
-        minutes: Number(r['[MinutesDiff]'] ?? 0),
+        minutes:   Number(r['[MinutesDiff]'] ?? 0),
+        assetType: String(r['[AssetType]']   ?? 'Vehicle'),
       }
     })
     .filter((s): s is ParsedPing => s !== null)
     .sort((a, b) => a.startMs - b.startMs)
+}
+
+function resolveAssetType(types: Set<string>): 'Vehicle' | 'Key' | 'Mixed' {
+  if (types.size > 1) return 'Mixed'
+  return ([...types][0] ?? '').toLowerCase() === 'key' ? 'Key' : 'Vehicle'
 }
 
 export function mergeConsecutiveStops(pings: ParsedPing[]): MergedStop[] {
@@ -53,6 +61,7 @@ export function mergeConsecutiveStops(pings: ParsedPing[]): MergedStop[] {
   let curStart      = pings[0].startMs
   let curEnd        = pings[0].endMs
   let curCount      = 1
+  let curTypes      = new Set<string>([pings[0].assetType])
 
   const flush = () =>
     result.push({
@@ -64,6 +73,7 @@ export function mergeConsecutiveStops(pings: ParsedPing[]): MergedStop[] {
       // don't double-count the same minutes.
       totalMinutes: Math.round((curEnd - curStart) / 60_000),
       pingCount:    curCount,
+      assetType:    resolveAssetType(curTypes),
     })
 
   for (let i = 1; i < pings.length; i++) {
@@ -71,6 +81,7 @@ export function mergeConsecutiveStops(pings: ParsedPing[]): MergedStop[] {
     if (p.geofence === curGeofence && p.subGeoZone === curSubGeoZone) {
       curEnd = p.endMs
       curCount++
+      curTypes.add(p.assetType)
     } else {
       flush()
       curGeofence   = p.geofence
@@ -78,6 +89,7 @@ export function mergeConsecutiveStops(pings: ParsedPing[]): MergedStop[] {
       curStart      = p.startMs
       curEnd        = p.endMs
       curCount      = 1
+      curTypes      = new Set<string>([p.assetType])
     }
   }
   flush()

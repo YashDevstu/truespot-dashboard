@@ -74,7 +74,8 @@ function mergeBlocksForDisplay(blocks: MergedStop[]): MergedStop[] {
   for (let i = 1; i < blocks.length; i++) {
     const b = blocks[i]
     if (b.geofence === cur.geofence) {
-      cur = { ...cur, endMs: b.endMs, totalMinutes: Math.round((b.endMs - cur.startMs) / 60_000), pingCount: cur.pingCount + b.pingCount }
+      const mergedType = cur.assetType === b.assetType ? cur.assetType : 'Mixed'
+      cur = { ...cur, endMs: b.endMs, totalMinutes: Math.round((b.endMs - cur.startMs) / 60_000), pingCount: cur.pingCount + b.pingCount, assetType: mergedType }
     } else {
       result.push(cur)
       cur = { ...b }
@@ -486,6 +487,9 @@ export default function JourneyTimeline({
                     displayBlocks.map((block, bi) => {
                       const color = colorMap.get(block.geofence) ?? '#9E9E9E'
                       const isLast = bi === displayBlocks.length - 1
+                      const assetStrip = block.assetType === 'Key'   ? '3px solid #f59e0b'
+                                       : block.assetType === 'Mixed' ? '3px solid #a855f7'
+                                       : 'none'
                       // Shorten geofence name for in-bar label
                       const shortName = block.geofence.replace(/maple shade /i, '').replace(/customer service/i, 'Cust. Service')
                       return (
@@ -498,7 +502,8 @@ export default function JourneyTimeline({
                               top: 0,
                               bottom: 0,
                               bgcolor: color,
-                              borderRight: isLast ? 'none' : '2px solid rgba(255,255,255,0.7)',
+                              borderRight:  isLast ? 'none' : '2px solid rgba(255,255,255,0.7)',
+                              borderBottom: assetStrip,
                               transition: 'filter 0.15s',
                               cursor: 'default',
                               display: 'flex',
@@ -593,6 +598,9 @@ export default function JourneyTimeline({
             {allBlocks.map((block, i) => {
               const color      = colorMap.get(block.geofence) ?? '#9E9E9E'
               const isSelected = selectedIndex === i
+              const assetStrip = block.assetType === 'Key'   ? '3px solid #f59e0b'
+                               : block.assetType === 'Mixed' ? '3px solid #a855f7'
+                               : 'none'
               return (
                 <Tooltip key={i} arrow placement="top" title={blockTooltip(block)}>
                   <Box
@@ -605,7 +613,8 @@ export default function JourneyTimeline({
                       bottom: 0,
                       bgcolor: color,
                       cursor: 'pointer',
-                      borderRight: i < allBlocks.length - 1 ? '2px solid rgba(255,255,255,0.85)' : 'none',
+                      borderRight:   i < allBlocks.length - 1 ? '2px solid rgba(255,255,255,0.85)' : 'none',
+                      borderBottom:  assetStrip,
                       outline:       isSelected ? '3px solid rgba(255,255,255,0.9)' : 'none',
                       outlineOffset: '-3px',
                       transition: 'filter 0.15s',
@@ -673,6 +682,21 @@ export default function JourneyTimeline({
             <Typography variant="caption" color="text.secondary">{g}</Typography>
           </Box>
         ))}
+        {/* Asset-type strip indicators — only shown when non-Vehicle stops exist */}
+        {allBlocks.some((b) => b.assetType === 'Key' || b.assetType === 'Mixed') && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 'auto' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 16, height: 3, bgcolor: '#f59e0b', borderRadius: 1, flexShrink: 0 }} />
+              <Typography variant="caption" color="text.secondary">Key tag</Typography>
+            </Box>
+            {allBlocks.some((b) => b.assetType === 'Mixed') && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Box sx={{ width: 16, height: 3, bgcolor: '#a855f7', borderRadius: 1, flexShrink: 0 }} />
+                <Typography variant="caption" color="text.secondary">Mixed</Typography>
+              </Box>
+            )}
+          </Box>
+        )}
       </Box>
     </Paper>
   )

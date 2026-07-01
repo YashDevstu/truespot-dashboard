@@ -74,8 +74,8 @@ interface Stop {
 
 function AssetIcon({ assetType }: { assetType: string }) {
   const lower = assetType.toLowerCase()
-  if (lower === 'key') return <VpnKeyOutlinedIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />
-  return <DirectionsCarOutlinedIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />
+  if (lower === 'key') return <VpnKeyOutlinedIcon sx={{ fontSize: 14, color: '#f59e0b', flexShrink: 0 }} />
+  return <DirectionsCarOutlinedIcon sx={{ fontSize: 14, color: '#3b82f6', flexShrink: 0 }} />
 }
 
 // Small pill-shaped sort button
