@@ -23,7 +23,7 @@ import AssetStatCards from './panels/AssetStatCards'
 import LocationsVisitedTable from './panels/LocationsVisitedTable'
 import SelectedAssetCard from './SelectedAssetCard'
 import dynamic from 'next/dynamic'
-import type { MapMarker, RouteSegment, StopFocus } from './panels/MapPanel/MapPanel'
+import type { MapMarker, RouteSegment, StopFocus, MapStop } from './panels/MapPanel/MapPanel'
 import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 const MapPanel = dynamic(() => import('./panels/MapPanel/MapPanel'), { ssr: false })
 
@@ -271,8 +271,13 @@ export default function LocationHistoryDashboard({
     if (!selectedAsset || timelineRows.length === 0) return []
 
     const todayStr = new Date().toDateString()
+    // A position is "live" only when viewing Today's data AND the session's
+    // EndTime falls on today. Using EndTime (not StartTime) because overnight
+    // records start yesterday but end today — LastSeenDateDefault also uses EndTime.
+    const isTodayFilter = !filters.dateSeen || filters.dateSeen === 'Today'
     const isLiveRow = (r: Record<string, unknown>) => {
-      const v = r['[StartTime]']
+      if (!isTodayFilter) return false
+      const v = r['[EndTime]'] ?? r['[StartTime]']
       if (!v) return false
       const d = new Date(String(v))
       return !isNaN(d.getTime()) && d.toDateString() === todayStr
@@ -455,6 +460,38 @@ export default function LocationHistoryDashboard({
     }
   }, [selectedStopIndex, timelineRows])
 
+  // Numbered stop waypoints for the map — one per merged consecutive stop, positioned
+  // at the first GPS ping within that stop's time window.
+  // Only computed for single-vehicle view (vehicleLanes = multi-vehicle uses dot colors).
+  const mapStops = useMemo((): MapStop[] => {
+    if (!selectedAsset || timelineRows.length === 0 || (vehicleLanes && vehicleLanes.length > 1)) return []
+    const stops = mergeConsecutiveStops(parsePings(timelineRows))
+    return stops.reduce<MapStop[]>((acc, stop, idx) => {
+      const row = timelineRows.find((r) => {
+        const t   = new Date(String(r['[StartTime]'] ?? '')).getTime()
+        const lat = Number(r['[Latitude]']  ?? 0)
+        const lng = Number(r['[Longitude]'] ?? 0)
+        return (
+          t >= stop.startMs && t <= stop.endMs &&
+          String(r['[Geofence]'] ?? '') === stop.geofence &&
+          isFinite(lat) && isFinite(lng) && !(lat === 0 && lng === 0)
+        )
+      })
+      if (!row) return acc
+      acc.push({
+        lat:        Number(row['[Latitude]']),
+        lng:        Number(row['[Longitude]']),
+        geofence:   stop.geofence,
+        subGeoZone: stop.subGeoZone,
+        color:      sharedColorMap.get(stop.geofence) ?? '#9e9e9e',
+        index:      idx,
+        startMs:    stop.startMs,
+        endMs:      stop.endMs,
+      })
+      return acc
+    }, [])
+  }, [selectedAsset, timelineRows, vehicleLanes, sharedColorMap])
+
   // Caption text for AssetStatCards
   const datePeriod = isAllDates
     ? 'last 8 days'
@@ -576,6 +613,8 @@ export default function LocationHistoryDashboard({
                   subscriptionKey={azureMapsKey}
                   routeLines={routeLines}
                   stopFocus={stopFocus}
+                  stops={mapStops}
+                  onStopClick={setSelectedStopIndex}
                 />
               )}
 

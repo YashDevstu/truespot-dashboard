@@ -11,6 +11,8 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import GpsOffIcon from '@mui/icons-material/GpsOff'
+import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap'
+import Tooltip from '@mui/material/Tooltip'
 
 export interface MapMarker {
   lat: number
@@ -40,11 +42,24 @@ export interface StopFocus {
   endMs?: number
 }
 
+export interface MapStop {
+  lat: number
+  lng: number
+  geofence: string
+  subGeoZone: string
+  color: string
+  index: number       // matches stop index in Journey Timeline
+  startMs?: number
+  endMs?: number
+}
+
 interface MapPanelProps {
   markers: MapMarker[]
   subscriptionKey: string
   routeLines?: RouteSegment[]
   stopFocus?: StopFocus | null
+  stops?: MapStop[]
+  onStopClick?: (index: number) => void
 }
 
 const LIVE_GREEN = '#22c55e'
@@ -143,6 +158,26 @@ function makePositionMarker(isLive: boolean): HTMLElement {
     `
   }
   return wrapper
+}
+
+// Small solid dot marking each journey stop — no transform (avoids Mapbox anchor shift)
+function makeStopDot(color: string): HTMLElement {
+  const el = document.createElement('div')
+  el.style.cssText = [
+    'width:10px', 'height:10px', 'border-radius:50%',
+    `background:${color}`,
+    'border:2px solid #fff',
+    'box-shadow:0 1px 5px rgba(0,0,0,0.55)',
+    'cursor:pointer',
+    'transition:box-shadow 0.15s ease',
+  ].join(';')
+  el.addEventListener('mouseenter', () => {
+    el.style.boxShadow = `0 0 0 5px ${color}55, 0 2px 8px rgba(0,0,0,0.55)`
+  })
+  el.addEventListener('mouseleave', () => {
+    el.style.boxShadow = '0 1px 5px rgba(0,0,0,0.55)'
+  })
+  return el
 }
 
 // Blue teardrop pin for the journey-selected stop
@@ -268,7 +303,7 @@ function stopFocusHtml(sf: StopFocus): string {
 </div>`
 }
 
-export default function MapPanel({ markers, subscriptionKey, routeLines, stopFocus }: MapPanelProps) {
+export default function MapPanel({ markers, subscriptionKey, routeLines, stopFocus, stops, onStopClick }: MapPanelProps) {
   const containerRef   = useRef<HTMLDivElement>(null)
   const mapRef         = useRef<mapboxgl.Map | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -276,10 +311,17 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
   const focusPopupRef  = useRef<mapboxgl.Popup   | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stopMarkerRef  = useRef<any>(null)
+  // Stable ref to a function that fits the map to the full route + markers
+  const fitFnRef       = useRef<(() => void) | null>(null)
+  // Keep onStopClick in a ref so the map effect closure never goes stale
+  const onStopClickRef = useRef(onStopClick)
+  useEffect(() => { onStopClickRef.current = onStopClick }, [onStopClick])
+
   const [collapsed, setCollapsed] = useState(false)
 
-  // Stable cheap change-key for routeLines — avoids JSON.stringify on large coord arrays
+  // Stable cheap change-keys — avoid JSON.stringify on large coord arrays
   const routeLinesKey = routeLines?.map(l => `${l.color}:${l.coords.length}`).join(',') ?? ''
+  const stopsKey      = stops?.map(s => `${s.index}:${s.lat.toFixed(5)}:${s.lng.toFixed(5)}`).join(',') ?? ''
 
   // ── Main effect: initialize map, markers, and route lines ─────────────────
   useEffect(() => {
@@ -372,6 +414,23 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
             paint: { 'icon-opacity': 0.72 },
           })
 
+          // Make the route line clickable — clicking finds the nearest stop by distance
+          // and selects it in the Journey Timeline (same effect as clicking the timeline bar)
+          map.on('mouseenter', `route-line-${li}`, () => { map.getCanvas().style.cursor = 'pointer' })
+          map.on('mouseleave', `route-line-${li}`, () => { map.getCanvas().style.cursor = '' })
+          map.on('click', `route-line-${li}`, (e) => {
+            if (!stops || stops.length === 0) return
+            const clickLat = e.lngLat.lat
+            const clickLng = e.lngLat.lng
+            let bestIdx = stops[0].index
+            let bestDist = Infinity
+            stops.forEach((stop) => {
+              const d = Math.hypot(stop.lat - clickLat, stop.lng - clickLng)
+              if (d < bestDist) { bestDist = d; bestIdx = stop.index }
+            })
+            onStopClickRef.current?.(bestIdx)
+          })
+
           // Trip-start dot — small hollow circle at the oldest GPS position
           const [startLng, startLat] = coordinates[0]
           const startEl = document.createElement('div')
@@ -411,6 +470,20 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
           }
         }
 
+        // ── Stop dots: small clickable circles at each journey stop ──────────
+        // Rendered before position markers so live/amber dots sit on top.
+        // No CSS transforms — avoids the Mapbox anchor-shift bug.
+        stops?.forEach((stop) => {
+          const el = makeStopDot(stop.color)
+          el.addEventListener('click', (e) => {
+            e.stopPropagation()
+            onStopClickRef.current?.(stop.index)
+          })
+          new mapboxgl.Marker({ element: el, anchor: 'center' })
+            .setLngLat([stop.lng, stop.lat])
+            .addTo(map)
+        })
+
         markers.forEach((m) => {
           const el = makePositionMarker(m.isLive ?? true)
           new mapboxgl.Marker({ element: el, anchor: 'center' })
@@ -420,18 +493,32 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
           el.addEventListener('mouseleave', scheduleHide)
         })
 
-        if (markers.length === 1) {
-          map.flyTo({ center: [markers[0].lng, markers[0].lat], zoom: 17, duration: 600 })
-        } else if (markers.length > 1) {
+        // Build a fit function that encompasses all route coords + markers
+        const buildBounds = () => {
           const bounds = new mapboxgl.LngLatBounds()
-          markers.forEach((m) => bounds.extend([m.lng, m.lat]))
-          map.fitBounds(bounds, { padding: 80, maxZoom: 17, duration: 600 })
+          let hasPoints = false
+          routeLines?.forEach((line) => {
+            line.coords.forEach((c) => { bounds.extend([c.lng, c.lat]); hasPoints = true })
+          })
+          markers.forEach((m) => { bounds.extend([m.lng, m.lat]); hasPoints = true })
+          return hasPoints ? bounds : null
         }
+
+        const fitToJourney = () => {
+          const bounds = buildBounds()
+          if (!bounds) return
+          map.fitBounds(bounds, { padding: 60, maxZoom: 17, duration: 700 })
+        }
+        fitFnRef.current = fitToJourney
+
+        // Initial view: fit the entire journey (route trail + current positions)
+        fitToJourney()
       })
     })
 
     return () => {
       destroyed = true
+      fitFnRef.current = null
       focusPopupRef.current?.remove()
       focusPopupRef.current = null
       stopMarkerRef.current?.remove()
@@ -440,7 +527,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
       mapRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subscriptionKey, JSON.stringify(markers), routeLinesKey])
+  }, [subscriptionKey, JSON.stringify(markers), routeLinesKey, stopsKey])
 
   // ── Focus effect: fly to selected stop + place a hoverable teardrop pin ──
   useEffect(() => {
@@ -561,6 +648,18 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
           </Box>
         )}
 
+        {/* Fit-to-journey button — resets map view to show the entire route */}
+        {hasMarkers && !collapsed && (
+          <Tooltip title="Fit entire journey in view" placement="top">
+            <IconButton
+              size="small"
+              onClick={(e) => { e.stopPropagation(); fitFnRef.current?.() }}
+              sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+            >
+              <ZoomOutMapIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        )}
         <Typography variant="caption" color="text.disabled">satellite</Typography>
         <IconButton size="small" tabIndex={-1} sx={{ ml: 0.5 }}>
           {collapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
