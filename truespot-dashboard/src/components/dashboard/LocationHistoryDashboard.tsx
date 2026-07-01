@@ -48,6 +48,18 @@ export default function LocationHistoryDashboard({
   const { filters, setFilter, resetFilters } = useFilters()
   const [refreshToken, setRefreshToken] = useState(0)
   const [selectedStopIndex, setSelectedStopIndex] = useState<number | null>(null)
+  // Holds the raw timelineRows ref so callbacks declared early can read the latest value
+  const timelineRowsRef = useRef<Record<string, unknown>[]>([])
+
+  // Map from table-row startMs → merged stop index (sort-order independent).
+  // Exact match works because the table now also uses mergeConsecutiveStops,
+  // so stop.startMs === mergedStop.startMs by construction.
+  const handleTableRowSelect = useCallback((startMs: number | null) => {
+    if (startMs === null) { setSelectedStopIndex(null); return }
+    const stops = mergeConsecutiveStops(parsePings(timelineRowsRef.current))
+    const idx = stops.findIndex((s) => s.startMs === startMs)
+    setSelectedStopIndex(idx >= 0 ? idx : null)
+  }, [])
 
   // Parse comma-separated date selection; empty / 'all' = show all 8 dates
   const selectedDates: string[] | null = (() => {
@@ -211,10 +223,21 @@ export default function LocationHistoryDashboard({
     return tableRows
   }, [selectedAsset, tableLoading, tableRows])
 
+  // Keep ref in sync so handleTableRowSelect always reads the latest rows
+  timelineRowsRef.current = timelineRows
+
   const timelineTooLarge = !!(selectedAsset && !tableLoading && tableRows.length > TIMELINE_MAX_ROWS)
 
   // All timeline rows passed directly — no single-day slice.
   const singleDayRows = timelineRows
+
+  // startMs of the currently selected merged stop — used to highlight the matching
+  // table row regardless of the table's current sort order
+  const selectedStopStartMs = useMemo(() => {
+    if (selectedStopIndex === null || timelineRows.length === 0) return null
+    const stops = mergeConsecutiveStops(parsePings(timelineRows))
+    return stops[selectedStopIndex]?.startMs ?? null
+  }, [selectedStopIndex, timelineRows])
 
   // Shared colour map — build once from sorted geofences so both components agree
   const sharedColorMap = useMemo(() => {
@@ -646,8 +669,8 @@ export default function LocationHistoryDashboard({
                   rows={singleDayRows}
                   colorMap={sharedColorMap}
                   showLive={showLive}
-                  selectedIndex={selectedStopIndex}
-                  onSelectRow={setSelectedStopIndex}
+                  selectedStartMs={selectedStopStartMs}
+                  onSelectRow={handleTableRowSelect}
                 />
               )}
 

@@ -10,6 +10,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function parseMs(val: unknown): number | null {
@@ -62,14 +63,14 @@ interface Stop {
   geofence: string
   subZone: string
   floorLevel: string
-  assetType: string
+  assetType: 'Vehicle' | 'Key' | 'Mixed'
   make: string
   model: string
   year: string
   vin: string
   startMs: number
   endMs: number
-  minutes: number
+  totalMinutes: number
 }
 
 function AssetIcon({ assetType }: { assetType: string }) {
@@ -139,41 +140,46 @@ interface LocationsVisitedTableProps {
   rows: Record<string, unknown>[]
   colorMap: Map<string, string>
   showLive?: boolean
-  selectedIndex?: number | null
-  onSelectRow?: (index: number | null) => void
+  selectedStartMs?: number | null
+  onSelectRow?: (startMs: number | null) => void
 }
 
 export default function LocationsVisitedTable({
   rows,
   colorMap,
   showLive = false,
-  selectedIndex,
+  selectedStartMs,
   onSelectRow,
 }: LocationsVisitedTableProps) {
   const [sortMode, setSortMode] = useState<SortMode>(showLive ? 'live' : 'oldest')
   const [collapsed, setCollapsed] = useState(false)
 
   const { stops, liveStop, liveByVin, isMultiVehicle } = useMemo(() => {
-    const parsed = rows
-      .map((r) => {
-        const startMs = parseMs(r['[StartTime]'])
-        const endMs   = parseMs(r['[EndTime]'])
-        if (startMs === null || endMs === null) return null
-        return {
-          geofence:   String(r['[Geofence]']   ?? ''),
-          subZone:    String(r['[SubGeoZone]']  ?? ''),
-          floorLevel: String(r['[FloorLevel]']  ?? ''),
-          assetType:  String(r['[AssetType]']   ?? ''),
-          make:       String(r['[Make]']        ?? ''),
-          model:      String(r['[Model]']       ?? ''),
-          year:       String(r['[Year]']        ?? ''),
-          vin:        String(r['[VIN]']         ?? ''),
-          startMs,
-          endMs,
-          minutes: Number(r['[MinutesDiff]'] ?? 0),
-        }
+    // Use the same merge logic as the dashboard/map so startMs values align exactly.
+    // This fixes table→map selection: stop.startMs === mergedStop.startMs always.
+    const merged = mergeConsecutiveStops(parsePings(rows))
+
+    const parsed: Stop[] = merged.map((m) => {
+      // Find the first raw row in this merged stop's window to get display fields
+      const rawRow = rows.find((r) => {
+        const t = parseMs(r['[StartTime]'])
+        return t !== null && t >= m.startMs && t <= m.endMs &&
+               String(r['[Geofence]'] ?? '') === m.geofence
       })
-      .filter((s): s is Stop => s !== null)
+      return {
+        geofence:     m.geofence,
+        subZone:      m.subGeoZone,
+        floorLevel:   String(rawRow?.['[FloorLevel]'] ?? ''),
+        assetType:    m.assetType,
+        make:         String(rawRow?.['[Make]']        ?? ''),
+        model:        String(rawRow?.['[Model]']       ?? ''),
+        year:         String(rawRow?.['[Year]']        ?? ''),
+        vin:          String(rawRow?.['[VIN]']         ?? ''),
+        startMs:      m.startMs,
+        endMs:        m.endMs,
+        totalMinutes: m.totalMinutes,
+      }
+    })
 
     // Per-VIN most-recent startMs — each vehicle's own live stop
     const liveByVin = new Map<string, number>()
@@ -185,7 +191,7 @@ export default function LocationsVisitedTable({
     }
     const isMultiVehicle = liveByVin.size > 1
 
-    // Single-vehicle banner: the one globally-most-recent stop (unchanged behaviour)
+    // Single-vehicle banner: the one globally-most-recent stop
     const maxStartMs = parsed.length > 0 ? Math.max(...parsed.map((s) => s.startMs)) : -Infinity
     const liveStop   = showLive && !isMultiVehicle
       ? (parsed.find((s) => s.startMs === maxStartMs) ?? null)
@@ -200,7 +206,7 @@ export default function LocationsVisitedTable({
         sorted = [...parsed].sort((a, b) => a.startMs - b.startMs)
         break
       case 'duration':
-        sorted = [...parsed].sort((a, b) => b.minutes - a.minutes)
+        sorted = [...parsed].sort((a, b) => b.totalMinutes - a.totalMinutes)
         break
       default:
         sorted = [...parsed].sort((a, b) => a.startMs - b.startMs)
@@ -344,13 +350,13 @@ export default function LocationsVisitedTable({
               ? stop.startMs === liveByVin.get(stop.vin)
               : liveStop !== null && stop.startMs === liveStop.startMs
           )
-          const isSelected = selectedIndex === i
+          const isSelected = selectedStartMs === stop.startMs
           const dotColor   = colorMap.get(stop.geofence) ?? '#9E9E9E'
 
           return (
             <Box
               key={`${stop.startMs}-${stop.geofence}-${i}`}
-              onClick={() => onSelectRow?.(isSelected ? null : i)}
+              onClick={() => onSelectRow?.(isSelected ? null : stop.startMs)}
               sx={{
                 px: 2.5,
                 py: 1.5,
@@ -446,7 +452,7 @@ export default function LocationsVisitedTable({
                   variant="body2"
                   sx={{ fontWeight: isLive ? 700 : 500, color: isLive ? 'success.main' : 'text.primary' }}
                 >
-                  {fmtDuration(stop.minutes)}
+                  {fmtDuration(stop.totalMinutes)}
                 </Typography>
                 {isLive && (
                   <Chip
