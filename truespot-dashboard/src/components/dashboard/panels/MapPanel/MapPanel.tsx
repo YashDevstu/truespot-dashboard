@@ -256,10 +256,8 @@ function popupHtml(m: MapMarker): string {
     ? `background:${LIVE_GREEN};animation:popupDotPulse 1.8s ease-in-out infinite`
     : `background:#f59e0b`
 
-  // Asset-type indicator row — colored chip with icon
+  // Asset-type indicator row — colored chip with icon (own row, no VIN crammed in)
   const assetColor = asset === 'Key' ? '#f59e0b' : asset === 'Mixed' ? '#a855f7' : '#3b82f6'
-  const assetBg    = asset === 'Key' ? 'rgba(245,158,11,.18)' : asset === 'Mixed' ? 'rgba(168,85,247,.18)' : 'rgba(59,130,246,.18)'
-  const assetBorder= asset === 'Key' ? 'rgba(245,158,11,.35)' : asset === 'Mixed' ? 'rgba(168,85,247,.35)' : 'rgba(59,130,246,.35)'
   const assetLabel = asset === 'Key' ? 'KEY TAG' : asset === 'Mixed' ? 'MIXED' : 'VEHICLE'
   const assetIcon  = asset === 'Key'
     ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>`
@@ -267,16 +265,20 @@ function popupHtml(m: MapMarker): string {
     ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`
     : `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>`
 
+  // Row 1: asset type chip
   const assetRow = `
     <div style="display:flex;align-items:center;gap:5px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
       ${assetIcon}
       <span style="font-size:9.5px;font-weight:800;color:${assetColor};letter-spacing:.9px">${assetLabel}</span>
-      ${(vinFull || stk) ? `
-        <span style="margin-left:auto;display:flex;gap:10px">
-          ${vinFull ? `<span style="font-size:10px;color:#64748b">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
-          ${stk     ? `<span style="font-size:10px;color:#64748b">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
-        </span>` : ''}
     </div>`
+
+  // Row 2: VIN + Stock (separate row so nothing gets cut off)
+  const metaSub = (vinFull || stk)
+    ? `<div style="display:flex;gap:14px;margin-top:6px">
+         ${vinFull ? `<span style="font-size:10px;color:#64748b;font-weight:500">VIN&nbsp;<span style="color:#94a3b8;font-weight:700;letter-spacing:.4px">${vinFull}</span></span>` : ''}
+         ${stk     ? `<span style="font-size:10px;color:#64748b;font-weight:500">Stock&nbsp;<span style="color:#94a3b8;font-weight:700">${stk}</span></span>` : ''}
+       </div>`
+    : ''
 
   const timeLabel = live ? 'Last seen' : 'Last recorded'
   const timeRow = time
@@ -297,6 +299,7 @@ function popupHtml(m: MapMarker): string {
       ${statusBadge}
     </div>
     ${assetRow}
+    ${metaSub}
   </div>
   <div style="background:#fff;padding:14px 16px">
     <div style="display:flex;gap:8px;align-items:flex-start">
