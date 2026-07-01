@@ -20,6 +20,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Track whether we need to rebuild after a fresh install
+set NEEDS_BUILD=0
+
 REM Install dependencies if node_modules is missing
 if not exist "node_modules\" (
     echo  Installing dependencies ^(first time only^)...
@@ -32,11 +35,17 @@ if not exist "node_modules\" (
         exit /b 1
     )
     echo.
+    REM Fresh install means any existing build artifacts are stale — force rebuild
+    set NEEDS_BUILD=1
 )
 
-REM Build the app if .next folder is missing
-if not exist ".next\" (
-    echo  Building dashboard ^(first time only, this takes ~1 minute^)...
+REM Build if no production build exists, or if we just reinstalled dependencies.
+REM .next\BUILD_ID is only created by "npm run build" (not npm run dev),
+REM so this correctly detects a missing or stale production build.
+if not exist ".next\BUILD_ID" set NEEDS_BUILD=1
+
+if "%NEEDS_BUILD%"=="1" (
+    echo  Building dashboard ^(this takes ~1 minute, first time only^)...
     echo.
     call npm run build
     if errorlevel 1 (
@@ -57,10 +66,10 @@ echo.
 echo  URL: http://localhost:3000
 echo.
 
-REM Open browser after 4-second delay (gives server time to start)
-start "" cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:3000"
+REM Open browser after 8-second delay (gives Next.js time to fully start)
+start "" cmd /c "timeout /t 8 /nobreak >nul && start http://localhost:3000"
 
-REM Start the server (this keeps the window open)
+REM Start the production server (keeps window open)
 npm start
 
 echo.
