@@ -20,9 +20,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Track whether we need to rebuild after a fresh install
-set NEEDS_BUILD=0
-
 REM Install dependencies if node_modules is missing
 if not exist "node_modules\" (
     echo  Installing dependencies ^(first time only^)...
@@ -35,27 +32,20 @@ if not exist "node_modules\" (
         exit /b 1
     )
     echo.
-    REM Fresh install means any existing build artifacts are stale — force rebuild
-    set NEEDS_BUILD=1
 )
 
-REM Build if no production build exists, or if we just reinstalled dependencies.
-REM .next\BUILD_ID is only created by "npm run build" (not npm run dev),
-REM so this correctly detects a missing or stale production build.
-if not exist ".next\BUILD_ID" set NEEDS_BUILD=1
-
-if "%NEEDS_BUILD%"=="1" (
-    echo  Building dashboard ^(this takes ~1 minute, first time only^)...
+REM Always rebuild to ensure the latest code is running.
+REM This takes ~1 minute but guarantees no stale build is served.
+echo  Building dashboard ^(please wait ~1 minute^)...
+echo.
+call npm run build
+if errorlevel 1 (
     echo.
-    call npm run build
-    if errorlevel 1 (
-        echo.
-        echo  ERROR: Build failed. Check the output above for details.
-        pause
-        exit /b 1
-    )
-    echo.
+    echo  ERROR: Build failed. Check the output above for details.
+    pause
+    exit /b 1
 )
+echo.
 
 echo  Starting TrueSpot Dashboard...
 echo.
