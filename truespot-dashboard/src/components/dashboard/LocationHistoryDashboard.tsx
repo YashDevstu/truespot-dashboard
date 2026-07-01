@@ -155,23 +155,36 @@ export default function LocationHistoryDashboard({
     : paginatedQuery.loading
   const tableError = useProgressiveMode ? null : selectedAsset ? singleQuery.error : null
 
-  // Auto-select the most-recently-seen VIN once the first data batch arrives.
-  // Picks by max StartTime rather than alphabetical, so the user lands on the
-  // vehicle with the latest activity for the current date filter.
+  // Cold-start auto-select: on first page load fire a single 1-row query to get
+  // the most-recently-seen VIN for Today, then select it immediately.
+  // This is faster and more reliable than waiting for the 100-row browse table.
   const didAutoSelect = useRef(false)
   useEffect(() => {
     if (didAutoSelect.current) return
-    if (filters.vin || filters.beaconId || filters.stockNumber) return
-    if (tableLoading || tableRows.length === 0) return
-    let bestVin = ''
-    let bestTime = -Infinity
-    for (const r of tableRows) {
-      const vin = String(r['[VIN]'] ?? '').trim()
-      const t   = Number(r['[StartTime]'] ?? 0)
-      if (vin && t > bestTime) { bestTime = t; bestVin = vin }
+    // If the URL already has an asset filter (e.g. bookmark / back-nav), skip
+    if (filters.vin || filters.beaconId || filters.stockNumber) {
+      didAutoSelect.current = true
+      return
     }
-    if (bestVin) { setFilter('vin', bestVin); didAutoSelect.current = true }
-  }, [tableLoading, tableRows, filters.vin, filters.beaconId, filters.stockNumber, setFilter])
+    didAutoSelect.current = true   // prevent double-fire in StrictMode
+    fetch('/api/v1/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId,
+        dashboardKey,
+        panelId: 'location-history-data',
+        filters: { dateSeen: 'Today', limit: 1 },
+      }),
+    })
+      .then((r) => r.json())
+      .then((json: { rows?: Record<string, unknown>[] }) => {
+        const vin = String(json.rows?.[0]?.['[VIN]'] ?? '').trim()
+        if (vin) setFilter('vin', vin)
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, dashboardKey])
 
   const dateLabel = isAllDates
     ? 'All Dates'
