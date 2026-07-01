@@ -487,9 +487,9 @@ export default function JourneyTimeline({
                     displayBlocks.map((block, bi) => {
                       const color = colorMap.get(block.geofence) ?? '#9E9E9E'
                       const isLast = bi === displayBlocks.length - 1
-                      const assetStrip = block.assetType === 'Key'   ? '3px solid #f59e0b'
-                                       : block.assetType === 'Mixed' ? '3px solid #a855f7'
-                                       : 'none'
+                      const isKey   = block.assetType === 'Key'
+                      const isMixed = block.assetType === 'Mixed'
+                      const stripColor = isKey ? '#f59e0b' : isMixed ? '#a855f7' : null
                       // Shorten geofence name for in-bar label
                       const shortName = block.geofence.replace(/maple shade /i, '').replace(/customer service/i, 'Cust. Service')
                       return (
@@ -503,7 +503,10 @@ export default function JourneyTimeline({
                               bottom: 0,
                               bgcolor: color,
                               borderRight:  isLast ? 'none' : '2px solid rgba(255,255,255,0.7)',
-                              borderBottom: assetStrip,
+                              // Glowing inset shadow replaces borderBottom — visible even on 2px segments
+                              boxShadow: stripColor
+                                ? `inset 0 -4px 0 ${stripColor}, inset 0 -10px 10px ${stripColor}30`
+                                : undefined,
                               transition: 'filter 0.15s',
                               cursor: 'default',
                               display: 'flex',
@@ -598,9 +601,9 @@ export default function JourneyTimeline({
             {allBlocks.map((block, i) => {
               const color      = colorMap.get(block.geofence) ?? '#9E9E9E'
               const isSelected = selectedIndex === i
-              const assetStrip = block.assetType === 'Key'   ? '3px solid #f59e0b'
-                               : block.assetType === 'Mixed' ? '3px solid #a855f7'
-                               : 'none'
+              const isKey   = block.assetType === 'Key'
+              const isMixed = block.assetType === 'Mixed'
+              const stripColor = isKey ? '#f59e0b' : isMixed ? '#a855f7' : null
               return (
                 <Tooltip key={i} arrow placement="top" title={blockTooltip(block)}>
                   <Box
@@ -614,9 +617,11 @@ export default function JourneyTimeline({
                       bgcolor: color,
                       cursor: 'pointer',
                       borderRight:   i < allBlocks.length - 1 ? '2px solid rgba(255,255,255,0.85)' : 'none',
-                      borderBottom:  assetStrip,
-                      outline:       isSelected ? '3px solid rgba(255,255,255,0.9)' : 'none',
-                      outlineOffset: '-3px',
+                      // Glowing inset shadow — visible even on 2px-wide segments
+                      boxShadow: [
+                        isSelected ? 'inset 0 0 0 3px rgba(255,255,255,0.9)' : '',
+                        stripColor ? `inset 0 -4px 0 ${stripColor}, inset 0 -10px 10px ${stripColor}30` : '',
+                      ].filter(Boolean).join(', ') || undefined,
                       transition: 'filter 0.15s',
                       '&:hover': { filter: 'brightness(0.82)', zIndex: 1 },
                       display: 'flex',

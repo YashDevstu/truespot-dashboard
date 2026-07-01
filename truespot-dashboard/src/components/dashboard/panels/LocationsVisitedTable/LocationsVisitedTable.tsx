@@ -8,8 +8,8 @@ import Collapse from '@mui/material/Collapse'
 import IconButton from '@mui/material/IconButton'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import DirectionsCarOutlinedIcon from '@mui/icons-material/DirectionsCarOutlined'
-import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
+import VpnKeyIcon from '@mui/icons-material/VpnKey'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function parseMs(val: unknown): number | null {
@@ -73,9 +73,22 @@ interface Stop {
 }
 
 function AssetIcon({ assetType }: { assetType: string }) {
-  const lower = assetType.toLowerCase()
-  if (lower === 'key') return <VpnKeyOutlinedIcon sx={{ fontSize: 14, color: '#f59e0b', flexShrink: 0 }} />
-  return <DirectionsCarOutlinedIcon sx={{ fontSize: 14, color: '#3b82f6', flexShrink: 0 }} />
+  const isKey = assetType.toLowerCase() === 'key'
+  const bg    = isKey ? 'rgba(245,158,11,0.13)' : 'rgba(59,130,246,0.13)'
+  const border= isKey ? 'rgba(245,158,11,0.45)' : 'rgba(59,130,246,0.45)'
+  const color = isKey ? '#f59e0b' : '#3b82f6'
+  return (
+    <Box sx={{
+      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+      bgcolor: bg, border: '1.5px solid', borderColor: border,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {isKey
+        ? <VpnKeyIcon sx={{ fontSize: 12, color }} />
+        : <DirectionsCarIcon sx={{ fontSize: 12, color }} />
+      }
+    </Box>
+  )
 }
 
 // Small pill-shaped sort button

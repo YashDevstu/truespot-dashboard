@@ -41,6 +41,7 @@ export interface StopFocus {
   subGeoZone: string
   startMs?: number
   endMs?: number
+  assetType?: 'Vehicle' | 'Key' | 'Mixed'
 }
 
 export interface MapStop {
@@ -315,10 +316,17 @@ function popupHtml(m: MapMarker): string {
 }
 
 function stopFocusHtml(sf: StopFocus): string {
-  const sub  = sf.subGeoZone && sf.subGeoZone !== sf.geofence ? sf.subGeoZone : ''
-  const t0   = fmtMs(sf.startMs)
-  const t1   = fmtMs(sf.endMs)
+  const sub   = sf.subGeoZone && sf.subGeoZone !== sf.geofence ? sf.subGeoZone : ''
+  const t0    = fmtMs(sf.startMs)
+  const t1    = fmtMs(sf.endMs)
   const range = t0 && t1 ? `${t0} → ${t1}` : t0 || ''
+  const asset = sf.assetType ?? 'Vehicle'
+
+  const assetColor = asset === 'Key' ? '#f59e0b' : asset === 'Mixed' ? '#a855f7' : '#3b82f6'
+  const assetLabel = asset === 'Key' ? 'KEY TAG' : asset === 'Mixed' ? 'MIXED' : 'VEHICLE'
+  const assetIcon  = asset === 'Key'
+    ? `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>`
+    : `<svg width="9" height="9" viewBox="0 0 24 24" fill="${assetColor}"><path d="M18.92 5.01C18.72 4.42 18.16 4 17.5 4h-11c-.66 0-1.21.42-1.42 1.01L3 11v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 6h10.29l1.04 3H5.81L6.85 6zM19 17H5v-6h14v6z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>`
 
   return `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;width:250px">
@@ -328,6 +336,10 @@ function stopFocusHtml(sf: StopFocus): string {
       <span style="color:#f8fafc;font-weight:700;font-size:13px;flex:1;letter-spacing:-.1px">${sf.label}</span>
       <div style="background:rgba(148,163,184,.15);border:1px solid rgba(148,163,184,.3);
         border-radius:20px;padding:2px 8px;font-size:9px;font-weight:700;color:#94a3b8;letter-spacing:.8px">SELECTED</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:5px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
+      ${assetIcon}
+      <span style="font-size:9.5px;font-weight:800;color:${assetColor};letter-spacing:.9px">${assetLabel}</span>
     </div>
   </div>
   <div style="background:#fff;padding:12px 15px">

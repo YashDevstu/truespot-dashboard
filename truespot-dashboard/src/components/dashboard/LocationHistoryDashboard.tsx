@@ -477,6 +477,7 @@ export default function LocationHistoryDashboard({
       subGeoZone: stop.subGeoZone,
       startMs:    stop.startMs,
       endMs:      stop.endMs,
+      assetType:  stop.assetType,
     }
   }, [selectedStopIndex, timelineRows])
 
