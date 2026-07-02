@@ -136,7 +136,7 @@ export default function DataTable({ rows, loading, error, hasMore, onLoadMore }:
   if (error) {
     return (
       <Box sx={{ p: 3 }}>
-        <Typography color="error">{error}</Typography>
+        <Typography color="error">Unable to load records. Please refresh and try again.</Typography>
       </Box>
     )
   }

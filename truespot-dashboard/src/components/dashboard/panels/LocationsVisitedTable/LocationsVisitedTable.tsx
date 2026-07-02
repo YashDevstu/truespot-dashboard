@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
+import Skeleton from '@mui/material/Skeleton'
 import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import Collapse from '@mui/material/Collapse'
@@ -10,6 +11,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import LocationOffIcon from '@mui/icons-material/LocationOff'
 import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 import { toTitleCase } from '@/utils/formatters'
 
@@ -143,6 +145,7 @@ interface LocationsVisitedTableProps {
   showLive?: boolean
   selectedStartMs?: number | null
   onSelectRow?: (startMs: number | null) => void
+  loading?: boolean
 }
 
 export default function LocationsVisitedTable({
@@ -151,6 +154,7 @@ export default function LocationsVisitedTable({
   showLive = false,
   selectedStartMs,
   onSelectRow,
+  loading,
 }: LocationsVisitedTableProps) {
   const [sortMode, setSortMode] = useState<SortMode>(showLive ? 'live' : 'oldest')
   const [collapsed, setCollapsed] = useState(false)
@@ -216,7 +220,45 @@ export default function LocationsVisitedTable({
     return { stops: sorted, liveStop, liveByVin, isMultiVehicle }
   }, [rows, sortMode, showLive])
 
-  if (stops.length === 0) return null
+  if (stops.length === 0) {
+    if (loading) {
+      return (
+        <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+          <Box sx={{ px: 2.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Skeleton width={140} height={20} />
+            <Skeleton width={50} height={16} sx={{ ml: 0.5 }} />
+          </Box>
+          <Box sx={{ px: 2.5, py: 1, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider', display: 'grid', gridTemplateColumns: GRID, gap: 1 }}>
+            {COLUMNS.map((h) => (
+              <Skeleton key={h} width={60} height={12} />
+            ))}
+          </Box>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Box key={i} sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider', display: 'grid', gridTemplateColumns: GRID, gap: 1, alignItems: 'center', '&:last-child': { borderBottom: 'none' } }}>
+              <Skeleton width={20} height={16} />
+              <Skeleton width={110} height={16} />
+              <Skeleton width={120} height={16} />
+              <Skeleton width={100} height={16} />
+              <Skeleton width={130} height={16} />
+              <Skeleton width={50} height={16} />
+            </Box>
+          ))}
+        </Paper>
+      )
+    }
+    return (
+      <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+        <Box sx={{ px: 2.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Locations Visited</Typography>
+        </Box>
+        <Box sx={{ py: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, color: 'text.disabled' }}>
+          <LocationOffIcon sx={{ fontSize: 36 }} />
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>No stops recorded</Typography>
+          <Typography variant="caption" align="center">No location stops found for this date range.</Typography>
+        </Box>
+      </Paper>
+    )
+  }
 
   const liveColor = liveStop ? colorMap.get(liveStop.geofence) ?? '#9E9E9E' : undefined
 

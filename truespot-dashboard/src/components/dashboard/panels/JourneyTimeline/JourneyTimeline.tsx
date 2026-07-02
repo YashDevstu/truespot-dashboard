@@ -4,6 +4,7 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Paper from '@mui/material/Paper'
+import Skeleton from '@mui/material/Skeleton'
 import TimelineIcon from '@mui/icons-material/Timeline'
 import { parsePings, mergeConsecutiveStops, type MergedStop } from '@/utils/stops'
 
@@ -170,6 +171,7 @@ interface JourneyTimelineProps {
   selectedIndex?: number | null
   onSelectIndex?: (i: number | null) => void
   vehicleLanes?: VehicleLane[]
+  loading?: boolean
 }
 
 export default function JourneyTimeline({
@@ -179,6 +181,7 @@ export default function JourneyTimeline({
   selectedIndex,
   onSelectIndex,
   vehicleLanes,
+  loading,
 }: JourneyTimelineProps) {
   // Multi-vehicle data (rendered as one row per vehicle, shared x-axis)
   const multiVehicleResult = useMemo(() => {
@@ -356,6 +359,19 @@ export default function JourneyTimeline({
   }
 
   if (pings.length === 0) {
+    if (loading) {
+      return (
+        <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+          <Skeleton width={180} height={14} sx={{ mb: 1.5 }} />
+          <Skeleton variant="rectangular" height={56} sx={{ borderRadius: 1, mb: 1 }} />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Skeleton width={60} height={12} />
+            <Skeleton width={60} height={12} />
+            <Skeleton width={60} height={12} />
+          </Box>
+        </Paper>
+      )
+    }
     return (
       <Paper
         variant="outlined"
@@ -364,7 +380,7 @@ export default function JourneyTimeline({
         <TimelineIcon sx={{ fontSize: 28 }} />
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
-          <Typography variant="caption">No valid timeline data in the current result set.</Typography>
+          <Typography variant="caption">No journey activity found for this date range. Try selecting a wider date range.</Typography>
         </Box>
       </Paper>
     )

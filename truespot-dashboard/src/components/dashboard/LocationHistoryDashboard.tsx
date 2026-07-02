@@ -594,8 +594,8 @@ export default function LocationHistoryDashboard({
         }}
       >
           {/* Alerts */}
-          {tableError && <Alert severity="error">{tableError}</Alert>}
-          {kpiQuery.error && <Alert severity="error">{kpiQuery.error}</Alert>}
+          {tableError && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
+          {kpiQuery.error && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
 
           {/* Page heading */}
           <DashboardHeader
@@ -618,8 +618,8 @@ export default function LocationHistoryDashboard({
           {selectedAsset ? (
             <>
               {/* Stat cards */}
-              {!tableLoading && singleDayRows.length > 0 && (
-                <AssetStatCards rows={singleDayRows} datePeriod={singleDayPeriod} showLive={showLive} />
+              {(tableLoading || singleDayRows.length > 0) && (
+                <AssetStatCards rows={singleDayRows} datePeriod={singleDayPeriod} showLive={showLive} loading={tableLoading} />
               )}
 
               {/* Journey timeline */}
@@ -644,6 +644,7 @@ export default function LocationHistoryDashboard({
                   selectedIndex={selectedStopIndex}
                   onSelectIndex={setSelectedStopIndex}
                   vehicleLanes={vehicleLanes}
+                  loading={tableLoading}
                 />
               )}
 
@@ -661,6 +662,7 @@ export default function LocationHistoryDashboard({
                   stopFocus={stopFocus}
                   stops={mapStops}
                   onStopClick={setSelectedStopIndex}
+                  loading={tableLoading}
                 />
               )}
 
@@ -672,6 +674,7 @@ export default function LocationHistoryDashboard({
                   showLive={showLive}
                   selectedStartMs={selectedStopStartMs}
                   onSelectRow={handleTableRowSelect}
+                  loading={tableLoading}
                 />
               )}
 

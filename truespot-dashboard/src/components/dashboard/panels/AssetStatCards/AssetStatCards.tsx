@@ -4,6 +4,7 @@ import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Paper from '@mui/material/Paper'
+import Skeleton from '@mui/material/Skeleton'
 import Typography from '@mui/material/Typography'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -92,9 +93,10 @@ interface AssetStatCardsProps {
   rows: Record<string, unknown>[]
   datePeriod: string
   showLive?: boolean
+  loading?: boolean
 }
 
-export default function AssetStatCards({ rows, datePeriod, showLive = false }: AssetStatCardsProps) {
+export default function AssetStatCards({ rows, datePeriod, showLive = false, loading }: AssetStatCardsProps) {
   const stats = useMemo(() => {
     if (rows.length === 0) return null
 
@@ -131,7 +133,24 @@ export default function AssetStatCards({ rows, datePeriod, showLive = false }: A
     }
   }, [rows])
 
-  if (!stats) return null
+  if (!stats) {
+    if (!loading) return null
+    return (
+      <Box>
+        <Grid container spacing={2}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Grid key={i} size={{ xs: 12, sm: 6, md: 3 }}>
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Skeleton width={80} height={14} />
+                <Skeleton width={120} height={48} />
+                <Skeleton width={100} height={12} />
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+    )
+  }
 
   const isMultiVehicle = stats.activeVehicles > 1
 
