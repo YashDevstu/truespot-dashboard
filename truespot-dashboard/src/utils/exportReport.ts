@@ -232,6 +232,31 @@ function buildRawRows(rows: Record<string, unknown>[]): TableData {
   return { headers, body }
 }
 
+// ── vehicle breakdown (multi-VIN) ────────────────────────────────────────────
+
+interface VehicleBreakdown {
+  vehicle: string
+  stops: number
+  geofences: number
+  totalMinutes: number
+}
+
+function buildVehicleBreakdowns(stopRows: ExcelStopRow[]): VehicleBreakdown[] {
+  const map = new Map<string, { stops: ExcelStopRow[]; geoSet: Set<string> }>()
+  for (const row of stopRows) {
+    if (!map.has(row.vehicle)) map.set(row.vehicle, { stops: [], geoSet: new Set() })
+    const v = map.get(row.vehicle)!
+    v.stops.push(row)
+    v.geoSet.add(row.geofence)
+  }
+  return Array.from(map.entries()).map(([vehicle, { stops, geoSet }]) => ({
+    vehicle,
+    stops:        stops.length,
+    geofences:    geoSet.size,
+    totalMinutes: stops.reduce((sum, s) => sum + s.totalMinutes, 0),
+  }))
+}
+
 // ── typed data builders for Excel ────────────────────────────────────────────
 
 interface ExcelStopRow {
@@ -325,8 +350,8 @@ type WS = Record<string, any>
 
 // Color palette — 6-char hex (xlsx-js-style format, no alpha prefix)
 const CLR = {
-  blue:     '2563EB',
-  blueDk:   '1D4ED8',
+  blue:     'DC2626',
+  blueDk:   'B91C1C',
   slate900: '0F172A',
   slate800: '1E293B',
   slate700: '334155',
@@ -381,6 +406,7 @@ function buildSummarySheet(
   filterRows: [string, string][],
   stats: ExcelStats | null,
   now: Date,
+  vehicleBreakdowns: VehicleBreakdown[] = [],
 ): WS {
   const ws: WS = {}
   const merges: AnyXLSX[] = []
@@ -471,8 +497,10 @@ function buildSummarySheet(
       mkS({ sz: 8, bold: true, color: CLR.slate500 }, CLR.slate100, { h: 'left', indent: 2 }, btmB(CLR.slate200)))
     h(r, 16); r++
 
+    const isMultiVehicle = vehicleBreakdowns.length > 1
+
     // KPI label row
-    const kpiLabels = ['TOTAL STOPS', 'UNIQUE GEOFENCES', 'TIME TRACKED', 'CURRENT ZONE']
+    const kpiLabels = ['TOTAL STOPS', 'UNIQUE GEOFENCES', 'TIME TRACKED', isMultiVehicle ? 'ACTIVE VEHICLES' : 'CURRENT ZONE']
     for (let c = 0; c < 4; c++) {
       set(r, c, kpiLabels[c], mkS({ sz: 8, bold: true, color: CLR.slate400 }, CLR.slate50, { h: 'center' }, allB(CLR.slate200)))
     }
@@ -483,19 +511,53 @@ function buildSummarySheet(
       stats.totalStops,
       stats.uniqueGeofences,
       stats.totalTimeTracked,
-      stats.currentZone,
+      isMultiVehicle ? vehicleBreakdowns.length : stats.currentZone,
     ]
     for (let c = 0; c < 4; c++) {
-      const isGreen = c === 3
-      // Current Zone uses smaller font + wrap to handle long location names gracefully
-      const sz = isGreen ? 14 : 22
+      const isAccent = c === 3
+      const sz = (!isMultiVehicle && isAccent) ? 14 : 22
+      const color = isAccent ? (isMultiVehicle ? CLR.blue : CLR.green) : CLR.slate900
+      const bgFill = isAccent ? (isMultiVehicle ? 'EFF6FF' : CLR.green50) : undefined
       set(r, c, kpiVals[c],
-        mkS({ sz, bold: true, color: isGreen ? CLR.green : CLR.slate900 },
-          isGreen ? CLR.green50 : undefined,
-          { h: 'center', v: 'center', ...(isGreen ? { wrap: true } : {}) },
+        mkS({ sz, bold: true, color },
+          bgFill,
+          { h: 'center', v: 'center', ...(!isMultiVehicle && isAccent ? { wrap: true } : {}) },
           allB(CLR.slate200)))
     }
     h(r, 58); r++
+
+    // ── Per-vehicle breakdown table (multi-vehicle only) ─────────────────────
+    if (isMultiVehicle) {
+      h(r, 12); r++ // spacer
+
+      span(r, 0, LAST_C, 'VEHICLE BREAKDOWN',
+        mkS({ sz: 8, bold: true, color: CLR.slate500 }, CLR.slate100, { h: 'left', indent: 2 }, btmB(CLR.slate200)))
+      h(r, 16); r++
+
+      // Column headers
+      const brkHdrs = ['VEHICLE', 'STOPS', 'GEOFENCES', 'TIME TRACKED']
+      for (let c = 0; c < 4; c++) {
+        set(r, c, brkHdrs[c], mkS({ sz: 9, bold: true, color: CLR.white }, CLR.slate800, { h: 'left', indent: 1 }, allB(CLR.slate700)))
+      }
+      h(r, 18); r++
+
+      // One row per vehicle
+      for (let i = 0; i < vehicleBreakdowns.length; i++) {
+        const vb = vehicleBreakdowns[i]
+        const alt = i % 2 === 1
+        const bg = alt ? CLR.slate50 : undefined
+        const totalMins = vb.totalMinutes
+        const hrs  = Math.floor(totalMins / 60)
+        const mins = totalMins % 60
+        const timeStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`
+
+        set(r, 0, vb.vehicle,   mkS({ sz: 9, bold: true, color: CLR.slate700 }, bg, { h: 'left', indent: 1 }, allB(CLR.slate200)))
+        set(r, 1, vb.stops,     mkS({ sz: 9,             color: CLR.slate900 }, bg, { h: 'center'           }, allB(CLR.slate200)))
+        set(r, 2, vb.geofences, mkS({ sz: 9,             color: CLR.slate900 }, bg, { h: 'center'           }, allB(CLR.slate200)))
+        set(r, 3, timeStr,      mkS({ sz: 9,             color: CLR.slate900 }, bg, { h: 'left', indent: 1 }, allB(CLR.slate200)))
+        h(r, 18); r++
+      }
+    }
   }
 
   // ── Spacer + confidential footer ─────────────────────────────────────────
@@ -516,14 +578,15 @@ function buildSummarySheet(
 // ─────────────────────────────────────────────────────────────────────────────
 // STOPS SHEET (Locations Visited)
 // ─────────────────────────────────────────────────────────────────────────────
-function buildStopsSheet(XLSX: AnyXLSX, stopRows: ExcelStopRow[]): WS {
+function buildStopsSheet(XLSX: AnyXLSX, stopRows: ExcelStopRow[], vehicleName?: string): WS {
   const HEADERS = ['#', 'VEHICLE', 'GEOFENCE', 'SUB ZONE', 'FLOOR LEVEL', 'DATE', 'START', 'END', 'DURATION']
   const NUM_COLS = HEADERS.length
   const LAST_C   = NUM_COLS - 1
+  const bannerTitle = vehicleName ? `LOCATIONS VISITED  ·  ${vehicleName}` : 'LOCATIONS VISITED'
 
   // Build AOA: row 0 = banner, row 1 = headers, rows 2+ = data
   const aoa: AnyXLSX[][] = [
-    ['LOCATIONS VISITED', ...Array(LAST_C).fill(null)],
+    [bannerTitle, ...Array(LAST_C).fill(null)],
     HEADERS,
     ...stopRows.map((s) => [
       s.num, s.vehicle, s.geofence, s.subZone, s.floorLevel,
@@ -740,28 +803,61 @@ function buildRawDataSheet(XLSX: AnyXLSX, rawRows: ExcelRawRow[], sheetIndex: nu
 
 const EXCEL_SHEET_MAX = 1_048_575
 
+// Excel sheet names: max 31 chars, no \ / : * ? [ ] ' and not blank
+function sanitizeSheetName(raw: string, usedNames: Set<string>): string {
+  let name = raw
+    .replace(/[\\/:*?[\]'"]/g, '')  // strip all XML/Excel-invalid chars incl apostrophe
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 31)
+  if (!name) name = 'Sheet'
+  if (!usedNames.has(name)) { usedNames.add(name); return name }
+  for (let i = 2; i <= 99; i++) {
+    const suffix = ` (${i})`
+    const candidate = name.slice(0, 31 - suffix.length) + suffix
+    if (!usedNames.has(candidate)) { usedNames.add(candidate); return candidate }
+  }
+  return name
+}
+
 export async function exportExcel(params: ExportParams): Promise<void> {
   const { clientName, dashboardLabel, dateLabel, filters, tableRows, selectedAsset } = params
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const XLSX: any = await import('xlsx-js-style')
 
-  const now        = new Date()
-  const filterRows = buildFilterRows(filters)
-  const stats      = selectedAsset ? buildExcelStats(tableRows) : null
-  const stopRows   = selectedAsset ? buildExcelStopRows(tableRows) : []
-  const rawRows    = buildExcelRawRows(tableRows)
-  const rawChunks  = chunkArray(rawRows, EXCEL_SHEET_MAX)
+  const now              = new Date()
+  const filterRows       = buildFilterRows(filters)
+  const stats            = selectedAsset ? buildExcelStats(tableRows) : null
+  const stopRows         = selectedAsset ? buildExcelStopRows(tableRows) : []
+  const vehicleBreakdowns = buildVehicleBreakdowns(stopRows)
+  const rawRows          = buildExcelRawRows(tableRows)
+  const rawChunks        = chunkArray(rawRows, EXCEL_SHEET_MAX)
 
   const wb = XLSX.utils.book_new()
 
   // ── Sheet 1: Summary ───────────────────────────────────────────────────────
-  const ws1 = buildSummarySheet(XLSX, clientName, dashboardLabel, dateLabel, filterRows, stats, now)
+  const ws1 = buildSummarySheet(XLSX, clientName, dashboardLabel, dateLabel, filterRows, stats, now, vehicleBreakdowns)
   XLSX.utils.book_append_sheet(wb, ws1, 'Summary')
 
-  // ── Sheet 2: Stops (only when an asset is selected) ────────────────────────
+  // ── Stops sheets: one per vehicle when multi-vehicle, else single combined ──
   if (stopRows.length > 0) {
-    const ws2 = buildStopsSheet(XLSX, stopRows)
-    XLSX.utils.book_append_sheet(wb, ws2, 'Stops')
+    if (vehicleBreakdowns.length > 1) {
+      // Group by vehicle and create one tab per vehicle
+      const byVehicle = new Map<string, ExcelStopRow[]>()
+      for (const row of stopRows) {
+        if (!byVehicle.has(row.vehicle)) byVehicle.set(row.vehicle, [])
+        byVehicle.get(row.vehicle)!.push(row)
+      }
+      const usedNames = new Set<string>(['Summary'])
+      for (const [vehicle, rows] of byVehicle.entries()) {
+        const sheetName = sanitizeSheetName(vehicle, usedNames)
+        const ws = buildStopsSheet(XLSX, rows, vehicle)
+        XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      }
+    } else {
+      const ws2 = buildStopsSheet(XLSX, stopRows)
+      XLSX.utils.book_append_sheet(wb, ws2, 'Stops')
+    }
   }
 
   // ── Sheet 3+: Raw Data (auto-split if >1M rows) ────────────────────────────

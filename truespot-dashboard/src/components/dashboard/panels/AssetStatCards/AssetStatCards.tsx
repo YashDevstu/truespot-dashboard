@@ -160,23 +160,23 @@ export default function AssetStatCards({ rows, datePeriod, showLive = false, loa
         <StatCard
           title="Stops"
           value={stats.totalStops.toLocaleString()}
-          subtitle={`location stops ${datePeriod}`}
+          subtitle={`Location stops ${datePeriod}`}
         />
         <StatCard
           title="Geofences"
           value={stats.uniqueGeofences}
-          subtitle="unique locations"
+          subtitle="Unique locations"
         />
         <StatCard
           title="Time Tracked"
           value={fmtMinutes(stats.totalMinutes)}
-          subtitle={`total ${datePeriod}`}
+          subtitle={`Total ${datePeriod}`}
         />
         {isMultiVehicle ? (
           <StatCard
             title="Active Vehicles"
             value={stats.activeVehicles}
-            subtitle={showLive ? 'all live now' : 'vehicles selected'}
+            subtitle={showLive ? 'All live now' : 'Vehicles selected'}
             valueColor={showLive ? '#27AE60' : undefined}
           />
         ) : (

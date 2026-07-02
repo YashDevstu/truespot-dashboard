@@ -716,7 +716,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
             </IconButton>
           </Tooltip>
         )}
-        <Typography variant="caption" color="text.disabled">satellite</Typography>
+        <Typography variant="caption" color="text.disabled">Satellite</Typography>
         <IconButton size="small" tabIndex={-1} sx={{ ml: 0.5 }}>
           {collapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
         </IconButton>

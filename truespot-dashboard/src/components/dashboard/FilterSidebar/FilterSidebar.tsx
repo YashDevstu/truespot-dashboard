@@ -46,14 +46,18 @@ function MultiFilter({
   value,
   onChange,
   placeholder,
+  limitTags = 1,
+  fullValue = false,
 }: {
   label: string
   options: string[]
   value: string[]
   onChange: (vals: string[]) => void
   placeholder?: string
+  limitTags?: number
+  fullValue?: boolean
 }) {
-  return (
+  const autocomplete = (
     <Autocomplete<string, true, false, false>
       multiple
       options={options}
@@ -65,7 +69,7 @@ function MultiFilter({
       clearOnEscape
       autoHighlight
       size="small"
-      limitTags={1}
+      limitTags={limitTags}
       disableCloseOnSelect
       renderInput={(params) => (
         <TextField
@@ -76,6 +80,19 @@ function MultiFilter({
         />
       )}
     />
+  )
+
+  if (!fullValue) return autocomplete
+
+  return (
+    <Box
+      sx={{
+        '& .MuiAutocomplete-tag': { maxWidth: 'none' },
+        '& .MuiChip-label': { overflow: 'visible', whiteSpace: 'nowrap', textOverflow: 'clip', fontSize: '11px' },
+      }}
+    >
+      {autocomplete}
+    </Box>
   )
 }
 
@@ -126,30 +143,30 @@ export default function FilterSidebar({
       </Box>
 
       {/* Filters section */}
-      <Box sx={{ px: 2, pt: 2, pb: 1, flexShrink: 0 }}>
+      <Box sx={{ px: 2, pt: 1.25, pb: 0.75, flexShrink: 0 }}>
         <Typography
           variant="caption"
           sx={{
             fontWeight: 700,
             textTransform: 'uppercase',
             letterSpacing: 1,
-            fontSize: 11,
-            color: 'text.secondary',
+            fontSize: 10,
+            color: 'text.disabled',
           }}
         >
           Filters
         </Typography>
       </Box>
 
-      <Divider sx={{ mx: 2 }} />
+      <Divider />
 
       {/* Scrollable filter list */}
-      <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 1.5 }}>
-        <Stack spacing={1.5}>
+      <Box sx={{ flex: 1, overflowY: 'auto', px: 1.75, py: 1.25 }}>
+        <Stack spacing={1.25}>
 
           {/* Asset Type — both options can be active simultaneously */}
           <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, mb: 0.75, display: 'block' }}>
+            <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 600, fontSize: 10, mb: 0.5, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Asset Type
             </Typography>
             <ToggleButtonGroup
@@ -162,13 +179,13 @@ export default function FilterSidebar({
                   flex: 1,
                   textTransform: 'none',
                   fontWeight: 600,
-                  fontSize: 13,
-                  gap: 0.75,
-                  borderRadius: '8px !important',
+                  fontSize: 12,
+                  gap: 0.5,
+                  borderRadius: '6px !important',
                   border: '1px solid',
                   borderColor: 'divider',
                   color: 'text.secondary',
-                  py: 0.75,
+                  py: 0.5,
                   '&.Mui-selected': {
                     bgcolor: 'primary.main',
                     color: '#fff',
@@ -176,15 +193,15 @@ export default function FilterSidebar({
                     '&:hover': { bgcolor: 'primary.dark' },
                   },
                 },
-                gap: 1,
+                gap: 0.75,
               }}
             >
               <ToggleButton value="Vehicle">
-                <DirectionsCarOutlinedIcon sx={{ fontSize: 15 }} />
+                <DirectionsCarOutlinedIcon sx={{ fontSize: 14 }} />
                 Vehicle
               </ToggleButton>
               <ToggleButton value="Key">
-                <VpnKeyOutlinedIcon sx={{ fontSize: 15 }} />
+                <VpnKeyOutlinedIcon sx={{ fontSize: 14 }} />
                 Key
               </ToggleButton>
             </ToggleButtonGroup>
@@ -213,10 +230,10 @@ export default function FilterSidebar({
 
           {/* Bounce Filter Interval */}
           <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, mb: 1, display: 'block' }}>
+            <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 600, fontSize: 10, mb: 0.5, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Bounce Filter Interval
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
               <TextField
                 type="number"
                 value={filters.minDurationMinutes}
@@ -226,7 +243,7 @@ export default function FilterSidebar({
                 }}
                 slotProps={{ htmlInput: { min: 0, max: 60 } }}
                 size="small"
-                sx={{ width: 60, '& input': { textAlign: 'center', px: 0.5 } }}
+                sx={{ width: 54, '& input': { textAlign: 'center', px: 0.5, fontSize: 13 } }}
               />
               <Slider
                 value={Number(filters.minDurationMinutes) || 0}
@@ -238,8 +255,8 @@ export default function FilterSidebar({
                 sx={{ flex: 1, color: 'primary.main' }}
               />
             </Box>
-            <Typography variant="caption" color="text.disabled" sx={{ mt: 0.25, display: 'block' }}>
-              Min stop duration (minutes)
+            <Typography variant="caption" color="text.disabled" sx={{ mt: 0.25, display: 'block', fontSize: 10 }}>
+              Minutes (0 = show all)
             </Typography>
           </Box>
 
@@ -248,6 +265,8 @@ export default function FilterSidebar({
             options={filterOptions.beaconId}
             value={toArray(filters.beaconId)}
             onChange={handleMulti('beaconId')}
+            limitTags={-1}
+            fullValue
           />
 
           <MultiFilter
@@ -255,6 +274,8 @@ export default function FilterSidebar({
             options={filterOptions.vin}
             value={toArray(filters.vin)}
             onChange={handleMulti('vin')}
+            limitTags={-1}
+            fullValue
           />
 
           <MultiFilter
@@ -262,13 +283,15 @@ export default function FilterSidebar({
             options={filterOptions.stockNumber}
             value={toArray(filters.stockNumber)}
             onChange={handleMulti('stockNumber')}
+            limitTags={-1}
+            fullValue
           />
 
         </Stack>
       </Box>
 
       {/* Reset button */}
-      <Box sx={{ px: 2, py: 2, borderTop: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
+      <Box sx={{ px: 1.75, py: 1.5, borderTop: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
         <Button
           variant="contained"
           size="small"

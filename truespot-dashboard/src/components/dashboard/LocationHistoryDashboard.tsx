@@ -23,6 +23,7 @@ import AssetStatCards from './panels/AssetStatCards'
 import LocationsVisitedTable from './panels/LocationsVisitedTable'
 import SelectedAssetCard from './SelectedAssetCard'
 import dynamic from 'next/dynamic'
+import SearchOffIcon from '@mui/icons-material/SearchOff'
 import type { MapMarker, RouteSegment, StopFocus, MapStop } from './panels/MapPanel/MapPanel'
 import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 import { toTitleCase } from '@/utils/formatters'
@@ -311,7 +312,7 @@ export default function LocationHistoryDashboard({
     // A position is "live" only when viewing Today's data AND the session's
     // EndTime falls on today. Using EndTime (not StartTime) because overnight
     // records start yesterday but end today — LastSeenDateDefault also uses EndTime.
-    const isTodayFilter = !filters.dateSeen || filters.dateSeen === 'Today'
+    const isTodayFilter = isAllDates || !filters.dateSeen || filters.dateSeen === 'Today' || (selectedDates?.includes('Today') ?? false)
     const isLiveRow = (r: Record<string, unknown>) => {
       if (!isTodayFilter) return false
       const v = r['[EndTime]'] ?? r['[StartTime]']
@@ -506,10 +507,9 @@ export default function LocationHistoryDashboard({
   }, [selectedStopIndex, timelineRows])
 
   // Numbered stop waypoints for the map — one per merged consecutive stop, positioned
-  // at the first GPS ping within that stop's time window.
-  // Only computed for single-vehicle view (vehicleLanes = multi-vehicle uses dot colors).
+  // at the first GPS ping within that stop's time window. Works for both single and multi-vehicle.
   const mapStops = useMemo((): MapStop[] => {
-    if (!selectedAsset || timelineRows.length === 0 || (vehicleLanes && vehicleLanes.length > 1)) return []
+    if (!selectedAsset || timelineRows.length === 0) return []
     const stops = mergeConsecutiveStops(parsePings(timelineRows))
     return stops.reduce<MapStop[]>((acc, stop, idx) => {
       const row = timelineRows.find((r) => {
@@ -611,6 +611,7 @@ export default function LocationHistoryDashboard({
             value={filters.dateSeen ?? ''}
             onChange={(v) => setFilter('dateSeen', v)}
           />
+
 
           {/* ── Asset selected: stat cards + timeline + locations table ─── */}
           {selectedAsset ? (
@@ -773,13 +774,25 @@ export default function LocationHistoryDashboard({
                 )}
 
                 <Box sx={{ flex: 1 }}>
-                  <DataTable
-                    rows={tableRows}
-                    loading={tableLoading && tableRows.length === 0}
-                    error={tableError}
-                    hasMore={!useProgressiveMode ? paginatedQuery.hasMore : undefined}
-                    onLoadMore={!useProgressiveMode ? paginatedQuery.loadMore : undefined}
-                  />
+                  {!tableLoading && tableRows.length === 0 ? (
+                    <Box sx={{ py: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+                      <SearchOffIcon sx={{ fontSize: 48, color: 'text.disabled', opacity: 0.4 }} />
+                      <Typography variant="body1" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                        No records found
+                      </Typography>
+                      <Typography variant="body2" color="text.disabled" sx={{ textAlign: 'center', maxWidth: 340 }}>
+                        No location records match the current filters for <strong>{dateLabel}</strong>. Try adjusting your filters or selecting a different date range.
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <DataTable
+                      rows={tableRows}
+                      loading={tableLoading && tableRows.length === 0}
+                      error={tableError}
+                      hasMore={!useProgressiveMode ? paginatedQuery.hasMore : undefined}
+                      onLoadMore={!useProgressiveMode ? paginatedQuery.loadMore : undefined}
+                    />
+                  )}
                 </Box>
               </Box>
             </>
