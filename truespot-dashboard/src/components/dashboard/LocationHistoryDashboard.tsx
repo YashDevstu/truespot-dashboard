@@ -603,9 +603,7 @@ export default function LocationHistoryDashboard({
             dashboardLabel={dashboardLabel}
             lastRefresh={lastRefreshValue}
             onRefresh={handleRefresh}
-            onExportPdf={handleExportPdf}
             onExportExcel={handleExportExcel}
-            exportDisabled={tableLoading && tableRows.length === 0}
           />
 
           {/* Date quick-filter pills */}

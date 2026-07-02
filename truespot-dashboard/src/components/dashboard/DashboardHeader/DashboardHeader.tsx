@@ -1,5 +1,6 @@
 'use client'
 import Box from '@mui/material/Box'
+import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
@@ -12,7 +13,6 @@ interface DashboardHeaderProps {
   dashboardLabel: string
   lastRefresh?: string
   onRefresh?: () => void
-  onExportPdf?: () => Promise<void>
   onExportExcel?: () => Promise<void>
   exportDisabled?: boolean
 }
@@ -22,37 +22,39 @@ export default function DashboardHeader({
   dashboardLabel,
   lastRefresh,
   onRefresh,
-  onExportPdf,
   onExportExcel,
   exportDisabled,
 }: DashboardHeaderProps) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-      {/* Title */}
-      <Box>
-        <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-          {dashboardLabel}
-        </Typography>
-        <Chip
-          label={clientName}
-          size="small"
-          sx={{ mt: 0.75, bgcolor: 'primary.main', color: '#fff', fontWeight: 600, fontSize: '0.7rem' }}
-        />
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+      {/* Left: title + client badge */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+            {dashboardLabel}
+          </Typography>
+          <Chip
+            label={clientName}
+            size="small"
+            sx={{ mt: 0.5, bgcolor: 'primary.main', color: '#fff', fontWeight: 600, fontSize: '0.7rem' }}
+          />
+        </Box>
       </Box>
 
-      {/* Controls: last refresh + export + refresh */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexShrink: 0 }}>
+      {/* Right: last refresh + export + refresh */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
         {lastRefresh && (
-          <Typography variant="body2" color="text.secondary" sx={{ mr: 0.5 }}>
-            Last refresh: {lastRefresh}
-          </Typography>
+          <>
+            <Typography variant="caption" color="text.disabled" sx={{ whiteSpace: 'nowrap' }}>
+              Last refresh: {lastRefresh}
+            </Typography>
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 16, alignSelf: 'center' }} />
+          </>
         )}
 
-        {/* TODO: re-enable export when ready */}
-        {false && (onExportPdf || onExportExcel) && (
+        {onExportExcel && (
           <ExportButton
-            onExportPdf={onExportPdf ?? (() => Promise.resolve())}
-            onExportExcel={onExportExcel ?? (() => Promise.resolve())}
+            onExportExcel={onExportExcel}
             disabled={exportDisabled}
           />
         )}
