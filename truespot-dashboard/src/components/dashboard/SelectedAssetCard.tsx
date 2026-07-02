@@ -1,5 +1,6 @@
 'use client'
 import { useMemo, useState } from 'react'
+import { toTitleCase } from '@/utils/formatters'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
@@ -46,8 +47,8 @@ export default function SelectedAssetCard({ rows }: SelectedAssetCardProps) {
       if (!map.has(key)) {
         map.set(key, {
           vin,
-          make:        String(r['[Make]']        ?? '').trim(),
-          model:       String(r['[Model]']       ?? '').trim(),
+          make:        toTitleCase(String(r['[Make]']        ?? '').trim()),
+          model:       toTitleCase(String(r['[Model]']       ?? '').trim()),
           year:        String(r['[Year]']        ?? '').trim(),
           stockNumber: String(r['[StockNumber]'] ?? '').trim(),
           assetTypes:  new Set(),

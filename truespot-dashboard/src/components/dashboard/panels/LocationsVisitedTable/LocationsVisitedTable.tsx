@@ -11,6 +11,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
+import { toTitleCase } from '@/utils/formatters'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function parseMs(val: unknown): number | null {
@@ -171,8 +172,8 @@ export default function LocationsVisitedTable({
         subZone:      m.subGeoZone,
         floorLevel:   String(rawRow?.['[FloorLevel]'] ?? ''),
         assetType:    m.assetType,
-        make:         String(rawRow?.['[Make]']        ?? ''),
-        model:        String(rawRow?.['[Model]']       ?? ''),
+        make:         toTitleCase(String(rawRow?.['[Make]']        ?? '')),
+        model:        toTitleCase(String(rawRow?.['[Model]']       ?? '')),
         year:         String(rawRow?.['[Year]']        ?? ''),
         vin:          String(rawRow?.['[VIN]']         ?? ''),
         startMs:      m.startMs,
@@ -243,7 +244,7 @@ export default function LocationsVisitedTable({
         >
           {/* Left: title + count */}
           <Typography variant="subtitle1" sx={{ fontWeight: 700, mr: 0.5 }}>
-            Locations visited
+            Locations Visited
           </Typography>
           <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 600, mr: 'auto' }}>
             {stops.length} stops

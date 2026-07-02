@@ -25,6 +25,7 @@ import SelectedAssetCard from './SelectedAssetCard'
 import dynamic from 'next/dynamic'
 import type { MapMarker, RouteSegment, StopFocus, MapStop } from './panels/MapPanel/MapPanel'
 import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
+import { toTitleCase } from '@/utils/formatters'
 const MapPanel = dynamic(() => import('./panels/MapPanel/MapPanel'), { ssr: false })
 
 interface Props {
@@ -271,21 +272,21 @@ export default function LocationHistoryDashboard({
       keys = vins; rowKey = '[VIN]'
       makeLabel = (key, first) => {
         const yr = first ? String(first['[Year]']  ?? '') : ''
-        const mo = first ? String(first['[Model]'] ?? '') : ''
+        const mo = first ? toTitleCase(String(first['[Model]'] ?? '')) : ''
         return yr && mo ? `${yr} ${mo}` : key.slice(-8)
       }
     } else if (beacons.length >= 2) {
       keys = beacons; rowKey = '[BeaconId]'
       makeLabel = (key, first) => {
         const yr = first ? String(first['[Year]']  ?? '') : ''
-        const mo = first ? String(first['[Model]'] ?? '') : ''
+        const mo = first ? toTitleCase(String(first['[Model]'] ?? '')) : ''
         return yr && mo ? `${yr} ${mo}` : key
       }
     } else if (stocks.length >= 2) {
       keys = stocks; rowKey = '[StockNumber]'
       makeLabel = (key, first) => {
         const yr = first ? String(first['[Year]']  ?? '') : ''
-        const mo = first ? String(first['[Model]'] ?? '') : ''
+        const mo = first ? toTitleCase(String(first['[Model]'] ?? '')) : ''
         return yr && mo ? `${yr} ${mo}` : `#${key}`
       }
     } else {
@@ -376,7 +377,7 @@ export default function LocationHistoryDashboard({
     if (!bestRow) return []
     const { lat, lng } = validCoords(bestRow)!
     const yr = String(bestRow['[Year]'] ?? '')
-    const mo = String(bestRow['[Model]'] ?? '')
+    const mo = toTitleCase(String(bestRow['[Model]'] ?? ''))
     return [{
       lat, lng,
       label:       yr && mo ? `${yr} ${mo}` : String(bestRow['[VIN]'] ?? '').slice(-8),
@@ -491,7 +492,7 @@ export default function LocationHistoryDashboard({
     if (!row) return null
 
     const yr = String(row['[Year]']  ?? '')
-    const mo = String(row['[Model]'] ?? '')
+    const mo = toTitleCase(String(row['[Model]'] ?? ''))
     return {
       lat:        Number(row['[Latitude]']),
       lng:        Number(row['[Longitude]']),

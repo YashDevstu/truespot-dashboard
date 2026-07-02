@@ -12,7 +12,7 @@ const theme = createTheme({
     divider: '#E2E8F0',
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: 'var(--font-inter), "Inter", "Roboto", "Helvetica", "Arial", sans-serif',
     h4: { fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.3 },
     h6: { fontWeight: 600, fontSize: '0.9375rem' },
     body1: { fontSize: '0.875rem' },
