@@ -1,5 +1,7 @@
 'use client'
+import { useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
+import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
@@ -7,12 +9,32 @@ import Tooltip from '@mui/material/Tooltip'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import ExportButton from '@/components/dashboard/ExportButton'
 
+function useRelativeTime(timestamp: string | undefined): string | null {
+  const [rel, setRel] = useState<string | null>(null)
+  useEffect(() => {
+    if (!timestamp) { setRel(null); return }
+    const compute = () => {
+      const d = new Date(timestamp)
+      if (isNaN(d.getTime())) return null
+      const diffMin = Math.round((Date.now() - d.getTime()) / 60_000)
+      if (diffMin < 1) return 'just now'
+      if (diffMin < 60) return `${diffMin}m ago`
+      const diffHr = Math.round(diffMin / 60)
+      if (diffHr < 24) return `${diffHr}h ago`
+      return null
+    }
+    setRel(compute())
+    const id = setInterval(() => setRel(compute()), 60_000)
+    return () => clearInterval(id)
+  }, [timestamp])
+  return rel
+}
+
 interface DashboardHeaderProps {
   clientName: string
   dashboardLabel: string
   lastRefresh?: string
   onRefresh?: () => void
-  onExportPdf?: () => Promise<void>
   onExportExcel?: () => Promise<void>
   exportDisabled?: boolean
 }
@@ -22,37 +44,47 @@ export default function DashboardHeader({
   dashboardLabel,
   lastRefresh,
   onRefresh,
-  onExportPdf,
   onExportExcel,
   exportDisabled,
 }: DashboardHeaderProps) {
+  const relativeTime = useRelativeTime(lastRefresh)
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-      {/* Title */}
-      <Box>
-        <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-          {dashboardLabel}
-        </Typography>
-        <Chip
-          label={clientName}
-          size="small"
-          sx={{ mt: 0.75, bgcolor: 'primary.main', color: '#fff', fontWeight: 600, fontSize: '0.7rem' }}
-        />
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+      {/* Left: title + client badge */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+            {dashboardLabel}
+          </Typography>
+          <Chip
+            label={clientName}
+            size="small"
+            sx={{ mt: 0.5, bgcolor: 'primary.main', color: '#fff', fontWeight: 600, fontSize: '0.7rem' }}
+          />
+        </Box>
       </Box>
 
-      {/* Controls: last refresh + export + refresh */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexShrink: 0 }}>
+      {/* Right: last refresh + export + refresh */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
         {lastRefresh && (
-          <Typography variant="body2" color="text.secondary" sx={{ mr: 0.5 }}>
-            Last refresh: {lastRefresh}
-          </Typography>
+          <>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <Typography variant="caption" color="text.disabled" sx={{ whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                Last refresh: {lastRefresh}
+              </Typography>
+              {relativeTime && (
+                <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', lineHeight: 1.3, opacity: 0.7 }}>
+                  {relativeTime}
+                </Typography>
+              )}
+            </Box>
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 16, alignSelf: 'center' }} />
+          </>
         )}
 
-        {/* TODO: re-enable export when ready */}
-        {false && (onExportPdf || onExportExcel) && (
+        {onExportExcel && (
           <ExportButton
-            onExportPdf={onExportPdf ?? (() => Promise.resolve())}
-            onExportExcel={onExportExcel ?? (() => Promise.resolve())}
+            onExportExcel={onExportExcel}
             disabled={exportDisabled}
           />
         )}

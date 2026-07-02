@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
+import type { Metadata } from 'next'
 import Box from '@mui/material/Box'
 import Skeleton from '@mui/material/Skeleton'
 import { getClientConfig } from '@/services/config/clientConfigService'
@@ -7,6 +8,16 @@ import LocationHistoryDashboard from '@/components/dashboard/LocationHistoryDash
 
 interface PageProps {
   params: Promise<{ clientId: string; dashboardKey: string }>
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { clientId } = await params
+  try {
+    const config = getClientConfig(clientId)
+    return { title: `${config.display_name} Dashboard` }
+  } catch {
+    return { title: 'TrueSpot Dashboard' }
+  }
 }
 
 export default async function DashboardPage({ params }: PageProps) {

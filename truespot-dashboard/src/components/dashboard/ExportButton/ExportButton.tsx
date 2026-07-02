@@ -1,105 +1,71 @@
 'use client'
 import { useState } from 'react'
 import Button from '@mui/material/Button'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
-import ListItemIcon from '@mui/material/ListItemIcon'
-import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
-import FileDownloadIcon from '@mui/icons-material/FileDownload'
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
-import TableChartIcon from '@mui/icons-material/TableChart'
+import Tooltip from '@mui/material/Tooltip'
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 
 interface ExportButtonProps {
-  onExportPdf: () => Promise<void>
   onExportExcel: () => Promise<void>
   disabled?: boolean
 }
 
-export default function ExportButton({ onExportPdf, onExportExcel, disabled }: ExportButtonProps) {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-  const [loading, setLoading] = useState<'pdf' | 'excel' | null>(null)
+export default function ExportButton({ onExportExcel, disabled }: ExportButtonProps) {
+  const [loading, setLoading] = useState(false)
 
-  const open = Boolean(anchorEl)
-
-  const handleOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (!loading) setAnchorEl(e.currentTarget)
-  }
-  const handleClose = () => setAnchorEl(null)
-
-  const run = async (type: 'pdf' | 'excel', handler: () => Promise<void>) => {
-    handleClose()
-    setLoading(type)
-    // Yield one frame so the spinner renders before synchronous generation blocks the thread
+  const handleClick = async () => {
+    if (loading || disabled) return
+    setLoading(true)
     await new Promise<void>((resolve) => setTimeout(resolve, 16))
     try {
-      await handler()
+      await onExportExcel()
     } finally {
-      setLoading(null)
+      setLoading(false)
     }
   }
 
-  const isLoading = !!loading
-
   return (
-    <>
-      <Button
-        variant="outlined"
-        size="small"
-        onClick={handleOpen}
-        disabled={disabled || isLoading}
-        startIcon={
-          isLoading
-            ? <CircularProgress size={13} color="inherit" />
-            : <FileDownloadIcon fontSize="small" />
-        }
-        endIcon={<ArrowDropDownIcon fontSize="small" />}
-        sx={{
-          textTransform: 'none',
-          fontWeight: 600,
-          fontSize: 13,
-          borderColor: 'divider',
-          color: 'text.primary',
-          px: 1.5,
-          '&:hover': { borderColor: 'primary.main', color: 'primary.main', bgcolor: 'transparent' },
-          '& .MuiButton-endIcon': { ml: 0.25 },
-        }}
-      >
-        {loading === 'pdf'
-          ? 'Generating…'
-          : loading === 'excel'
-          ? 'Building…'
-          : 'Export'}
-      </Button>
-
-      <Menu
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleClose}
-        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-        slotProps={{ paper: { sx: { minWidth: 170, mt: 0.5, boxShadow: 3 } } }}
-      >
-        <MenuItem onClick={() => run('pdf', onExportPdf)} dense>
-          <ListItemIcon>
-            <PictureAsPdfIcon fontSize="small" sx={{ color: '#e53935' }} />
-          </ListItemIcon>
-          <ListItemText
-            primary="Download PDF"
-            slotProps={{ primary: { sx: { fontSize: 13, fontWeight: 500 } } }}
-          />
-        </MenuItem>
-        <MenuItem onClick={() => run('excel', onExportExcel)} dense>
-          <ListItemIcon>
-            <TableChartIcon fontSize="small" sx={{ color: '#2e7d32' }} />
-          </ListItemIcon>
-          <ListItemText
-            primary="Download Excel"
-            slotProps={{ primary: { sx: { fontSize: 13, fontWeight: 500 } } }}
-          />
-        </MenuItem>
-      </Menu>
-    </>
+    <Tooltip title="Export data to Excel spreadsheet" placement="bottom">
+      <span>
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={handleClick}
+          disabled={disabled || loading}
+          startIcon={
+            loading
+              ? <CircularProgress size={13} color="inherit" />
+              : <FileDownloadOutlinedIcon sx={{ fontSize: '16px !important' }} />
+          }
+          sx={{
+            textTransform: 'none',
+            fontWeight: 600,
+            fontSize: 13,
+            letterSpacing: 0.1,
+            px: 1.75,
+            py: 0.6,
+            borderColor: '#d1d5db',
+            color: 'text.secondary',
+            borderRadius: '6px',
+            whiteSpace: 'nowrap',
+            bgcolor: 'background.paper',
+            transition: 'all 0.15s',
+            '&:hover': {
+              borderColor: '#16a34a',
+              color: '#16a34a',
+              bgcolor: '#f0fdf4',
+            },
+            '&:active': {
+              bgcolor: '#dcfce7',
+            },
+            '&.Mui-disabled': {
+              opacity: 0.45,
+            },
+          }}
+        >
+          {loading ? 'Exporting…' : 'Export Excel'}
+        </Button>
+      </span>
+    </Tooltip>
   )
 }

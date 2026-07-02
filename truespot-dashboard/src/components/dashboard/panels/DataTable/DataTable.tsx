@@ -44,10 +44,10 @@ interface DataTableProps {
 // Power BI Execute Queries API wraps all column names in square brackets in the response
 const COL_DEFS: ColDef[] = [
   { field: '[Make]', headerName: 'Make', width: 90 },
-  { field: '[Model]', headerName: 'Model', minWidth: 150, flex: 1 },
+  { field: '[Model]', headerName: 'Model', minWidth: 150, flex: 1, tooltipField: '[Model]' },
   { field: '[Year]', headerName: 'Year', width: 70 },
-  { field: '[Geofence]', headerName: 'Geofence', flex: 1, minWidth: 160 },
-  { field: '[SubGeoZone]', headerName: 'Sub Zone', flex: 1, minWidth: 180 },
+  { field: '[Geofence]', headerName: 'Geofence', flex: 1, minWidth: 160, tooltipField: '[Geofence]' },
+  { field: '[SubGeoZone]', headerName: 'Sub Zone', flex: 1, minWidth: 180, tooltipField: '[SubGeoZone]' },
   {
     field: '[StartTime]',
     headerName: 'First Seen at Location',
@@ -69,8 +69,8 @@ const COL_DEFS: ColDef[] = [
     valueFormatter: (p) => formatDuration(p.value),
     sort: 'desc',
   },
-  { field: '[BeaconId]', headerName: 'Beacon', width: 140 },
-  { field: '[VIN]', headerName: 'VIN', width: 175 },
+  { field: '[BeaconId]', headerName: 'Beacon', width: 140, tooltipField: '[BeaconId]' },
+  { field: '[VIN]', headerName: 'VIN', width: 175, tooltipField: '[VIN]' },
   { field: '[StockNumber]', headerName: 'Stock #', width: 100 },
   { field: '[AssetType]', headerName: 'Asset Type', width: 110 },
   { field: '[FloorLevel]', headerName: 'Floor', width: 80 },
@@ -136,7 +136,7 @@ export default function DataTable({ rows, loading, error, hasMore, onLoadMore }:
   if (error) {
     return (
       <Box sx={{ p: 3 }}>
-        <Typography color="error">{error}</Typography>
+        <Typography color="error">Unable to load records. Please refresh and try again.</Typography>
       </Box>
     )
   }
@@ -163,6 +163,7 @@ export default function DataTable({ rows, loading, error, hasMore, onLoadMore }:
         rowData={rows}
         columnDefs={COL_DEFS}
         defaultColDef={{ resizable: true, sortable: true, filter: true }}
+        enableBrowserTooltips
         pagination
         paginationPageSize={100}
         paginationPageSizeSelector={[50, 100, 250, 500]}

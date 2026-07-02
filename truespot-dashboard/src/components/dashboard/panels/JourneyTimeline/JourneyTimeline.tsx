@@ -4,6 +4,7 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Paper from '@mui/material/Paper'
+import Skeleton from '@mui/material/Skeleton'
 import TimelineIcon from '@mui/icons-material/Timeline'
 import { parsePings, mergeConsecutiveStops, type MergedStop } from '@/utils/stops'
 
@@ -170,6 +171,7 @@ interface JourneyTimelineProps {
   selectedIndex?: number | null
   onSelectIndex?: (i: number | null) => void
   vehicleLanes?: VehicleLane[]
+  loading?: boolean
 }
 
 export default function JourneyTimeline({
@@ -179,6 +181,7 @@ export default function JourneyTimeline({
   selectedIndex,
   onSelectIndex,
   vehicleLanes,
+  loading,
 }: JourneyTimelineProps) {
   // Multi-vehicle data (rendered as one row per vehicle, shared x-axis)
   const multiVehicleResult = useMemo(() => {
@@ -234,21 +237,43 @@ export default function JourneyTimeline({
     }, [rows])
 
   // Shared tooltip content for any stop block
-  const blockTooltip = (block: MergedStop) => (
-    <Box>
-      <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>{block.geofence}</Typography>
-      {block.subGeoZone && block.subGeoZone !== block.geofence && (
-        <Typography variant="caption" sx={{ display: 'block', opacity: 0.75 }}>{block.subGeoZone}</Typography>
-      )}
-      <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
-        {fmtTime(block.startMs)} – {fmtTime(block.endMs)}
-      </Typography>
-      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-        {fmtDuration(block.totalMinutes)}
-        {block.pingCount > 1 ? ` · ${block.pingCount} readings` : ''}
-      </Typography>
-    </Box>
-  )
+  const blockTooltip = (block: MergedStop, stopNum?: number) => {
+    const assetColor = block.assetType === 'Key' ? '#f59e0b' : block.assetType === 'Mixed' ? '#a855f7' : '#3b82f6'
+    return (
+      <Box sx={{ minWidth: 180 }}>
+        {/* Header row: stop # + asset type badge */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, gap: 1 }}>
+          {stopNum != null && (
+            <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 10, color: 'rgba(255,255,255,0.6)', letterSpacing: 0.5 }}>
+              STOP #{stopNum}
+            </Typography>
+          )}
+          {block.assetType && block.assetType !== 'Vehicle' && (
+            <Box sx={{ px: 0.75, py: 0.15, borderRadius: '4px', bgcolor: assetColor + '30', border: `1px solid ${assetColor}60` }}>
+              <Typography sx={{ fontSize: 10, fontWeight: 600, color: assetColor, lineHeight: 1.4 }}>{block.assetType}</Typography>
+            </Box>
+          )}
+        </Box>
+        {/* Geofence name */}
+        <Typography sx={{ display: 'block', fontWeight: 700, fontSize: 13, lineHeight: 1.3 }}>{block.geofence}</Typography>
+        {block.subGeoZone && block.subGeoZone !== block.geofence && (
+          <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, mt: 0.25 }}>{block.subGeoZone}</Typography>
+        )}
+        {/* Divider */}
+        <Box sx={{ my: 0.75, borderTop: '1px solid rgba(255,255,255,0.12)' }} />
+        {/* Time + duration */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1.5 }}>
+          <Typography variant="caption" sx={{ opacity: 0.8 }}>{fmtTime(block.startMs)} – {fmtTime(block.endMs)}</Typography>
+          <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{fmtDuration(block.totalMinutes)}</Typography>
+        </Box>
+        {block.pingCount > 1 && (
+          <Typography variant="caption" sx={{ display: 'block', opacity: 0.5, mt: 0.25 }}>
+            {block.pingCount} readings
+          </Typography>
+        )}
+      </Box>
+    )
+  }
 
   // ── Multi-vehicle view (one row per VIN) ────────────────────────────────────
   if (multiVehicleResult) {
@@ -267,10 +292,10 @@ export default function JourneyTimeline({
           </Typography>
           <Box sx={{ flex: 1 }} />
           <Typography variant="caption" color="text.disabled">
-            hover segments
+            Hover segments
           </Typography>
           <Typography variant="caption" color="text.disabled" sx={{ ml: 1 }}>
-            {totalStops} stop{totalStops !== 1 ? 's' : ''} · {lanes.length} vehicles
+            {totalStops} Stop{totalStops !== 1 ? 's' : ''} · {lanes.length} Vehicles
           </Typography>
         </Box>
 
@@ -294,7 +319,8 @@ export default function JourneyTimeline({
                 lane.blocks.map((block, bi) => {
                   const color = colorMap.get(block.geofence) ?? '#9E9E9E'
                   return (
-                    <Tooltip key={bi} arrow placement="top" title={blockTooltip(block)}>
+                    <Tooltip key={bi} arrow placement="top" title={blockTooltip(block, bi + 1)}
+                      slotProps={{ tooltip: { sx: { maxWidth: 260, p: 1.25 } } }}>
                       <Box
                         sx={{
                           position: 'absolute',
@@ -356,6 +382,19 @@ export default function JourneyTimeline({
   }
 
   if (pings.length === 0) {
+    if (loading) {
+      return (
+        <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+          <Skeleton width={180} height={14} sx={{ mb: 1.5 }} />
+          <Skeleton variant="rectangular" height={56} sx={{ borderRadius: 1, mb: 1 }} />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Skeleton width={60} height={12} />
+            <Skeleton width={60} height={12} />
+            <Skeleton width={60} height={12} />
+          </Box>
+        </Paper>
+      )
+    }
     return (
       <Paper
         variant="outlined"
@@ -364,7 +403,7 @@ export default function JourneyTimeline({
         <TimelineIcon sx={{ fontSize: 28 }} />
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>Journey Timeline</Typography>
-          <Typography variant="caption">No valid timeline data in the current result set.</Typography>
+          <Typography variant="caption">No journey activity found for this date range. Try selecting a wider date range.</Typography>
         </Box>
       </Paper>
     )
@@ -393,12 +432,12 @@ export default function JourneyTimeline({
         {!isMultiDay && (
           <>
             <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'text.disabled', flexShrink: 0 }} />
-            <Typography variant="caption" color="text.disabled">click a segment to select</Typography>
+            <Typography variant="caption" color="text.disabled">Click a segment to select</Typography>
           </>
         )}
         <Box sx={{ flex: 1 }} />
         <Typography variant="caption" color="text.disabled">
-          {allBlocks.length} stop{allBlocks.length !== 1 ? 's' : ''} · {uniqueGeofences.length} geofence{uniqueGeofences.length !== 1 ? 's' : ''}
+          {allBlocks.length} Stop{allBlocks.length !== 1 ? 's' : ''} · {uniqueGeofences.length} Geofence{uniqueGeofences.length !== 1 ? 's' : ''}
         </Typography>
       </Box>
 
@@ -493,7 +532,8 @@ export default function JourneyTimeline({
                       // Shorten geofence name for in-bar label
                       const shortName = block.geofence.replace(/maple shade /i, '').replace(/customer service/i, 'Cust. Service')
                       return (
-                        <Tooltip key={bi} arrow placement="top" title={displayBlockTooltip(block)}>
+                        <Tooltip key={bi} arrow placement="top" title={displayBlockTooltip(block)}
+                          slotProps={{ tooltip: { sx: { maxWidth: 260, p: 1.25 } } }}>
                           <Box
                             sx={{
                               position: 'absolute',
@@ -605,7 +645,8 @@ export default function JourneyTimeline({
               const isMixed = block.assetType === 'Mixed'
               const stripColor = isKey ? '#f59e0b' : isMixed ? '#a855f7' : null
               return (
-                <Tooltip key={i} arrow placement="top" title={blockTooltip(block)}>
+                <Tooltip key={i} arrow placement="top" title={blockTooltip(block, i + 1)}
+                  slotProps={{ tooltip: { sx: { maxWidth: 260, p: 1.25 } } }}>
                   <Box
                     onClick={() => onSelectIndex?.(isSelected ? null : i)}
                     sx={{

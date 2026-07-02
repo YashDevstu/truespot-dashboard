@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
+import Skeleton from '@mui/material/Skeleton'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import Collapse from '@mui/material/Collapse'
@@ -63,6 +64,7 @@ interface MapPanelProps {
   stopFocus?: StopFocus | null
   stops?: MapStop[]
   onStopClick?: (index: number) => void
+  loading?: boolean
 }
 
 const LIVE_GREEN = '#22c55e'
@@ -357,7 +359,7 @@ function stopFocusHtml(sf: StopFocus): string {
 </div>`
 }
 
-export default function MapPanel({ markers, subscriptionKey, routeLines, stopFocus, stops, onStopClick }: MapPanelProps) {
+export default function MapPanel({ markers, subscriptionKey, routeLines, stopFocus, stops, onStopClick, loading }: MapPanelProps) {
   const containerRef   = useRef<HTMLDivElement>(null)
   const mapRef         = useRef<mapboxgl.Map | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -714,7 +716,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
             </IconButton>
           </Tooltip>
         )}
-        <Typography variant="caption" color="text.disabled">satellite</Typography>
+        <Typography variant="caption" color="text.disabled">Satellite</Typography>
         <IconButton size="small" tabIndex={-1} sx={{ ml: 0.5 }}>
           {collapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
         </IconButton>
@@ -723,6 +725,9 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
       {/* ── Map / placeholder ─────────────────────────────────────────────── */}
       <Collapse in={!collapsed}>
         {!hasMarkers ? (
+          loading ? (
+            <Skeleton variant="rectangular" height={420} sx={{ borderRadius: '0 0 8px 8px' }} />
+          ) : (
           <Box sx={{
             height: 200, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
@@ -730,12 +735,13 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
             borderRadius: '0 0 8px 8px',
           }}>
             <GpsOffIcon sx={{ fontSize: 36 }} />
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>No location coordinates in data</Typography>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>No GPS data available</Typography>
             <Typography variant="caption" align="center" sx={{ maxWidth: 340 }}>
-              Latitude / Longitude columns were not found for this vehicle.
-              Restart the dev server to clear the query cache, then reload.
+              No location data found for this vehicle on the selected date.
+              Try selecting a different date range.
             </Typography>
           </Box>
+          )
         ) : (
           <Box sx={{ position: 'relative', height: 420, borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
             <Box ref={containerRef} sx={{ height: '100%', width: '100%' }} />
