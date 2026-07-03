@@ -7,8 +7,13 @@ import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import Collapse from '@mui/material/Collapse'
 import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore'
+import NavigateNextIcon from '@mui/icons-material/NavigateNext'
+import FirstPageIcon from '@mui/icons-material/FirstPage'
+import LastPageIcon from '@mui/icons-material/LastPage'
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import LocationOffIcon from '@mui/icons-material/LocationOff'
@@ -137,6 +142,7 @@ function SortPill({
 
 const COLUMNS = ['#', 'VEHICLE', 'GEOFENCE', 'SUBZONE', 'TIME RANGE', 'DURATION'] as const
 const GRID = '40px minmax(170px, 200px) minmax(140px, 1fr) minmax(160px, 1fr) 195px 95px'
+const PAGE_SIZE = 5
 
 // ── LocationsVisitedTable ─────────────────────────────────────────────────────
 interface LocationsVisitedTableProps {
@@ -158,6 +164,7 @@ export default function LocationsVisitedTable({
 }: LocationsVisitedTableProps) {
   const [sortMode, setSortMode] = useState<SortMode>(showLive ? 'live' : 'oldest')
   const [collapsed, setCollapsed] = useState(false)
+  const [page, setPage] = useState(0)
 
   const { stops, liveStop, liveByVin, isMultiVehicle } = useMemo(() => {
     // Use the same merge logic as the dashboard/map so startMs values align exactly.
@@ -220,6 +227,10 @@ export default function LocationsVisitedTable({
     return { stops: sorted, liveStop, liveByVin, isMultiVehicle }
   }, [rows, sortMode, showLive])
 
+  const pageCount = Math.max(1, Math.ceil(stops.length / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pagedStops = stops.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+
   if (stops.length === 0) {
     if (loading) {
       return (
@@ -264,7 +275,8 @@ export default function LocationsVisitedTable({
 
   const handleSortChange = (mode: SortMode) => {
     setSortMode(mode)
-    onSelectRow?.(null) // clear row selection when sort changes
+    setPage(0)
+    onSelectRow?.(null)
   }
 
   return (
@@ -385,7 +397,8 @@ export default function LocationsVisitedTable({
 
       {/* ── Data rows ────────────────────────────────────────────────────── */}
       <Collapse in={!collapsed}>
-        {stops.map((stop, i) => {
+        {pagedStops.map((stop, i) => {
+          const globalIndex = safePage * PAGE_SIZE + i
           // Multi-vehicle: each VIN's own most-recent stop is "live"
           // Single-vehicle: the one globally-most-recent stop is "live"
           const isLive = showLive && (
@@ -421,7 +434,7 @@ export default function LocationsVisitedTable({
               }}
             >
               {/* # */}
-              <Typography variant="body2" color="text.disabled" sx={{ fontWeight: 500 }}>{i + 1}</Typography>
+              <Typography variant="body2" color="text.disabled" sx={{ fontWeight: 500 }}>{globalIndex + 1}</Typography>
 
               {/* Vehicle */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
@@ -516,6 +529,67 @@ export default function LocationsVisitedTable({
           )
         })}
       </Collapse>
+
+      {/* ── Pagination footer ─────────────────────────────────────────────── */}
+      {!collapsed && pageCount > 1 && (
+        <Box
+          sx={{
+            px: 2.5,
+            py: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'grey.50',
+            borderRadius: '0 0 8px 8px',
+          }}
+        >
+          {/* Left: row range info */}
+          <Typography variant="caption" color="text.secondary">
+            {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, stops.length)} of {stops.length} stops
+          </Typography>
+
+          {/* Right: nav buttons */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Tooltip title="First page">
+              <span>
+                <IconButton size="small" onClick={() => setPage(0)} disabled={safePage === 0}>
+                  <FirstPageIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+
+            <Tooltip title="Previous page">
+              <span>
+                <IconButton size="small" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={safePage === 0}>
+                  <NavigateBeforeIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+
+            <Typography variant="caption" sx={{ px: 1, fontWeight: 600, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+              Page {safePage + 1} of {pageCount}
+            </Typography>
+
+            <Tooltip title="Next page">
+              <span>
+                <IconButton size="small" onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={safePage === pageCount - 1}>
+                  <NavigateNextIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+
+            <Tooltip title="Last page">
+              <span>
+                <IconButton size="small" onClick={() => setPage(pageCount - 1)} disabled={safePage === pageCount - 1}>
+                  <LastPageIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
+        </Box>
+      )}
     </Paper>
   )
 }

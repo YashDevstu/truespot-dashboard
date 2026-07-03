@@ -585,6 +585,16 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscriptionKey, JSON.stringify(markers), routeLinesKey, stopsKey])
 
+  // ── Resize observer: call map.resize() when container dimensions change ───
+  useEffect(() => {
+    if (!containerRef.current) return
+    const ro = new ResizeObserver(() => {
+      mapRef.current?.resize()
+    })
+    ro.observe(containerRef.current)
+    return () => ro.disconnect()
+  }, [])
+
   // ── Focus effect: fly to selected stop + place a hoverable teardrop pin ──
   useEffect(() => {
     // Always clear previous pin + popup (handles deselect when stopFocus=null)
@@ -641,7 +651,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
   const anyLive    = hasMarkers && markers.some((m) => m.isLive !== false)
 
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 2, bgcolor: 'background.paper', position: 'relative' }}>
+    <Paper variant="outlined" sx={{ borderRadius: 2, bgcolor: 'background.paper', position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <Box
@@ -723,10 +733,10 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
       </Box>
 
       {/* ── Map / placeholder ─────────────────────────────────────────────── */}
-      <Collapse in={!collapsed}>
+      <Collapse in={!collapsed} sx={{ flex: 1, display: 'flex', flexDirection: 'column', '& .MuiCollapse-wrapper, & .MuiCollapse-wrapperInner': { flex: 1, display: 'flex', flexDirection: 'column' } }}>
         {!hasMarkers ? (
           loading ? (
-            <Skeleton variant="rectangular" height={420} sx={{ borderRadius: '0 0 8px 8px' }} />
+            <Skeleton variant="rectangular" sx={{ flex: 1, borderRadius: '0 0 8px 8px' }} />
           ) : (
           <Box sx={{
             height: 200, display: 'flex', flexDirection: 'column',
@@ -743,7 +753,7 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
           </Box>
           )
         ) : (
-          <Box sx={{ position: 'relative', height: 420, borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
+          <Box sx={{ position: 'relative', flex: 1, minHeight: 300, borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
             <Box ref={containerRef} sx={{ height: '100%', width: '100%' }} />
 
             {/* Map legend overlay — bottom-right corner */}

@@ -1,4 +1,5 @@
 'use client'
+import Image from 'next/image'
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
@@ -49,6 +50,7 @@ export default function LocationHistoryDashboard({
 }: Props) {
   const { filters, setFilter, resetFilters } = useFilters()
   const [refreshToken, setRefreshToken] = useState(0)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [selectedStopIndex, setSelectedStopIndex] = useState<number | null>(null)
   // Holds the raw timelineRows ref so callbacks declared early can read the latest value
   const timelineRowsRef = useRef<Record<string, unknown>[]>([])
@@ -571,28 +573,74 @@ export default function LocationHistoryDashboard({
   // Show Live badge when Today's data is included
   const showLive = isAllDates || (selectedDates?.includes('Today') ?? false)
 
-  return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'flex-start' }}>
-      {/* ── Left sidebar ───────────────────────────────────────────────────── */}
-      <FilterSidebar
-        filters={filters}
-        onFilterChange={setFilter}
-        onReset={resetFilters}
-        filterOptions={filterOptions}
-      />
+  const TOP_BAR_H = 60
 
-      {/* ── Main content ───────────────────────────────────────────────────── */}
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {/* ── Top bar: Logo — sticky, full width, never collapses ────────────── */}
       <Box
         sx={{
-          flex: 1,
-          minWidth: 0,
-          bgcolor: '#f8fafc',
-          p: 3,
+          position: 'sticky',
+          top: 0,
+          zIndex: 20,
+          height: TOP_BAR_H,
+          flexShrink: 0,
+          bgcolor: 'background.paper',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          px: 2.5,
           display: 'flex',
-          flexDirection: 'column',
-          gap: 2.5,
+          alignItems: 'center',
         }}
       >
+        <Image
+          src="/images/logo.jpg"
+          alt="TrueSpot"
+          width={130}
+          height={36}
+          style={{ objectFit: 'contain', objectPosition: 'left center' }}
+          priority
+        />
+      </Box>
+
+      {/* ── Content row ────────────────────────────────────────────────────── */}
+      <Box sx={{ display: 'flex', flex: 1, alignItems: 'flex-start' }}>
+        {/* Filter sidebar */}
+        <Box
+          sx={{
+            position: 'sticky',
+            top: TOP_BAR_H,
+            height: `calc(100vh - ${TOP_BAR_H}px)`,
+            width: sidebarOpen ? 236 : 48,
+            transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+            flexShrink: 0,
+            overflow: 'hidden',
+            borderRight: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <FilterSidebar
+            filters={filters}
+            onFilterChange={setFilter}
+            onReset={resetFilters}
+            filterOptions={filterOptions}
+            open={sidebarOpen}
+            onToggle={() => setSidebarOpen((o) => !o)}
+          />
+        </Box>
+
+        {/* ── Main content ─────────────────────────────────────────────────── */}
+        <Box
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            bgcolor: '#f8fafc',
+            p: 3,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2.5,
+          }}
+        >
           {/* Alerts */}
           {tableError && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
           {kpiQuery.error && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
@@ -652,29 +700,36 @@ export default function LocationHistoryDashboard({
                 <SelectedAssetCard rows={singleDayRows} />
               )}
 
-              {/* Map — last known positions + route trail */}
-              {!timelineTooLarge && azureMapsKey && (
-                <MapPanel
-                  markers={mapMarkers}
-                  subscriptionKey={azureMapsKey}
-                  routeLines={routeLines}
-                  stopFocus={stopFocus}
-                  stops={mapStops}
-                  onStopClick={setSelectedStopIndex}
-                  loading={tableLoading}
-                />
-              )}
-
-              {/* Locations visited table */}
+              {/* Map + Locations Visited — side by side */}
               {!timelineTooLarge && (
-                <LocationsVisitedTable
-                  rows={singleDayRows}
-                  colorMap={sharedColorMap}
-                  showLive={showLive}
-                  selectedStartMs={selectedStopStartMs}
-                  onSelectRow={handleTableRowSelect}
-                  loading={tableLoading}
-                />
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'stretch' }}>
+                  {/* Map — left, narrower */}
+                  {azureMapsKey && (
+                    <Box sx={{ width: '38%', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+                      <MapPanel
+                        markers={mapMarkers}
+                        subscriptionKey={azureMapsKey}
+                        routeLines={routeLines}
+                        stopFocus={stopFocus}
+                        stops={mapStops}
+                        onStopClick={setSelectedStopIndex}
+                        loading={tableLoading}
+                      />
+                    </Box>
+                  )}
+
+                  {/* Locations visited — right, wider */}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <LocationsVisitedTable
+                      rows={singleDayRows}
+                      colorMap={sharedColorMap}
+                      showLive={showLive}
+                      selectedStartMs={selectedStopStartMs}
+                      onSelectRow={handleTableRowSelect}
+                      loading={tableLoading}
+                    />
+                  </Box>
+                </Box>
               )}
 
               {/* Fall back to AG Grid when rows exceed the cap */}
@@ -797,6 +852,7 @@ export default function LocationHistoryDashboard({
               </Box>
             </>
           )}
+        </Box>
       </Box>
     </Box>
   )
