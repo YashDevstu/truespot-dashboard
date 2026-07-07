@@ -12,6 +12,7 @@ import ExportButton from '@/components/dashboard/ExportButton'
 function useRelativeTime(timestamp: string | undefined): string | null {
   const [rel, setRel] = useState<string | null>(null)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!timestamp) { setRel(null); return }
     const compute = () => {
       const d = new Date(timestamp)
@@ -49,11 +50,11 @@ export default function DashboardHeader({
 }: DashboardHeaderProps) {
   const relativeTime = useRelativeTime(lastRefresh)
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', rowGap: 1 }}>
       {/* Left: title + client badge */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, flex: '1 1 auto' }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2, fontSize: { xs: '1.375rem', sm: '1.625rem', md: '2.125rem' } }}>
             {dashboardLabel}
           </Typography>
           <Chip
@@ -65,7 +66,7 @@ export default function DashboardHeader({
       </Box>
 
       {/* Right: last refresh + export + refresh */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', rowGap: 0.5 }}>
         {lastRefresh && (
           <>
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>

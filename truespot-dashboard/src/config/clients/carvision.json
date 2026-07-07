@@ -1,10 +1,15 @@
 {
   "client_id": "carvision",
+  "product": "automotive",
   "display_name": "CarVision",
   "locations": [],
   "dashboards": {
     "locationhistory": {
       "label": "Location History",
+      "workspace_name": "Auto - Location History",
+      "icon": "history",
+      "description": "Track vehicle movement across your lot",
+      "category": "Operations & Workflow",
       "dataset_name": "CarVision",
       "panels": [
         {

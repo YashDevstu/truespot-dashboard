@@ -7,7 +7,7 @@ import { getClientConfig } from '@/services/config/clientConfigService'
 import LocationHistoryDashboard from '@/components/dashboard/LocationHistoryDashboard'
 
 interface PageProps {
-  params: Promise<{ clientId: string; dashboardKey: string }>
+  params: Promise<{ product: string; clientId: string; dashboardKey: string }>
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -21,7 +21,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function DashboardPage({ params }: PageProps) {
-  const { clientId, dashboardKey } = await params
+  const { product, clientId, dashboardKey } = await params
 
   let config
   try {
@@ -45,6 +45,7 @@ export default async function DashboardPage({ params }: PageProps) {
       <LocationHistoryDashboard
         clientId={clientId}
         dashboardKey={dashboardKey}
+        product={product}
         displayName={config.display_name}
         dashboardLabel={dashboard.label}
         azureMapsKey={process.env.MAPBOX_TOKEN}

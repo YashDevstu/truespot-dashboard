@@ -8,6 +8,7 @@ import { buildLocationHistoryQuery, DAY_TIME_CHUNKS } from '@/utils/dax'
 import { getClientConfig } from '@/services/config/clientConfigService'
 import { getAccessToken } from '@/services/auth/msalService'
 import { resolveDatasetId } from '@/services/powerbi/datasetResolver'
+import { resolveWorkspaceId } from '@/services/powerbi/workspaceService'
 import { CACHE_TTL_LOCATION_HISTORY } from '@/constants/cache'
 import { POWERBI_API_BASE, QUERY_TIMEOUT_MS } from '@/constants/api'
 
@@ -28,11 +29,10 @@ function lastNDayLabels(n: number): string[] {
 // Power BI / Fabric unloads idle models after ~1 hour; the first real query
 // then pays a 30–120s "model cold start" penalty. Pinging first eliminates
 // that penalty from the main data queries below.
-async function pingModel(datasetName: string): Promise<void> {
-  const workspaceId = process.env.FABRIC_WORKSPACE_ID!
+async function pingModel(datasetName: string, workspaceId: string): Promise<void> {
   const [token, datasetId] = await Promise.all([
     getAccessToken(),
-    resolveDatasetId(datasetName),
+    resolveDatasetId(datasetName, workspaceId),
   ])
   const url = `${POWERBI_API_BASE}/groups/${workspaceId}/datasets/${datasetId}/executeQueries`
   await axios.post(
@@ -47,8 +47,12 @@ async function warmDashboard(clientId: string, dashboardKey: string) {
   const dashboard = config.dashboards[dashboardKey]
   if (!dashboard) throw new Error(`Dashboard "${dashboardKey}" not found`)
 
+  const workspaceId = dashboard.workspace_name
+    ? await resolveWorkspaceId(dashboard.workspace_name)
+    : (process.env.FABRIC_WORKSPACE_ID ?? (() => { throw new Error('FABRIC_WORKSPACE_ID is not set') })())
+
   // Wake the model first so all 28 data queries hit a warm engine
-  await pingModel(dashboard.dataset_name)
+  await pingModel(dashboard.dataset_name, workspaceId)
 
   const dateLabels = ['Today', ...lastNDayLabels(7)]
   const queries = dateLabels.flatMap((dateSeen) =>
@@ -59,7 +63,7 @@ async function warmDashboard(clientId: string, dashboardKey: string) {
 
   const results = await Promise.allSettled(
     queries.map((daxQuery) =>
-      executeQuery(dashboard.dataset_name, daxQuery, CACHE_TTL_LOCATION_HISTORY)
+      executeQuery(dashboard.dataset_name, daxQuery, CACHE_TTL_LOCATION_HISTORY, workspaceId)
     )
   )
 

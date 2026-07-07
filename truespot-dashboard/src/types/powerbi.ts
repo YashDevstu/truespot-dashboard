@@ -33,3 +33,16 @@ export const DatasetsResponseSchema = z.object({
 })
 
 export type DatasetsResponse = z.infer<typeof DatasetsResponseSchema>
+
+export const WorkspaceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+})
+
+export type Workspace = z.infer<typeof WorkspaceSchema>
+
+export const WorkspacesResponseSchema = z.object({
+  value: z.array(WorkspaceSchema),
+})
+
+export type WorkspacesResponse = z.infer<typeof WorkspacesResponseSchema>
