@@ -74,9 +74,28 @@ async function warmDashboard(clientId: string, dashboardKey: string) {
   }
 }
 
+// GET — called by Vercel cron every 30 minutes.
+// Only pings the model to keep Fabric awake. Zero data fetched = minimal Fabric cost.
+// No secret check — a ping is harmless even if called publicly.
+export async function GET(_request: NextRequest) {
+  try {
+    const config = getClientConfig('carvision')
+    const dashboard = config.dashboards['locationhistory']
+    const workspaceId = dashboard.workspace_name
+      ? await resolveWorkspaceId(dashboard.workspace_name)
+      : (process.env.FABRIC_WORKSPACE_ID ?? (() => { throw new Error('FABRIC_WORKSPACE_ID not set') })())
+    await pingModel(dashboard.dataset_name, workspaceId)
+    return Response.json({ status: 'pinged' })
+  } catch (err) {
+    return Response.json({ error: String(err) }, { status: 500 })
+  }
+}
+
+// POST — manual full pre-fetch (use when Redis is ready to warm the cache).
+// Protected by WARMUP_SECRET header so only you can trigger it.
 export async function POST(request: NextRequest) {
-  const secret = request.headers.get('x-warmup-secret')
-  if (process.env.WARMUP_SECRET && secret !== process.env.WARMUP_SECRET) {
+  const expected = process.env.WARMUP_SECRET
+  if (expected && request.headers.get('x-warmup-secret') !== expected) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
