@@ -37,7 +37,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
   }
 
   // Auth gate: only enforced when EMBED_TOKENS is configured (production)
-  if (process.env.EMBED_TOKENS) {
+  if (process.env.EMBED_TOKENS && process.env.NODE_ENV === 'production') {
     const cookieStore = await cookies()
     const sessionClientId = cookieStore.get('_dash_session')?.value
 

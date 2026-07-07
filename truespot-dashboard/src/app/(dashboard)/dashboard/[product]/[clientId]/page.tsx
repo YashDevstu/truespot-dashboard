@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function ClientHubPage({ params }: PageProps) {
   const { product, clientId } = await params
 
-  if (process.env.EMBED_TOKENS) {
+  if (process.env.EMBED_TOKENS && process.env.NODE_ENV === 'production') {
     const cookieStore = await cookies()
     const sessionClientId = cookieStore.get('_dash_session')?.value
     if (!sessionClientId) {
