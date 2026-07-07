@@ -6,7 +6,7 @@
 Next.js web dashboard that queries Microsoft Fabric Semantic Models and renders client-specific dashboards. Replaces Power BI reports with a custom React UI. Integrated into the TrueSpot website.
 
 ## Architecture
-- Frontend: Next.js App Router + React + Material UI + AG Grid + Azure Maps
+- Frontend: Next.js App Router + React + Material UI + AG Grid + Mapbox GL
 - Backend: Next.js API routes (server-side, credentials never reach browser)
 - Data: Microsoft Fabric Semantic Models via Power BI Execute Queries REST API
 - Auth: Azure Service Principal (MSAL Node) — no user-level auth in this layer
@@ -31,8 +31,9 @@ Required in .env.local:
 - AZURE_CLIENT_SECRET — from Azure App Registration
 - AZURE_CLIENT_SECRET_EXPIRY — date the secret expires (e.g. 2027-06-18)
 - FABRIC_WORKSPACE_ID — from Fabric workspace URL
-- AZURE_MAPS_KEY — from Azure Portal → Azure Maps account → Authentication
-- AG_GRID_LICENSE_KEY — from ag-grid.com licence portal
+- MAPBOX_TOKEN — from mapbox.com → Account → Access tokens
+- EMBED_TOKENS — JSON map of clientId → secret token, e.g. '{"carvision":"abc123","servco":"xyz789"}'
+- WARMUP_SECRET — any long random string, guards the /api/v1/warmup cron endpoint
 
 ## How to Run
 npm run dev — starts on localhost:3000
