@@ -26,14 +26,13 @@ export function middleware(request: NextRequest) {
     if (!clientId) {
       return new NextResponse('Unauthorized', { status: 403 })
     }
-    // Valid token: strip from URL, set session cookie, redirect
-    const url = request.nextUrl.clone()
-    url.searchParams.delete('token')
-    const response = NextResponse.redirect(url)
+    // Valid token: strip from URL, set session cookie, redirect to clean URL
+    const cleanUrl = new URL(request.nextUrl.pathname, request.url)
+    const response = NextResponse.redirect(cleanUrl)
     response.cookies.set('_dash_session', clientId, {
       httpOnly: true,
       secure: true,
-      sameSite: 'none',
+      sameSite: 'lax',
       path: '/dashboard',
       maxAge: 60 * 60 * 8,
     })
