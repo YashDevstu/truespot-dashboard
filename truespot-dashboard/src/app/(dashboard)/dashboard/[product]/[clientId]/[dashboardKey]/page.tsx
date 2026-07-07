@@ -1,13 +1,16 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import Box from '@mui/material/Box'
 import Skeleton from '@mui/material/Skeleton'
+import Typography from '@mui/material/Typography'
+import { cookies } from 'next/headers'
 import { getClientConfig } from '@/services/config/clientConfigService'
 import LocationHistoryDashboard from '@/components/dashboard/LocationHistoryDashboard'
 
 interface PageProps {
   params: Promise<{ product: string; clientId: string; dashboardKey: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -20,8 +23,46 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 }
 
-export default async function DashboardPage({ params }: PageProps) {
+export default async function DashboardPage({ params, searchParams }: PageProps) {
   const { product, clientId, dashboardKey } = await params
+  const sp = await searchParams
+
+  // If a token is in the URL, exchange it for a session cookie via the auth route
+  const token = typeof sp.token === 'string' ? sp.token : undefined
+  if (token) {
+    const cleanPath = `/dashboard/${product}/${clientId}/${dashboardKey}`
+    redirect(
+      `/api/auth/verify?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent(cleanPath)}`
+    )
+  }
+
+  // Auth gate: only enforced when EMBED_TOKENS is configured (production)
+  if (process.env.EMBED_TOKENS) {
+    const cookieStore = await cookies()
+    const sessionClientId = cookieStore.get('_dash_session')?.value
+
+    if (!sessionClientId) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 1 }}>
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>Unauthorized</Typography>
+          <Typography color="text.secondary">
+            Please access this dashboard through your TrueSpot account.
+          </Typography>
+        </Box>
+      )
+    }
+
+    if (sessionClientId !== clientId) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 1 }}>
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>Forbidden</Typography>
+          <Typography color="text.secondary">
+            You do not have access to this client&apos;s dashboard.
+          </Typography>
+        </Box>
+      )
+    }
+  }
 
   let config
   try {
