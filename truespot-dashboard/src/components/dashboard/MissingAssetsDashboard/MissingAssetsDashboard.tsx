@@ -185,6 +185,7 @@ export default function MissingAssetsDashboard({
             clientName={displayName}
             dashboardLabel={dashboardLabel}
             lastRefresh={refreshTime || undefined}
+            displayTimezone="America/Chicago"
             onRefresh={refresh}
           />
 
