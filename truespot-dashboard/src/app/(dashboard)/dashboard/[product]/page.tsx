@@ -44,19 +44,39 @@ export default async function ProductPortalPage({ params }: PageProps) {
     notFound()
   }
 
-  const clients = productConfig.clients.flatMap((clientId) => {
+  // Aggregate unique dashboard types across all clients for this product.
+  // Each unique dashboardKey becomes a tile on the product portal.
+  const dashboardMap = new Map<string, { label: string; icon?: string; description?: string; clientCount: number }>()
+
+  for (const clientId of productConfig.clients) {
     try {
-      return [getClientConfig(clientId)]
-    } catch {
-      return []
-    }
-  })
+      const clientConfig = getClientConfig(clientId)
+      for (const [dashboardKey, dashboard] of Object.entries(clientConfig.dashboards)) {
+        const existing = dashboardMap.get(dashboardKey)
+        if (existing) {
+          existing.clientCount += 1
+        } else {
+          dashboardMap.set(dashboardKey, {
+            label: dashboard.label,
+            icon: dashboard.icon,
+            description: dashboard.description,
+            clientCount: 1,
+          })
+        }
+      }
+    } catch { /* skip misconfigured clients */ }
+  }
+
+  const dashboardTypes = Array.from(dashboardMap.entries()).map(([key, value]) => ({
+    dashboardKey: key,
+    ...value,
+  }))
 
   return (
     <ProductPortal
       product={product}
       productLabel={productConfig.label}
-      clients={clients}
+      dashboardTypes={dashboardTypes}
     />
   )
 }

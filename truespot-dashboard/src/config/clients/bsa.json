@@ -1,0 +1,33 @@
+{
+  "client_id": "bsa",
+  "product": "health",
+  "display_name": "BSA",
+  "locations": [],
+  "dashboards": {
+    "missingassets": {
+      "label": "Missing Assets",
+      "dashboard_type": "missing_assets",
+      "workspace_name": "Health - Missing Assets Portal",
+      "dataset_name": "BSA",
+      "icon": "search",
+      "description": "Track missing medical assets across your facility in real time.",
+      "category": "Asset Management",
+      "panels": [
+        {
+          "id": "assets-table",
+          "title": "Selected Assets",
+          "type": "data_table",
+          "filter_columns": {
+            "lastSeenDate": "FORMAT('Post-Aggregate'[LastSeenDateDefault], \"MM/DD/YYYY\")",
+            "department":   "'Post-Aggregate'[My Department]",
+            "assetName":    "'Post-Aggregate'[Name]",
+            "floor":        "'Post-Aggregate'[Floor]",
+            "geofence":     "'Post-Aggregate'[Geofence]",
+            "tagId":        "'Post-Aggregate'[Beaconid]",
+            "assetId":      "'Post-Aggregate'[VIN]"
+          }
+        }
+      ]
+    }
+  }
+}
