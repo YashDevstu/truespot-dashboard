@@ -650,23 +650,25 @@ export default function LocationHistoryDashboard({
           {tableError && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
           {kpiQuery.error && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
 
-          {/* Breadcrumb navigation */}
-          <MuiBreadcrumbs
-            separator={<NavigateNextIcon sx={{ fontSize: 14 }} />}
-            sx={{ fontSize: 13, color: 'text.secondary' }}
-          >
-            <Link
-              href={`/dashboard/${product}/${clientId}`}
-              style={{ color: 'inherit', textDecoration: 'none', fontWeight: 500 }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = '#1976d2')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'inherit')}
+          {/* Breadcrumb — dev only; clients access via direct token URL, not the portal */}
+          {process.env.NODE_ENV !== 'production' && (
+            <MuiBreadcrumbs
+              separator={<NavigateNextIcon sx={{ fontSize: 14 }} />}
+              sx={{ fontSize: 13, color: 'text.secondary' }}
             >
-              {displayName}
-            </Link>
-            <Typography sx={{ fontSize: 13, color: 'text.primary', fontWeight: 600 }}>
-              {dashboardLabel}
-            </Typography>
-          </MuiBreadcrumbs>
+              <Link
+                href={`/dashboard/${product}/${clientId}`}
+                style={{ color: 'inherit', textDecoration: 'none', fontWeight: 500 }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#1976d2')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'inherit')}
+              >
+                {displayName}
+              </Link>
+              <Typography sx={{ fontSize: 13, color: 'text.primary', fontWeight: 600 }}>
+                {dashboardLabel}
+              </Typography>
+            </MuiBreadcrumbs>
+          )}
 
           {/* Page heading */}
           <DashboardHeader

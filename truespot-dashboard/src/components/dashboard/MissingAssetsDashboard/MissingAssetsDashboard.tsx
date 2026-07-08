@@ -156,27 +156,29 @@ export default function MissingAssetsDashboard({
             </Alert>
           )}
 
-          {/* Breadcrumb: Health → Missing Assets → BSA */}
-          <Breadcrumbs
-            separator={<NavigateNextIcon sx={{ fontSize: 14 }} />}
-            sx={{ fontSize: 13, color: 'text.secondary' }}
-          >
-            <NextLink
-              href={`/dashboard/${product}`}
-              style={{ color: 'inherit', textDecoration: 'none', fontWeight: 500 }}
+          {/* Breadcrumb — dev only; clients access via direct token URL, not the portal */}
+          {process.env.NODE_ENV !== 'production' && (
+            <Breadcrumbs
+              separator={<NavigateNextIcon sx={{ fontSize: 14 }} />}
+              sx={{ fontSize: 13, color: 'text.secondary' }}
             >
-              {product.charAt(0).toUpperCase() + product.slice(1)}
-            </NextLink>
-            <NextLink
-              href={`/dashboard/${product}/${dashboardKey}`}
-              style={{ color: 'inherit', textDecoration: 'none', fontWeight: 500 }}
-            >
-              {dashboardLabel}
-            </NextLink>
-            <Typography sx={{ fontSize: 13, color: 'text.primary', fontWeight: 600 }}>
-              {displayName}
-            </Typography>
-          </Breadcrumbs>
+              <NextLink
+                href={`/dashboard/${product}`}
+                style={{ color: 'inherit', textDecoration: 'none', fontWeight: 500 }}
+              >
+                {product.charAt(0).toUpperCase() + product.slice(1)}
+              </NextLink>
+              <NextLink
+                href={`/dashboard/${product}/${dashboardKey}`}
+                style={{ color: 'inherit', textDecoration: 'none', fontWeight: 500 }}
+              >
+                {dashboardLabel}
+              </NextLink>
+              <Typography sx={{ fontSize: 13, color: 'text.primary', fontWeight: 600 }}>
+                {displayName}
+              </Typography>
+            </Breadcrumbs>
+          )}
 
           {/* Page heading + refresh */}
           <DashboardHeader

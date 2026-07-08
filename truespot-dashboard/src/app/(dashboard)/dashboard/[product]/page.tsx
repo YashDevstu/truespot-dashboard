@@ -1,8 +1,5 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
-import { cookies } from 'next/headers'
 import { getProductConfig } from '@/services/config/productConfigService'
 import { getClientConfig } from '@/services/config/clientConfigService'
 import ProductPortal from '@/components/dashboard/ProductPortal/ProductPortal'
@@ -24,18 +21,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function ProductPortalPage({ params }: PageProps) {
   const { product } = await params
 
-  if (process.env.EMBED_TOKENS && process.env.NODE_ENV === 'production') {
-    const cookieStore = await cookies()
-    const sessionClientId = cookieStore.get('_dash_session')?.value
-    if (!sessionClientId) {
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 1 }}>
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>Unauthorized</Typography>
-          <Typography color="text.secondary">Please access this dashboard through your TrueSpot account.</Typography>
-        </Box>
-      )
-    }
-  }
+  if (process.env.NODE_ENV === 'production') notFound()
 
   let productConfig
   try {
