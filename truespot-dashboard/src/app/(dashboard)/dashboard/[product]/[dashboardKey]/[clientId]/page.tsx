@@ -7,30 +7,32 @@ import Typography from '@mui/material/Typography'
 import { cookies } from 'next/headers'
 import { getClientConfig } from '@/services/config/clientConfigService'
 import LocationHistoryDashboard from '@/components/dashboard/LocationHistoryDashboard'
+import MissingAssetsDashboard from '@/components/dashboard/MissingAssetsDashboard/MissingAssetsDashboard'
 
 interface PageProps {
-  params: Promise<{ product: string; clientId: string; dashboardKey: string }>
+  params: Promise<{ product: string; dashboardKey: string; clientId: string }>
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { clientId } = await params
+  const { clientId, dashboardKey } = await params
   try {
     const config = getClientConfig(clientId)
-    return { title: `${config.display_name} Dashboard` }
+    const dashboard = config.dashboards[dashboardKey]
+    return { title: dashboard ? `${config.display_name} — ${dashboard.label}` : `${config.display_name} Dashboard` }
   } catch {
     return { title: 'TrueSpot Dashboard' }
   }
 }
 
 export default async function DashboardPage({ params, searchParams }: PageProps) {
-  const { product, clientId, dashboardKey } = await params
+  const { product, dashboardKey, clientId } = await params
   const sp = await searchParams
 
   // If a token is in the URL, exchange it for a session cookie via the auth route
   const token = typeof sp.token === 'string' ? sp.token : undefined
   if (token) {
-    const cleanPath = `/dashboard/${product}/${clientId}/${dashboardKey}`
+    const cleanPath = `/dashboard/${product}/${dashboardKey}/${clientId}`
     redirect(
       `/api/auth/verify?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent(cleanPath)}`
     )
@@ -74,21 +76,33 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
   const dashboard = config.dashboards[dashboardKey]
   if (!dashboard) notFound()
 
+  const sharedProps = {
+    clientId,
+    dashboardKey,
+    product,
+    displayName: config.display_name,
+    dashboardLabel: dashboard.label,
+  }
+
+  const fallback = (
+    <Box sx={{ p: 3 }}>
+      <Skeleton height={60} sx={{ mb: 2 }} />
+      <Skeleton height={400} />
+    </Box>
+  )
+
+  if (dashboard.dashboard_type === 'missing_assets') {
+    return (
+      <Suspense fallback={fallback}>
+        <MissingAssetsDashboard {...sharedProps} />
+      </Suspense>
+    )
+  }
+
   return (
-    <Suspense
-      fallback={
-        <Box sx={{ p: 3 }}>
-          <Skeleton height={60} sx={{ mb: 2 }} />
-          <Skeleton height={400} />
-        </Box>
-      }
-    >
+    <Suspense fallback={fallback}>
       <LocationHistoryDashboard
-        clientId={clientId}
-        dashboardKey={dashboardKey}
-        product={product}
-        displayName={config.display_name}
-        dashboardLabel={dashboard.label}
+        {...sharedProps}
         azureMapsKey={process.env.MAPBOX_TOKEN}
       />
     </Suspense>

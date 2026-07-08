@@ -17,6 +17,9 @@ export const DashboardConfigSchema = z.object({
   label: z.string(),
   dataset_name: z.string(),
   workspace_name: z.string().optional(),
+  // Identifies which dashboard component to render. Omitting defaults to
+  // the Automotive LocationHistoryDashboard for backward compatibility.
+  dashboard_type: z.string().optional(),
   icon: z.string().optional(),
   description: z.string().optional(),
   category: z.string().optional(),
