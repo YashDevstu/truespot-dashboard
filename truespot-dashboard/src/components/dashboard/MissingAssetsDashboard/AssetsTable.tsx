@@ -14,19 +14,6 @@ import type { MissingAssetRow } from '@/hooks/useMissingAssetsData'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
-// Dot color maps to the same status palette as the "Last Seen Range" pills.
-const HOUR_GROUP_DOT: Record<string, string> = {
-  'Less than 2hr': '#16a34a',
-  '2hr-24hr':      '#65a30d',
-  '1d-7d':         '#d97706',
-  '7d-30d':        '#ea580c',
-  '30d+':          '#dc2626',
-}
-
-function dotColor(hourGroup: string): string {
-  return HOUR_GROUP_DOT[hourGroup] ?? '#94a3b8'
-}
-
 // ── Duration formatting ────────────────────────────────────────────────────────
 
 function formatDuration(hours: number): string {
@@ -43,13 +30,21 @@ function formatDuration(hours: number): string {
 
 // ── Cell renderers ─────────────────────────────────────────────────────────────
 
+const HOUR_GROUP_COLOR: Record<string, string> = {
+  'Less than 2hr': '#16a34a',
+  '2hr-24hr':      '#65a30d',
+  '1d-7d':         '#d97706',
+  '7d-30d':        '#ea580c',
+  '30d+':          '#dc2626',
+}
+
 function DurationCell({ data }: ICellRendererParams<MissingAssetRow>) {
   if (!data) return null
-  const color = dotColor(data.hourGroup ?? '')
+  const color = HOUR_GROUP_COLOR[data.hourGroup ?? ''] ?? '#94a3b8'
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-      <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
-      <Typography variant="caption" sx={{ fontSize: 12, color: 'text.primary', fontWeight: 500 }}>
+      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
+      <Typography sx={{ fontSize: 12, fontWeight: 600, color, lineHeight: 1 }}>
         {formatDuration(data.hoursMissing)}
       </Typography>
     </Box>
@@ -75,16 +70,19 @@ function GeofenceCell({ data }: ICellRendererParams<MissingAssetRow>) {
 function OutsideFacilityCell({ value }: { value: string }) {
   if (value === 'Yes') {
     return (
-      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 999, bgcolor: '#fff7ed', border: '1px solid #fed7aa' }}>
-        <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#ea580c', flexShrink: 0 }} />
-        <Typography variant="caption" sx={{ fontWeight: 600, color: '#c2410c', fontSize: 11 }}>Yes</Typography>
+      <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.5, py: 0.3, borderRadius: 999, minWidth: 42, justifyContent: 'center', bgcolor: '#fff7ed', border: '1px solid #fed7aa' }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: '#c2410c', fontSize: 11 }}>Yes</Typography>
       </Box>
     )
   }
-  return <Typography variant="caption" sx={{ fontSize: 11, color: 'text.disabled' }}>No</Typography>
+  return (
+    <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.5, py: 0.3, borderRadius: 999, minWidth: 42, justifyContent: 'center', bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, color: '#94a3b8', fontSize: 11 }}>No</Typography>
+    </Box>
+  )
 }
 
-function TagIdCell({ value }: { value: string }) {
+function IdCell({ value }: { value: string }) {
   if (!value) return <span style={{ color: '#94a3b8' }}>—</span>
   return (
     <span style={{ fontFamily: '"Roboto Mono", monospace', fontSize: 11, color: '#475569', letterSpacing: '0.02em' }}>
@@ -110,6 +108,7 @@ function buildColumnDefs(): ColDef<MissingAssetRow>[] {
       minWidth: 130, flex: 1.2,
       filter: true, sortable: true,
       cellStyle: { fontSize: 12 },
+      tooltipField: 'department',
     },
     {
       field: 'assetName',
@@ -123,13 +122,13 @@ function buildColumnDefs(): ColDef<MissingAssetRow>[] {
       headerName: 'Asset ID',
       minWidth: 100, flex: 0.9,
       filter: true, sortable: true,
-      cellStyle: { fontSize: 12 },
+      cellRenderer: (params: { value: string }) => <IdCell value={params.value} />,
     },
     {
       field: 'tagId',
       headerName: 'Tag ID',
       minWidth: 110, flex: 0.9,
-      cellRenderer: (params: { value: string }) => <TagIdCell value={params.value} />,
+      cellRenderer: (params: { value: string }) => <IdCell value={params.value} />,
       filter: true, sortable: true,
     },
     {
