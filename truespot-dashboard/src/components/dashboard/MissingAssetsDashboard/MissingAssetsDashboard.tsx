@@ -207,7 +207,7 @@ export default function MissingAssetsDashboard({
 
           {/* Outside My Department — exclude filter dropdown */}
           <OutsideDeptFilter
-            options={filterOptions.department ?? []}
+            options={filterOptions.excludeDepartment ?? []}
             selected={filters.excludeDepartment ? filters.excludeDepartment.split(',').map(s => s.trim()).filter(Boolean) : []}
             onChange={(vals) => updateFilter('excludeDepartment', vals.length > 0 ? vals.join(',') : undefined)}
           />

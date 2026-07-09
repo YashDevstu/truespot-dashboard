@@ -580,16 +580,17 @@ export default function LocationHistoryDashboard({
 
   const TOP_BAR_H = 60
 
+  const sidebarWidth = sidebarOpen ? 236 : 48
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* ── Top bar: Logo — sticky, full width, never collapses ────────────── */}
+    <Box>
+      {/* ── Top bar — fixed ───────────────────────────────────────────────────── */}
       <Box
         sx={{
-          position: 'sticky',
-          top: 0,
+          position: 'fixed',
+          top: 0, left: 0, right: 0,
           zIndex: 20,
           height: TOP_BAR_H,
-          flexShrink: 0,
           bgcolor: 'background.paper',
           borderBottom: '1px solid',
           borderColor: 'divider',
@@ -608,44 +609,44 @@ export default function LocationHistoryDashboard({
         />
       </Box>
 
-      {/* ── Content row ────────────────────────────────────────────────────── */}
-      <Box sx={{ display: 'flex', flex: 1, alignItems: 'flex-start' }}>
-        {/* Filter sidebar */}
-        <Box
-          sx={{
-            position: 'sticky',
-            top: TOP_BAR_H,
-            height: `calc(100vh - ${TOP_BAR_H}px)`,
-            width: sidebarOpen ? 236 : 48,
-            transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-            flexShrink: 0,
-            overflow: 'hidden',
-            borderRight: '1px solid',
-            borderColor: 'divider',
-          }}
-        >
-          <FilterSidebar
-            filters={filters}
-            onFilterChange={setFilter}
-            onReset={resetFilters}
-            filterOptions={filterOptions}
-            open={sidebarOpen}
-            onToggle={() => setSidebarOpen((o) => !o)}
-          />
-        </Box>
+      {/* ── Sidebar — fixed below top bar ─────────────────────────────────────── */}
+      <Box
+        sx={{
+          position: 'fixed',
+          top: TOP_BAR_H, left: 0,
+          width: sidebarWidth,
+          height: `calc(100vh - ${TOP_BAR_H}px)`,
+          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          zIndex: 10,
+          overflow: 'hidden',
+          borderRight: '1px solid',
+          borderColor: 'divider',
+          bgcolor: '#f8fafc',
+        }}
+      >
+        <FilterSidebar
+          filters={filters}
+          onFilterChange={setFilter}
+          onReset={resetFilters}
+          filterOptions={filterOptions}
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen((o) => !o)}
+        />
+      </Box>
 
-        {/* ── Main content ─────────────────────────────────────────────────── */}
-        <Box
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            bgcolor: '#f8fafc',
-            p: 3,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2.5,
-          }}
-        >
+      {/* ── Main content — offset by fixed top bar + sidebar ─────────────────── */}
+      <Box
+        sx={{
+          mt: `${TOP_BAR_H}px`,
+          ml: `${sidebarWidth}px`,
+          transition: 'margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          bgcolor: '#f8fafc',
+          p: 3,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2.5,
+        }}
+      >
           {/* Alerts */}
           {tableError && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
           {kpiQuery.error && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
@@ -894,7 +895,6 @@ export default function LocationHistoryDashboard({
             </>
           )}
         </Box>
-      </Box>
     </Box>
   )
 }

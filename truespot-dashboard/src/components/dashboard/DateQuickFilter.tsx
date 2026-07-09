@@ -19,9 +19,11 @@ function buildPastDates(): string[] {
   return out
 }
 
-const PAST_DATES  = buildPastDates()
-const YESTERDAY   = PAST_DATES[0]
-const ALL_OPTIONS = ['Today', ...PAST_DATES]
+const PAST_DATES    = buildPastDates()
+const YESTERDAY     = PAST_DATES[0]
+const ALL_OPTIONS   = ['Today', ...PAST_DATES]
+// Comma-separated string of all 7 date values — sent to the DAX filter
+const LAST_7_VALUE  = ['Today', ...PAST_DATES].join(',')
 
 interface Props {
   value: string
@@ -33,8 +35,9 @@ export default function DateQuickFilter({ value, onChange }: Props) {
 
   const isToday     = value === 'Today'
   const isYesterday = value === YESTERDAY
+  const isLast7     = value === LAST_7_VALUE
   const isAllDates  = !value || value === 'all'
-  const isCustom    = !isToday && !isYesterday && !isAllDates
+  const isCustom    = !isToday && !isYesterday && !isLast7 && !isAllDates
 
   const selected = useMemo(
     () => new Set(isAllDates ? [] : value.split(',').map((s) => s.trim()).filter(Boolean)),
@@ -71,7 +74,7 @@ export default function DateQuickFilter({ value, onChange }: Props) {
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
       <Button variant="text" onClick={() => onChange('Today')} sx={pill(isToday)}>Today</Button>
       <Button variant="text" onClick={() => onChange(YESTERDAY)} sx={pill(isYesterday)}>Yesterday</Button>
-      <Button variant="text" onClick={() => onChange('all')} sx={pill(isAllDates)}>Last 7 days</Button>
+      <Button variant="text" onClick={() => onChange(LAST_7_VALUE)} sx={pill(isLast7)}>Last 7 days</Button>
       <Button
         variant="text"
         endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}

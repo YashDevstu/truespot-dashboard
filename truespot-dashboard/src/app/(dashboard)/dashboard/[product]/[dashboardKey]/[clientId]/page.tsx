@@ -8,6 +8,7 @@ import { cookies } from 'next/headers'
 import { getClientConfig } from '@/services/config/clientConfigService'
 import LocationHistoryDashboard from '@/components/dashboard/LocationHistoryDashboard'
 import MissingAssetsDashboard from '@/components/dashboard/MissingAssetsDashboard/MissingAssetsDashboard'
+import HealthLocationDashboard from '@/components/dashboard/HealthLocationDashboard/HealthLocationDashboard'
 
 interface PageProps {
   params: Promise<{ product: string; dashboardKey: string; clientId: string }>
@@ -95,6 +96,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
     return (
       <Suspense fallback={fallback}>
         <MissingAssetsDashboard {...sharedProps} />
+      </Suspense>
+    )
+  }
+
+  if (dashboard.dashboard_type === 'health_location_history') {
+    return (
+      <Suspense fallback={fallback}>
+        <HealthLocationDashboard {...sharedProps} />
       </Suspense>
     )
   }

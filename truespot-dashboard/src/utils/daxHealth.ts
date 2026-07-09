@@ -66,7 +66,10 @@ export function buildHealthFilterConditions(
     conditions.push(buildInCondition(column, values))
   }
 
-  // excludeDepartment — NOT IN logic: show all departments except the selected ones
+  // excludeDepartment — NOT IN logic: show all departments except the selected ones.
+  // Skipped only when fetching 'excludeDepartment' options (OutsideDeptFilter uses that key,
+  // which gets all departments). The 'department' sidebar dropdown correctly respects this
+  // condition so excluded departments disappear from the include filter.
   if (filters.excludeDepartment && excludeKey !== 'excludeDepartment') {
     const values = parseHealthMultiValue(filters.excludeDepartment)
     if (values.length > 0) {
