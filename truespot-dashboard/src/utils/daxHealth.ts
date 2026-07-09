@@ -20,28 +20,31 @@ export function parseHealthMultiValue(value: string | undefined): string[] {
 // ── Filter types ───────────────────────────────────────────────────────────────
 
 export interface ActiveHealthFilters {
-  lastSeenDate?: string // FORMAT('Post-Aggregate'[LastSeenDateDefault], "MM/DD/YYYY") — string comparison works on DATE column; comma-separated multi
-  department?: string   // 'Post-Aggregate'[My Department]
-  assetName?: string    // 'Post-Aggregate'[Name]
-  floor?: string        // 'Post-Aggregate'[Floor]
-  geofence?: string     // 'Post-Aggregate'[Geofence]
-  tagId?: string        // 'Post-Aggregate'[Beaconid]
-  assetId?: string      // 'Post-Aggregate'[VIN]
-  exitsFilter?: string  // 'Post-Aggregate'[Exits and Non Exits] — "Exit" | "Non-Exit"
-  hourGroup?: string    // 'Post-Aggregate'[HourGrp] — e.g. "Less than 2hr", "30d+", or comma-separated multi
+  lastSeenDate?: string       // FORMAT('Post-Aggregate'[LastSeenDateDefault], "MM/DD/YYYY") — string comparison works on DATE column; comma-separated multi
+  department?: string         // 'Post-Aggregate'[My Department] — include only these (comma-separated)
+  excludeDepartment?: string  // 'Post-Aggregate'[My Department] — exclude these (NOT IN, comma-separated)
+  assetName?: string          // 'Post-Aggregate'[Name]
+  floor?: string              // 'Post-Aggregate'[Floor]
+  geofence?: string           // 'Post-Aggregate'[Geofence]
+  tagId?: string              // 'Post-Aggregate'[Beaconid]
+  assetId?: string            // 'Post-Aggregate'[VIN]
+  exitsFilter?: string        // 'Post-Aggregate'[Exits and Non Exits] — "Exit" | "Non-Exit"
+  hourGroup?: string          // 'Post-Aggregate'[HourGrp] — e.g. "Less than 2hr", "30d+", or comma-separated multi
+  outsideHospital?: string    // 'Post-Aggregate'[Outside/Inside] — "Yes" | "No"
 }
 
-// Maps each filter key to its DAX column reference in the Post-Aggregate table.
-const HEALTH_FILTER_COLUMNS: Record<keyof ActiveHealthFilters, string> = {
-  lastSeenDate: "FORMAT('Post-Aggregate'[LastSeenDateDefault], \"MM/DD/YYYY\")",
-  department:   "'Post-Aggregate'[My Department]",
-  assetName:    "'Post-Aggregate'[Name]",
-  floor:        "'Post-Aggregate'[Floor]",
-  geofence:     "'Post-Aggregate'[Geofence]",
-  tagId:        "'Post-Aggregate'[Beaconid]",
-  assetId:      "'Post-Aggregate'[VIN]",
-  exitsFilter:  "'Post-Aggregate'[Exits and Non Exits]",
-  hourGroup:    "'Post-Aggregate'[HourGrp]",
+// Standard IN-filter columns. excludeDepartment uses NOT IN logic — handled separately below.
+const HEALTH_FILTER_COLUMNS: Partial<Record<keyof ActiveHealthFilters, string>> = {
+  lastSeenDate:    "FORMAT('Post-Aggregate'[LastSeenDateDefault], \"MM/DD/YYYY\")",
+  department:      "'Post-Aggregate'[My Department]",
+  assetName:       "'Post-Aggregate'[Name]",
+  floor:           "'Post-Aggregate'[Floor]",
+  geofence:        "'Post-Aggregate'[Geofence]",
+  tagId:           "'Post-Aggregate'[Beaconid]",
+  assetId:         "'Post-Aggregate'[VIN]",
+  exitsFilter:     "'Post-Aggregate'[Exits and Non Exits]",
+  hourGroup:       "'Post-Aggregate'[HourGrp]",
+  outsideHospital: "'Post-Aggregate'[Outside/Inside]",
 }
 
 // ── Condition builder ──────────────────────────────────────────────────────────
@@ -54,15 +57,24 @@ export function buildHealthFilterConditions(
   excludeKey?: keyof ActiveHealthFilters
 ): string[] {
   const conditions: string[] = []
-  for (const [key, column] of Object.entries(HEALTH_FILTER_COLUMNS) as [
-    keyof ActiveHealthFilters,
-    string,
-  ][]) {
+
+  // Standard IN filters
+  for (const [key, column] of Object.entries(HEALTH_FILTER_COLUMNS) as [keyof ActiveHealthFilters, string][]) {
     if (key === excludeKey) continue
     const values = parseHealthMultiValue(filters[key])
     if (values.length === 0) continue
     conditions.push(buildInCondition(column, values))
   }
+
+  // excludeDepartment — NOT IN logic: show all departments except the selected ones
+  if (filters.excludeDepartment && excludeKey !== 'excludeDepartment') {
+    const values = parseHealthMultiValue(filters.excludeDepartment)
+    if (values.length > 0) {
+      const list = values.map((v) => `"${sanitize(v)}"`).join(', ')
+      conditions.push(`NOT ('Post-Aggregate'[My Department] IN {${list}})`)
+    }
+  }
+
   return conditions
 }
 

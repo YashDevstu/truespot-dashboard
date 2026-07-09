@@ -84,7 +84,7 @@ function MultiFilter({
       value={value}
       onChange={(_, vals) => onChange(vals)}
       filterOptions={(opts, { inputValue }) =>
-        opts.filter((o) => o.toLowerCase().includes(inputValue.toLowerCase())).slice(0, 100)
+        opts.filter((o) => o.toLowerCase().includes(inputValue.toLowerCase()))
       }
       clearOnEscape
       autoHighlight
@@ -350,7 +350,7 @@ export default function HealthFilterSidebar({
                 formatDateOption(option) === formatDateOption(value)
               }
               filterOptions={(opts, { inputValue }) =>
-                opts.filter((o) => formatDateOption(o).toLowerCase().includes(inputValue.toLowerCase())).slice(0, 100)
+                opts.filter((o) => formatDateOption(o).toLowerCase().includes(inputValue.toLowerCase()))
               }
               clearOnEscape
               autoHighlight

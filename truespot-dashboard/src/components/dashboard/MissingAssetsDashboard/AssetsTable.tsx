@@ -183,7 +183,7 @@ function buildColumnDefs(): ColDef<MissingAssetRow>[] {
 interface AssetsTableProps {
   rows: MissingAssetRow[]
   loading: boolean
-  selectedAssetId: string | undefined
+  selectedAssetId: string | undefined  // comma-separated asset IDs
   onRowClick: (row: MissingAssetRow) => void
   onClearSelection: () => void
 }
@@ -206,19 +206,21 @@ export default function AssetsTable({
     []
   )
 
+  // Parse comma-separated selected IDs into a Set for O(1) lookup
+  const selectedSet = useMemo(
+    () => new Set(selectedAssetId ? selectedAssetId.split(',').map((s) => s.trim()).filter(Boolean) : []),
+    [selectedAssetId]
+  )
+  const selectionCount = selectedSet.size
+
   function handleRowClicked(event: RowClickedEvent<MissingAssetRow>) {
     if (!event.data) return
-    // Toggle: clicking the already-selected row clears the filter
-    if (event.data.assetId === selectedAssetId) {
-      onClearSelection()
-    } else {
-      onRowClick(event.data)
-    }
+    onRowClick(event.data)  // parent handles toggle logic
   }
 
-  // Highlight selected row and make all rows look clickable
+  // Highlight all selected rows
   function getRowStyle(params: { data?: MissingAssetRow }) {
-    const isSelected = params.data?.assetId === selectedAssetId
+    const isSelected = !!params.data?.assetId && selectedSet.has(params.data.assetId)
     return {
       cursor: 'pointer',
       background: isSelected ? '#eff6ff' : '',
@@ -226,13 +228,18 @@ export default function AssetsTable({
     }
   }
 
+  const chipLabel =
+    selectionCount === 1
+      ? '1 asset selected — click to deselect'
+      : `${selectionCount} assets selected — click to deselect`
+
   return (
     <Paper
       elevation={0}
       sx={{
         borderRadius: 2,
         border: '1px solid',
-        borderColor: selectedAssetId ? '#2563eb' : 'divider',
+        borderColor: selectionCount > 0 ? '#2563eb' : 'divider',
         bgcolor: 'background.paper',
         overflow: 'hidden',
         transition: 'border-color 0.2s',
@@ -248,7 +255,7 @@ export default function AssetsTable({
           py: 1.25,
           borderBottom: '1px solid',
           borderBottomColor: 'divider',
-          bgcolor: selectedAssetId ? '#eff6ff' : '#f8fafc',
+          bgcolor: selectionCount > 0 ? '#eff6ff' : '#f8fafc',
           transition: 'background-color 0.2s',
         }}
       >
@@ -265,13 +272,13 @@ export default function AssetsTable({
           >
             Filtered Assets
           </Typography>
-          {selectedAssetId && (
+          {selectionCount > 0 && (
             <Chip
-              label="Row filter active — click row again to clear"
+              label={chipLabel}
               size="small"
               onDelete={onClearSelection}
               deleteIcon={
-                <Tooltip title="Clear row filter">
+                <Tooltip title="Clear selection">
                   <FilterAltOffIcon sx={{ fontSize: 14 }} />
                 </Tooltip>
               }

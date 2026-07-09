@@ -16,6 +16,7 @@ import AssetCharts from './AssetCharts'
 import GeofenceFilterPills from './GeofenceFilterPills'
 import LastSeenRangePills from './LastSeenRangePills'
 import AssetsTable from './AssetsTable'
+import OutsideDeptFilter from './OutsideDeptFilter'
 
 const TOP_BAR_H = 60
 
@@ -54,7 +55,7 @@ export default function MissingAssetsDashboard({
   } = useMissingAssetsData(clientId, dashboardKey)
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Top bar: Logo — sticky, full width ────────────────────────────── */}
       <Box
@@ -187,10 +188,37 @@ export default function MissingAssetsDashboard({
             lastRefresh={refreshTime || undefined}
             displayTimezone="America/Chicago"
             onRefresh={refresh}
+            exportDisabled={loading || tableRows.length === 0}
+            onExportExcel={async () => {
+              const { exportHealthExcel } = await import('@/utils/exportHealthReport')
+              await exportHealthExcel({
+                clientName: displayName,
+                dashboardLabel,
+                refreshTime: refreshTime || undefined,
+                filters,
+                kpis,
+                tableRows,
+              })
+            }}
           />
 
-          {/* KPI cards */}
-          <AssetKpiCards kpis={kpis} loading={loading} />
+          {/* Outside My Department — exclude filter dropdown */}
+          <OutsideDeptFilter
+            options={filterOptions.department ?? []}
+            selected={filters.excludeDepartment ? filters.excludeDepartment.split(',').map(s => s.trim()).filter(Boolean) : []}
+            onChange={(vals) => updateFilter('excludeDepartment', vals.length > 0 ? vals.join(',') : undefined)}
+          />
+
+          {/* KPI cards — Active/Missing/Outside are clickable filters */}
+          <AssetKpiCards
+            kpis={kpis}
+            loading={loading}
+            activeHourGroup={filters.hourGroup}
+            activeOutsideHospital={filters.outsideHospital}
+            onActiveLt2hrClick={() => updateFilter('hourGroup', filters.hourGroup === 'Less than 2hr' ? undefined : 'Less than 2hr')}
+            onMissing30dClick={() => updateFilter('hourGroup', filters.hourGroup === '30d+' ? undefined : '30d+')}
+            onOutsideHospitalClick={() => updateFilter('outsideHospital', filters.outsideHospital === 'Yes' ? undefined : 'Yes')}
+          />
 
           {/* Geofence filter pills — between KPIs and charts */}
           {!loading && topLocationsData.length > 0 && (
@@ -212,19 +240,19 @@ export default function MissingAssetsDashboard({
             activeAssetName={filters.assetName}
             onTimeSinceClick={(v) => {
               const s = new Set(filters.hourGroup ? filters.hourGroup.split(',').map(x => x.trim()) : [])
-              s.has(v) ? s.delete(v) : s.add(v)
+              if (s.has(v)) s.delete(v); else s.add(v)
               updateFilter('hourGroup', s.size === 0 ? undefined : Array.from(s).join(','))
             }}
             onTimeSinceClear={() => updateFilter('hourGroup', undefined)}
             onLocationClick={(v) => {
               const s = new Set(filters.geofence ? filters.geofence.split(',').map(x => x.trim()) : [])
-              s.has(v) ? s.delete(v) : s.add(v)
+              if (s.has(v)) s.delete(v); else s.add(v)
               updateFilter('geofence', s.size === 0 ? undefined : Array.from(s).join(','))
             }}
             onLocationClear={() => updateFilter('geofence', undefined)}
             onAssetTypeClick={(v) => {
               const s = new Set(filters.assetName ? filters.assetName.split(',').map(x => x.trim()) : [])
-              s.has(v) ? s.delete(v) : s.add(v)
+              if (s.has(v)) s.delete(v); else s.add(v)
               updateFilter('assetName', s.size === 0 ? undefined : Array.from(s).join(','))
             }}
             onAssetTypeClear={() => updateFilter('assetName', undefined)}
@@ -244,7 +272,11 @@ export default function MissingAssetsDashboard({
             rows={tableRows}
             loading={loading}
             selectedAssetId={filters.assetId}
-            onRowClick={(row) => updateFilter('assetId', row.assetId)}
+            onRowClick={(row) => {
+              const s = new Set(filters.assetId ? filters.assetId.split(',').map(x => x.trim()).filter(Boolean) : [])
+              if (s.has(row.assetId)) s.delete(row.assetId); else s.add(row.assetId)
+              updateFilter('assetId', s.size === 0 ? undefined : Array.from(s).join(','))
+            }}
             onClearSelection={() => updateFilter('assetId', undefined)}
           />
         </Box>

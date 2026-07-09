@@ -19,3 +19,11 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* Recharts 3.x sets tabIndex=0 on the SVG internally — suppress the browser focus ring */
+.recharts-surface:focus,
+.recharts-surface:focus-visible,
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible {
+  outline: none !important;
+}

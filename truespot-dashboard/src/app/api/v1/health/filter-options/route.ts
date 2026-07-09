@@ -55,7 +55,9 @@ export async function GET(request: NextRequest) {
     geofence:     searchParams.get('geofence')      || undefined,
     tagId:        searchParams.get('tagId')         || undefined,
     assetId:      searchParams.get('assetId')       || undefined,
-    exitsFilter:  searchParams.get('exitsFilter')   || undefined,
+    exitsFilter:       searchParams.get('exitsFilter')       || undefined,
+    outsideHospital:   searchParams.get('outsideHospital')   || undefined,
+    excludeDepartment: searchParams.get('excludeDepartment') || undefined,
   }
 
   const hasActiveFilters = Object.values(activeFilters).some(Boolean)

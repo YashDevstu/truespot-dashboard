@@ -123,7 +123,9 @@ async function fetchHealthFilterOptions(
   if (filters.geofence)     params.set('geofence',     filters.geofence)
   if (filters.tagId)        params.set('tagId',        filters.tagId)
   if (filters.assetId)      params.set('assetId',      filters.assetId)
-  if (filters.exitsFilter)  params.set('exitsFilter',  filters.exitsFilter)
+  if (filters.exitsFilter)        params.set('exitsFilter',        filters.exitsFilter)
+  if (filters.outsideHospital)    params.set('outsideHospital',    filters.outsideHospital)
+  if (filters.excludeDepartment)  params.set('excludeDepartment',  filters.excludeDepartment)
 
   const response = await fetch(`/api/v1/health/filter-options?${params}`, { signal })
   if (!response.ok) throw new Error('Failed to fetch health filter options')
@@ -182,13 +184,16 @@ export function useMissingAssetsData(clientId: string, dashboardKey: string) {
         setError(null)
 
         try {
+          // Table never filters by assetId — row selection is visual-only so other rows stay visible
+          const tableFilters = { ...currentFilters, assetId: undefined }
+
           const results = await Promise.allSettled([
             postHealthQuery(clientId, dashboardKey, 'kpis',               currentFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'time-chart',         currentFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'locations-chart',    currentFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'asset-count-chart',  currentFilters, signal),
-            postHealthQuery(clientId, dashboardKey, 'assets-table',       currentFilters, signal),
-            fetchHealthFilterOptions(clientId, dashboardKey, 'assets-table', currentFilters, signal),
+            postHealthQuery(clientId, dashboardKey, 'assets-table',       tableFilters,   signal),
+            fetchHealthFilterOptions(clientId, dashboardKey, 'assets-table', tableFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'refresh-time',       currentFilters, signal),
           ])
 
