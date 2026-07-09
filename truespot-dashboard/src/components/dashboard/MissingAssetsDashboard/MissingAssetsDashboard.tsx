@@ -113,7 +113,7 @@ export default function MissingAssetsDashboard({
       </Box>
 
       {/* ── Content row: sidebar + main ───────────────────────────────────── */}
-      <Box sx={{ display: 'flex', flex: 1, alignItems: 'flex-start' }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
 
         {/* Filter sidebar */}
         <Box
