@@ -1,0 +1,308 @@
+{
+  "client_id": "halifax",
+  "product": "health",
+  "display_name": "Halifax",
+  "locations": [],
+  "dashboards": {
+    "locationhistory": {
+      "label": "Location History",
+      "dashboard_type": "health_location_history",
+      "workspace_name": "Health - Location History Portal",
+      "dataset_name": "Halifax",
+      "icon": "history",
+      "description": "Track medical equipment movement and time spent across your facility.",
+      "category": "Asset Tracking",
+      "panels": [
+        {
+          "id": "location-points",
+          "title": "Location Points",
+          "type": "data_table",
+          "filter_columns": {
+            "dateSeen":   "AppendFinal[LastSeenDateDefault]",
+            "geofence":   "AppendFinal[Geofence]",
+            "subGeoZone": "AppendFinal[SubGeoZone]",
+            "floorLevel": "AppendFinal[Floor Level]",
+            "beaconId":   "AppendFinal[BeaconId]",
+            "assetType":  "AppendFinal[AssetType]",
+            "vin":        "AppendFinal[VIN]",
+            "assetName":  "AppendFinal[Name]"
+          }
+        }
+      ]
+    },
+    "insighthub": {
+      "label": "Insight Hub",
+      "dashboard_type": "health_insight_hub",
+      "workspace_name": "Health - Missing Assets Portal",
+      "dataset_name": "Halifax",
+      "icon": "insights",
+      "description": "Narrative insights on equipment utilisation across your facility.",
+      "category": "Insights",
+      "classification": "geofence",
+      "spare_buffer": 50,
+      "unit_value": 3000,
+      "floor_par": {
+        "default": 1,
+        "tight_pct": 0.8,
+        "floors": {
+          "1st Floor": {
+            "par": 25,
+            "by_type": {
+              "Pumps": 25,
+              "Patient Monitors": 6,
+              "Beds": 6,
+              "Ventilation & Respiration": 3,
+              "Stretchers": 6,
+              "Wheelchairs": 1,
+              "Carts": 4,
+              "Therapeutic Devices": 3,
+              "General Monitoring Devices": 3
+            }
+          },
+          "2nd Floor": {
+            "par": 44,
+            "by_type": {
+              "Pumps": 44,
+              "Patient Monitors": 10,
+              "Beds": 10,
+              "Ventilation & Respiration": 17,
+              "Stretchers": 3,
+              "Wheelchairs": 1,
+              "Carts": 4,
+              "Therapeutic Devices": 1,
+              "General Monitoring Devices": 3
+            }
+          },
+          "3rd Floor": {
+            "par": 94,
+            "by_type": {
+              "Pumps": 94,
+              "Patient Monitors": 10,
+              "Beds": 13,
+              "Ventilation & Respiration": 8,
+              "Stretchers": 6,
+              "Wheelchairs": 1,
+              "Carts": 3,
+              "Therapeutic Devices": 6,
+              "General Monitoring Devices": 3
+            }
+          },
+          "4th - Fountain Tower": {
+            "par": 41,
+            "by_type": {
+              "Pumps": 41,
+              "Patient Monitors": 6,
+              "Beds": 3,
+              "Ventilation & Respiration": 4,
+              "Stretchers": 3,
+              "Carts": 3,
+              "Therapeutic Devices": 1,
+              "General Monitoring Devices": 1
+            }
+          },
+          "4th - France Tower": {
+            "par": 21,
+            "by_type": {
+              "Pumps": 21,
+              "Patient Monitors": 13,
+              "Beds": 3,
+              "Ventilation & Respiration": 1,
+              "Stretchers": 4,
+              "Wheelchairs": 3,
+              "Carts": 3
+            }
+          },
+          "5th - Fountain Tower": {
+            "par": 6,
+            "by_type": {
+              "Pumps": 6,
+              "Patient Monitors": 3,
+              "Beds": 4,
+              "Ventilation & Respiration": 1,
+              "Stretchers": 3
+            }
+          },
+          "5th - France Tower": {
+            "par": 13,
+            "by_type": {
+              "Pumps": 13,
+              "Patient Monitors": 11,
+              "Beds": 4,
+              "Ventilation & Respiration": 1,
+              "Stretchers": 3,
+              "Carts": 3,
+              "Therapeutic Devices": 1
+            }
+          },
+          "6th - Fountain Tower": {
+            "par": 7,
+            "by_type": {
+              "Pumps": 7,
+              "Patient Monitors": 10,
+              "Beds": 4,
+              "Stretchers": 3,
+              "Carts": 1,
+              "General Monitoring Devices": 1
+            }
+          },
+          "6th - France Tower": {
+            "par": 11,
+            "by_type": {
+              "Pumps": 11,
+              "Patient Monitors": 10,
+              "Beds": 4,
+              "Stretchers": 3,
+              "Carts": 3,
+              "Therapeutic Devices": 1,
+              "General Monitoring Devices": 3
+            }
+          },
+          "7th - Fountain Tower": {
+            "par": 13,
+            "by_type": {
+              "Pumps": 13,
+              "Patient Monitors": 10,
+              "Beds": 10,
+              "Stretchers": 3,
+              "Carts": 3,
+              "Therapeutic Devices": 1,
+              "General Monitoring Devices": 1
+            }
+          },
+          "7th - France Tower": {
+            "par": 20,
+            "by_type": {
+              "Pumps": 20,
+              "Patient Monitors": 13,
+              "Beds": 3,
+              "Ventilation & Respiration": 3,
+              "Stretchers": 1,
+              "Carts": 3,
+              "Therapeutic Devices": 3,
+              "General Monitoring Devices": 3
+            }
+          },
+          "8th - Fountain Tower": {
+            "par": 6,
+            "by_type": {
+              "Pumps": 6,
+              "Patient Monitors": 3,
+              "Beds": 7,
+              "Stretchers": 1,
+              "Carts": 3,
+              "Therapeutic Devices": 1
+            }
+          },
+          "8th - France Tower": {
+            "par": 50,
+            "by_type": {
+              "Pumps": 50,
+              "Patient Monitors": 1,
+              "Beds": 3,
+              "Ventilation & Respiration": 7,
+              "Stretchers": 3,
+              "Carts": 3,
+              "Therapeutic Devices": 3
+            }
+          },
+          "9th - Fountain Tower": {
+            "par": 3,
+            "by_type": {
+              "Pumps": 3,
+              "Beds": 3,
+              "Stretchers": 1,
+              "Carts": 1,
+              "Therapeutic Devices": 1
+            }
+          },
+          "9th Floor - France": {
+            "par": 3,
+            "by_type": {
+              "Beds": 3,
+              "Stretchers": 3,
+              "Carts": 1
+            }
+          },
+          "10th Floor - France": {
+            "par": 1,
+            "by_type": {
+              "Pumps": 1,
+              "Beds": 1,
+              "Stretchers": 3,
+              "Carts": 3
+            }
+          },
+          "10th - Fountain Tower": {
+            "par": 1,
+            "by_type": {
+              "Pumps": 1,
+              "Carts": 1
+            }
+          },
+          "Ground Floor": {
+            "par": 51,
+            "by_type": {
+              "Pumps": 51,
+              "Patient Monitors": 27,
+              "Beds": 13,
+              "Ventilation & Respiration": 4,
+              "Stretchers": 25,
+              "Wheelchairs": 3,
+              "Carts": 11,
+              "Therapeutic Devices": 3,
+              "General Monitoring Devices": 3
+            }
+          },
+          "Halifax Health Medical Center": {
+            "par": 21,
+            "by_type": {
+              "Pumps": 21,
+              "Carts": 1,
+              "Therapeutic Devices": 1,
+              "General Monitoring Devices": 3
+            }
+          },
+          "Lohman Building": {
+            "par": 4,
+            "by_type": {
+              "Pumps": 4,
+              "Patient Monitors": 3,
+              "Ventilation & Respiration": 3,
+              "Stretchers": 3,
+              "Wheelchairs": 1,
+              "Carts": 3
+            }
+          },
+          "ROC-ONC - 1st Floor": {
+            "par": 1,
+            "by_type": {
+              "Pumps": 1
+            }
+          },
+          "ROC-ONC - 2nd Floor": {
+            "par": 6,
+            "by_type": {
+              "Pumps": 6
+            }
+          },
+          "ROC-ONC - Ground Floor": {
+            "par": 1,
+            "by_type": {
+              "Patient Monitors": 1,
+              "Beds": 1,
+              "Stretchers": 1,
+              "Wheelchairs": 1
+            }
+          },
+          "Service Building": {
+            "par": 1,
+            "by_type": {
+              "Pumps": 1,
+              "Patient Monitors": 3
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,751 @@
+'use client'
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { InsightHubFilters } from '@/utils/daxInsightHub'
+
+// ── Report IDs ─────────────────────────────────────────────────────────────────
+
+export type InsightHubReport =
+  | 'utilisation'
+  | 'floor-distribution'
+  | 'cleaning-loop'
+  | 'hiding-spots'
+
+// ── Response types ─────────────────────────────────────────────────────────────
+
+export interface IHUtilisationData {
+  total:          number
+  withPatient:    number
+  cleaning:       number
+  hardToFind:     number
+  sittingUnused:  number
+  hoursBasedPct?: number  // hours-based avg-day utilisation % (GF clients only)
+}
+
+export interface IHPeakData {
+  count: number
+  hour:  number
+  day:   number
+  month: number
+  year:  number
+}
+
+export interface IHDailyPeakRow {
+  dateKey:   number  // DAY + MONTH×100 + YEAR×10000
+  day:       number
+  month:     number
+  year:      number
+  peakCount: number
+}
+
+export interface IHFloorStatusRow {
+  floor:      string
+  status:     'enough' | 'tight' | 'short'
+  par:        number
+  daysEnough: number
+  daysTight:  number
+  daysShort:  number
+  totalDays:  number
+  avgCount:   number
+  minCount:   number
+  totalVINs:  number
+}
+
+export interface IHFloorReadinessByTypeRow {
+  assetType:    string
+  totalFloors:  number
+  enoughFloors: number
+  tightFloors:  number
+  shortFloors:  number
+  pctMet:       number
+  totalVINs:    number
+}
+
+export interface IHCleaningRow {
+  hourGrp:     string
+  hourGrpSort: number
+  count:       number
+}
+
+export interface IHHidingSpotRow {
+  subGeo: string
+  floor:  string
+  count:  number
+}
+
+export interface IHHourlyRow {
+  hour:        number
+  withPatient: number
+  total:       number
+  pct:         number
+}
+
+export interface IHWeeklyRow {
+  weekNum:     number
+  year:        number
+  total:       number
+  withPatient: number
+  pct:         number
+}
+
+export interface IHLocationCategoryRow {
+  category:   string
+  totalMins:  number
+  assetCount: number
+  pct:        number
+}
+
+export interface IHCategoryDailyRow {
+  dateKey:    number
+  day:        number
+  month:      number
+  year:       number
+  pct:        number
+  assetCount: number
+}
+
+export interface IHCategoryAssetRow {
+  assetId:   string
+  assetName: string
+  assetType: string
+  totalMins: number
+  lastSeen:  string
+  homeFloor: string
+}
+
+export interface IHAssetTrailRow {
+  startTime:  string
+  durMins:    number
+  subGeoZone: string
+  geofence:   string
+  floorLevel: string
+  category:   string
+  assetName:  string
+  assetType:  string
+}
+
+export interface IHAssetTypeRow {
+  assetType:    string
+  total:        number
+  withPatient:  number
+  cleaning:     number
+  hardToFind:   number
+  sittingUnused: number
+}
+
+// ── Row parsers ────────────────────────────────────────────────────────────────
+
+function parseUtilisation(rows: Record<string, unknown>[]): IHUtilisationData | null {
+  if (rows.length === 0) return null
+  const r = rows[0]
+  const total         = Number(r['[Total]']       ?? 0)
+  const withPatient   = Number(r['[WithPatient]'] ?? 0)
+  const cleaning      = Number(r['[Cleaning]']    ?? 0)
+  const hardToFind    = Number(r['[HardToFind]']  ?? 0)
+  const hoursBasedPct = r['[HoursBasedPct]'] != null ? Number(r['[HoursBasedPct]']) : undefined
+  return {
+    total,
+    withPatient,
+    cleaning,
+    hardToFind,
+    sittingUnused: Math.max(0, total - withPatient - cleaning - hardToFind),
+    hoursBasedPct,
+  }
+}
+
+function parseFloorStatusRows(rows: Record<string, unknown>[]): IHFloorStatusRow[] {
+  return rows.map((r) => ({
+    floor:      String(r['[Floor]']      ?? ''),
+    status:     (String(r['[Status]']    ?? 'enough')) as 'enough' | 'tight' | 'short',
+    par:        Number(r['[Par]']        ?? 5),
+    daysEnough: Number(r['[DaysEnough]'] ?? 0),
+    daysTight:  Number(r['[DaysTight]']  ?? 0),
+    daysShort:  Number(r['[DaysShort]']  ?? 0),
+    totalDays:  Number(r['[TotalDays]']  ?? 0),
+    avgCount:   Number(r['[AvgCount]']   ?? 0),
+    minCount:   Number(r['[MinCount]']   ?? 0),
+    totalVINs:  Number(r['[TotalVINs]']  ?? 0),
+  })).filter((r) => r.floor && r.floor !== '')
+}
+
+function parseFloorReadinessByTypeRows(rows: Record<string, unknown>[]): IHFloorReadinessByTypeRow[] {
+  return rows.map((r) => ({
+    assetType:    String(r['[AssetType]']    ?? ''),
+    totalFloors:  Number(r['[TotalFloors]']  ?? 0),
+    enoughFloors: Number(r['[EnoughFloors]'] ?? 0),
+    tightFloors:  Number(r['[TightFloors]']  ?? 0),
+    shortFloors:  Number(r['[ShortFloors]']  ?? 0),
+    pctMet:       Number(r['[PctMet]']       ?? 0),
+    totalVINs:    Number(r['[TotalVINs]']    ?? 0),
+  })).filter((r) => r.assetType)
+}
+
+function parseCleaningRows(rows: Record<string, unknown>[]): IHCleaningRow[] {
+  return rows.map((r) => ({
+    hourGrp:     String(r['[HourGrp]']     ?? ''),
+    hourGrpSort: Number(r['[HourGrpSort]'] ?? 0),
+    count:       Number(r['[Count]']       ?? 0),
+  })).filter((r) => r.hourGrp)
+}
+
+function parseWeeklyRows(rows: Record<string, unknown>[]): IHWeeklyRow[] {
+  return rows.map((r) => {
+    const total       = Number(r['[Total]']       ?? 0)
+    const withPatient = Number(r['[WithPatient]'] ?? 0)
+    return {
+      weekNum:     Number(r['[WeekNum]'] ?? 0),
+      year:        Number(r['[Year]']    ?? 0),
+      total,
+      withPatient,
+      pct: total > 0 ? (withPatient / total) * 100 : 0,
+    }
+  }).filter((r) => r.weekNum > 0 && r.year > 0)
+}
+
+function parseLocationCategoryRows(rows: Record<string, unknown>[]): IHLocationCategoryRow[] {
+  const parsed = rows.map((r) => ({
+    category:   String(r['[Category]']   ?? 'other'),
+    totalMins:  Number(r['[TotalMins]']  ?? 0),
+    assetCount: Number(r['[AssetCount]'] ?? 0),
+    pct:        0,
+  })).filter((r) => r.totalMins > 0)
+  const totalAll = parsed.reduce((s, r) => s + r.totalMins, 0)
+  return parsed.map((r) => ({ ...r, pct: totalAll > 0 ? (r.totalMins / totalAll) * 100 : 0 }))
+}
+
+function parseCategoryAssetRows(rows: Record<string, unknown>[]): IHCategoryAssetRow[] {
+  return rows.map((r) => ({
+    assetId:   String(r['[AssetId]']   ?? ''),
+    assetName: String(r['[AssetName]'] ?? ''),
+    assetType: String(r['[AssetType]'] ?? ''),
+    totalMins: Number(r['[TotalMins]'] ?? 0),
+    lastSeen:  String(r['[LastSeen]']  ?? ''),
+    homeFloor: String(r['[HomeFloor]'] ?? ''),
+  })).filter((r) => r.assetId)
+}
+
+function parseCategoryDailyRows(rows: Record<string, unknown>[]): IHCategoryDailyRow[] {
+  return rows.map((r) => {
+    const dateKey   = Number(r['[DateKey]']   ?? 0)
+    const totalMins = Number(r['[TotalMins]'] ?? 0)
+    const catMins   = Number(r['[CatMins]']   ?? 0)
+    return {
+      dateKey,
+      day:        dateKey % 100,
+      month:      Math.floor(dateKey / 100) % 100,
+      year:       Math.floor(dateKey / 10000),
+      pct:        totalMins > 0 ? (catMins / totalMins) * 100 : 0,
+      assetCount: Number(r['[AssetCount]'] ?? 0),
+    }
+  }).filter((r) => r.dateKey > 0)
+}
+
+function parseAssetTrailRows(rows: Record<string, unknown>[]): IHAssetTrailRow[] {
+  return rows
+    .map((r) => ({
+      startTime:  String(r['[StartTime]']  ?? ''),
+      durMins:    Number(r['[DurMins]']    ?? 0),
+      subGeoZone: String(r['[SubGeoZone]'] ?? ''),
+      geofence:   String(r['[Geofence]']   ?? ''),
+      floorLevel: String(r['[FloorLevel]'] ?? ''),
+      category:   String(r['[Category]']   ?? 'other'),
+      assetName:  String(r['[AssetName]']  ?? ''),
+      assetType:  String(r['[AssetType]']  ?? ''),
+    }))
+    .filter((r) => r.startTime && r.durMins > 0)
+}
+
+function parseHourlyRows(rows: Record<string, unknown>[]): IHHourlyRow[] {
+  return rows.map((r) => {
+    const hour        = Number(r['[Hour]']        ?? 0)
+    const withPatient = Number(r['[WithPatient]'] ?? 0)
+    const total       = Number(r['[Total]']       ?? 0)
+    return {
+      hour,
+      withPatient,
+      total,
+      pct: total > 0 ? (withPatient / total) * 100 : 0,
+    }
+  }).sort((a, b) => a.hour - b.hour)
+}
+
+function parseAssetTypeRows(rows: Record<string, unknown>[]): IHAssetTypeRow[] {
+  return rows.map((r) => {
+    const total       = Number(r['[Total]']       ?? 0)
+    const withPatient = Number(r['[WithPatient]'] ?? 0)
+    const cleaning    = Number(r['[Cleaning]']    ?? 0)
+    const hardToFind  = Number(r['[HardToFind]']  ?? 0)
+    return {
+      assetType:    String(r['[AssetType]'] ?? ''),
+      total,
+      withPatient,
+      cleaning,
+      hardToFind,
+      sittingUnused: Math.max(0, total - withPatient - cleaning - hardToFind),
+    }
+  }).filter((r) => r.assetType && r.total > 0)
+}
+
+function parseHidingSpotRows(rows: Record<string, unknown>[]): IHHidingSpotRow[] {
+  return rows.map((r) => ({
+    subGeo: String(r['[SubGeo]'] ?? ''),
+    floor:  String(r['[Floor]']  ?? ''),
+    count:  Number(r['[Count]']  ?? 0),
+  })).filter((r) => r.subGeo && r.count > 0)
+}
+
+// ── API helper ─────────────────────────────────────────────────────────────────
+
+function parseDailyPeakRows(rows: Record<string, unknown>[]): IHDailyPeakRow[] {
+  return rows.map((r) => {
+    const dateKey = Number(r['[DateKey]'] ?? 0)
+    return {
+      dateKey,
+      day:       dateKey % 100,
+      month:     Math.floor(dateKey / 100) % 100,
+      year:      Math.floor(dateKey / 10000),
+      peakCount: Number(r['[PeakCount]'] ?? 0),
+    }
+  }).filter((r) => r.peakCount > 0)
+}
+
+async function postIHQuery(
+  clientId: string,
+  dashboardKey: string,
+  queryType: string,
+  filters: InsightHubFilters,
+  signal: AbortSignal,
+  dayOffset?: number,
+): Promise<Record<string, unknown>[]> {
+  const response = await fetch('/api/v1/insight-hub/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId, dashboardKey, queryType, filters, dayOffset }),
+    signal,
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText)
+    throw new Error(`Insight Hub query "${queryType}" failed: ${text}`)
+  }
+  const data = await response.json()
+  return (data.rows ?? []) as Record<string, unknown>[]
+}
+
+// ── Main hook ──────────────────────────────────────────────────────────────────
+
+const DEBOUNCE_MS = 300
+
+export function useInsightHubData(clientId: string, dashboardKey: string) {
+  const [activeReport, setActiveReport] = useState<InsightHubReport>('utilisation')
+  const [filters, setFilters]           = useState<InsightHubFilters>({})
+  const [dayOffset, setDayOffset]       = useState(1)
+
+  const [utilisation,          setUtilisation]          = useState<IHUtilisationData | null>(null)
+  const [peakData,             setPeakData]             = useState<IHPeakData | null>(null)
+  const [dailyPeakRows,        setDailyPeakRows]        = useState<IHDailyPeakRow[]>([])
+  const [assetTypeUtilisation, setAssetTypeUtilisation] = useState<IHAssetTypeRow[]>([])
+  const [hourlyRows,           setHourlyRows]           = useState<IHHourlyRow[]>([])
+  const [weeklyTrend,          setWeeklyTrend]          = useState<IHWeeklyRow[]>([])
+  const [locationCategories,   setLocationCategories]   = useState<IHLocationCategoryRow[]>([])
+  const [categoryAssets,       setCategoryAssets]       = useState<IHCategoryAssetRow[]>([])
+  const [selectedCategory,     setSelectedCategory]     = useState<string | null>(null)
+  const [categoryLoading,      setCategoryLoading]      = useState(false)
+  const [categoryDailyRows,    setCategoryDailyRows]    = useState<IHCategoryDailyRow[]>([])
+  const [categoryDailyLoading, setCategoryDailyLoading] = useState(false)
+  const [selectedDay,          setSelectedDay]          = useState<number | null>(null)
+  const [selectedAsset,        setSelectedAsset]        = useState<string | null>(null)
+  const [assetTrailRows,       setAssetTrailRows]       = useState<IHAssetTrailRow[]>([])
+  const [assetTrailLoading,    setAssetTrailLoading]    = useState(false)
+  const [floorAssetType,         setFloorAssetType]         = useState<string>('Pumps')
+  const [floorReadiness,         setFloorReadiness]         = useState<IHFloorStatusRow[]>([])
+  const [floorReadinessByType,   setFloorReadinessByType]   = useState<IHFloorReadinessByTypeRow[]>([])
+  const [cleaningRows,         setCleaningRows]         = useState<IHCleaningRow[]>([])
+  const [hidingSpotRows,       setHidingSpotRows]       = useState<IHHidingSpotRow[]>([])
+
+  const [assetTypeOptions,  setAssetTypeOptions]  = useState<string[]>([])
+  const [floorOptions,      setFloorOptions]      = useState<string[]>([])
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>([])
+  const [buildingOptions,   setBuildingOptions]   = useState<string[]>([])
+  const [optionsLoading,    setOptionsLoading]    = useState(true)
+
+  const [refreshTime, setRefreshTime] = useState('')
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState<string | null>(null)
+
+  const abortRef           = useRef<AbortController | null>(null)
+  const hourlyAbortRef     = useRef<AbortController | null>(null)
+  const debounceRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dayOffsetRef       = useRef(dayOffset)
+  const dayOffsetInited    = useRef(false)
+
+  useEffect(() => { dayOffsetRef.current = dayOffset }, [dayOffset])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const { signal } = controller
+
+    Promise.allSettled([
+      postIHQuery(clientId, dashboardKey, 'asset-type-options',  {}, signal),
+      postIHQuery(clientId, dashboardKey, 'floor-options',       {}, signal),
+      postIHQuery(clientId, dashboardKey, 'department-options',  {}, signal),
+      postIHQuery(clientId, dashboardKey, 'building-options',    {}, signal),
+      postIHQuery(clientId, dashboardKey, 'refresh-time',        {}, signal),
+    ]).then(([atResult, foResult, doResult, boResult, rtResult]) => {
+      if (signal.aborted) return
+      if (atResult.status === 'fulfilled') {
+        setAssetTypeOptions(
+          atResult.value
+            .map((r) => String(r['[value]'] ?? ''))
+            .filter(Boolean)
+            .sort()
+        )
+      } else {
+        console.error('[InsightHub] asset-type-options failed:', atResult.reason)
+      }
+      if (foResult.status === 'fulfilled') {
+        setFloorOptions(
+          foResult.value
+            .map((r) => String(r['[value]'] ?? ''))
+            .filter(Boolean)
+            .sort()
+        )
+      } else {
+        console.error('[InsightHub] floor-options failed:', foResult.reason)
+      }
+      if (doResult.status === 'fulfilled') {
+        setDepartmentOptions(
+          doResult.value
+            .map((r) => String(r['[value]'] ?? ''))
+            .filter(Boolean)
+            .sort()
+        )
+      } else {
+        console.error('[InsightHub] department-options failed:', doResult.reason)
+      }
+      if (boResult.status === 'fulfilled') {
+        setBuildingOptions(
+          boResult.value
+            .map((r) => String(r['[value]'] ?? ''))
+            .filter(Boolean)
+            .sort()
+        )
+      } else {
+        console.error('[InsightHub] building-options failed:', boResult.reason)
+      }
+      if (rtResult.status === 'fulfilled' && rtResult.value.length > 0) {
+        setRefreshTime(String(rtResult.value[0]['[RefreshTime]'] ?? ''))
+      }
+      setOptionsLoading(false)
+    })
+
+    return () => controller.abort()
+  }, [clientId, dashboardKey])
+
+  const fetchReport = useCallback(
+    (report: InsightHubReport, currentFilters: InsightHubFilters) => {
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      const { signal } = controller
+
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+
+      debounceRef.current = setTimeout(async () => {
+        setLoading(true)
+        setError(null)
+
+        try {
+          if (report === 'utilisation') {
+            const { assetType: _assetType, ...filtersWithoutType } = currentFilters
+            void _assetType
+            const [utilisationResult, peakResult, atResult, weeklyResult, catResult, hourlyResult, dailyPeakResult] = await Promise.allSettled([
+              postIHQuery(clientId, dashboardKey, 'utilisation',               currentFilters,     signal),
+              postIHQuery(clientId, dashboardKey, 'peak-utilisation',          currentFilters,     signal),
+              postIHQuery(clientId, dashboardKey, 'asset-type-utilisation',    filtersWithoutType, signal),
+              postIHQuery(clientId, dashboardKey, 'weekly-trend',              currentFilters,     signal),
+              postIHQuery(clientId, dashboardKey, 'location-category-summary', currentFilters,     signal),
+              postIHQuery(clientId, dashboardKey, 'hourly-utilisation',        currentFilters,     signal, dayOffsetRef.current),
+              postIHQuery(clientId, dashboardKey, 'daily-peak',                currentFilters,     signal),
+            ])
+            if (signal.aborted) return
+            if (utilisationResult.status === 'fulfilled')
+              setUtilisation(parseUtilisation(utilisationResult.value))
+            if (peakResult.status === 'fulfilled' && peakResult.value.length > 0) {
+              const r     = peakResult.value[0]
+              const count = Number(r['[PeakCount]'] ?? 0)
+              if (count > 0) {
+                setPeakData({
+                  count,
+                  hour:  Number(r['[PeakHour]']  ?? 0),
+                  day:   Number(r['[PeakDay]']   ?? 1),
+                  month: Number(r['[PeakMonth]'] ?? 1),
+                  year:  Number(r['[PeakYear]']  ?? new Date().getFullYear()),
+                })
+              } else {
+                setPeakData(null)
+              }
+            } else {
+              setPeakData(null)
+            }
+            if (atResult.status === 'fulfilled')
+              setAssetTypeUtilisation(parseAssetTypeRows(atResult.value))
+            if (weeklyResult.status === 'fulfilled')
+              setWeeklyTrend(parseWeeklyRows(weeklyResult.value))
+            if (catResult.status === 'fulfilled')
+              setLocationCategories(parseLocationCategoryRows(catResult.value))
+            if (hourlyResult.status === 'fulfilled')
+              setHourlyRows(parseHourlyRows(hourlyResult.value))
+            if (dailyPeakResult.status === 'fulfilled')
+              setDailyPeakRows(parseDailyPeakRows(dailyPeakResult.value))
+            if (utilisationResult.status === 'rejected')
+              throw utilisationResult.reason
+          } else {
+            if (report === 'floor-distribution') {
+              const [readinessResult, byTypeResult] = await Promise.allSettled([
+                postIHQuery(clientId, dashboardKey, 'floor-readiness',        currentFilters, signal),
+                postIHQuery(clientId, dashboardKey, 'floor-readiness-by-type', {},            signal),
+              ])
+              if (signal.aborted) return
+              if (readinessResult.status === 'fulfilled')
+                setFloorReadiness(parseFloorStatusRows(readinessResult.value))
+              if (byTypeResult.status === 'fulfilled')
+                setFloorReadinessByType(parseFloorReadinessByTypeRows(byTypeResult.value))
+              if (readinessResult.status === 'rejected') throw readinessResult.reason
+            } else {
+            const queryType = report
+            const rows = await postIHQuery(clientId, dashboardKey, queryType, currentFilters, signal)
+            if (signal.aborted) return
+
+            switch (report) {
+              case 'cleaning-loop':
+                setCleaningRows(parseCleaningRows(rows))
+                break
+              case 'hiding-spots':
+                setHidingSpotRows(parseHidingSpotRows(rows))
+                break
+            }
+            } // end else (non-floor-distribution reports)
+          }
+        } catch (err) {
+          if ((err as Error).name !== 'AbortError') setError(String(err))
+        } finally {
+          if (!signal.aborted) setLoading(false)
+        }
+      }, DEBOUNCE_MS)
+    },
+    [clientId, dashboardKey]
+  )
+
+  useEffect(() => {
+    const effectiveFilters = activeReport === 'floor-distribution'
+      ? { ...filters, assetType: floorAssetType }
+      : filters
+    fetchReport(activeReport, effectiveFilters)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [activeReport, filters, floorAssetType, fetchReport])
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
+
+  // Level 2: fetch daily breakdown when a category is selected
+  useEffect(() => {
+    if (!selectedCategory) return
+    const controller = new AbortController()
+    const { signal } = controller
+
+    void (async () => {
+      setCategoryDailyLoading(true)
+      try {
+        const rows = await postIHQuery(
+          clientId, dashboardKey, 'location-category-daily',
+          { ...filters, category: selectedCategory },
+          signal
+        )
+        if (!signal.aborted) setCategoryDailyRows(parseCategoryDailyRows(rows))
+      } catch {
+        // silent
+      } finally {
+        if (!signal.aborted) setCategoryDailyLoading(false)
+      }
+    })()
+
+    return () => {
+      controller.abort()
+      setCategoryDailyRows([])
+      setCategoryDailyLoading(false)
+    }
+  }, [selectedCategory, clientId, dashboardKey, filters])
+
+  // Level 3: fetch asset list when a day is picked (or whole-period mode: selectedDay = -1)
+  useEffect(() => {
+    if (!selectedCategory || selectedDay === null) return
+    const controller = new AbortController()
+    const { signal } = controller
+
+    void (async () => {
+      setCategoryLoading(true)
+      try {
+        // selectedDay === -1 means "full period" → no dateKey; a positive value is an exact day
+        const dayFilter = selectedDay !== null && selectedDay > 0 ? { dateKey: selectedDay } : {}
+        const rows = await postIHQuery(
+          clientId, dashboardKey, 'location-category-assets',
+          { ...filters, category: selectedCategory, ...dayFilter },
+          signal
+        )
+        if (!signal.aborted) setCategoryAssets(parseCategoryAssetRows(rows))
+      } catch {
+        // silent — drill-down failure doesn't break the page
+      } finally {
+        if (!signal.aborted) setCategoryLoading(false)
+      }
+    })()
+
+    return () => {
+      controller.abort()
+      setCategoryAssets([])
+      setCategoryLoading(false)
+    }
+  }, [selectedCategory, selectedDay, clientId, dashboardKey, filters])
+
+  useEffect(() => {
+    if (!selectedAsset) return
+
+    const controller = new AbortController()
+    const { signal } = controller
+
+    void (async () => {
+      setAssetTrailLoading(true)
+      try {
+        const dayFilter = selectedDay !== null && selectedDay > 0 ? { dateKey: selectedDay } : {}
+        const rows = await postIHQuery(
+          clientId, dashboardKey, 'asset-trail',
+          { ...filters, vin: selectedAsset, ...dayFilter },
+          signal
+        )
+        if (!signal.aborted) setAssetTrailRows(parseAssetTrailRows(rows))
+      } catch {
+        // silent — trail failure doesn't break the page
+      } finally {
+        if (!signal.aborted) setAssetTrailLoading(false)
+      }
+    })()
+
+    return () => {
+      controller.abort()
+      setAssetTrailRows([])
+      setAssetTrailLoading(false)
+    }
+  }, [selectedAsset, selectedDay, clientId, dashboardKey, filters])
+
+  // Re-fetch only hourly when the user selects a different day chip.
+  // Skips the initial render — the main fetchReport batch handles first load.
+  useEffect(() => {
+    if (!dayOffsetInited.current) {
+      dayOffsetInited.current = true
+      return
+    }
+    hourlyAbortRef.current?.abort()
+    const controller = new AbortController()
+    hourlyAbortRef.current = controller
+    const { signal } = controller
+
+    void (async () => {
+      try {
+        const rows = await postIHQuery(
+          clientId, dashboardKey, 'hourly-utilisation', filters, signal, dayOffset
+        )
+        if (!signal.aborted) setHourlyRows(parseHourlyRows(rows))
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError')
+          console.error('[InsightHub] hourly re-fetch failed:', err)
+      }
+    })()
+
+    return () => controller.abort()
+  // filters intentionally omitted — filter changes are handled by the main fetchReport batch
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayOffset, clientId, dashboardKey])
+
+  const selectReport = useCallback((report: InsightHubReport) => {
+    setActiveReport(report)
+  }, [])
+
+  // Clears selectedDay whenever the category changes so Level 2 always shows first
+  const selectCategory = useCallback((cat: string | null) => {
+    setSelectedCategory(cat)
+    setSelectedDay(null)
+  }, [])
+
+  const updateFilter = useCallback(
+    (key: keyof InsightHubFilters, value: string | number | undefined) => {
+      setFilters((prev) => {
+        const next = { ...prev }
+        if (value !== undefined && value !== '') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(next as any)[key] = key === 'days' ? Number(value) : value
+        } else {
+          delete next[key]
+        }
+        return next
+      })
+    },
+    []
+  )
+
+  const refresh = useCallback(() => {
+    const effectiveFilters = activeReport === 'floor-distribution'
+      ? { ...filters, assetType: floorAssetType }
+      : filters
+    fetchReport(activeReport, effectiveFilters)
+  }, [fetchReport, activeReport, filters, floorAssetType])
+
+  return {
+    activeReport,
+    selectReport,
+    filters,
+    updateFilter,
+    refresh,
+    dayOffset,
+    setDayOffset,
+    utilisation,
+    peakData,
+    dailyPeakRows,
+    assetTypeUtilisation,
+    hourlyRows,
+    weeklyTrend,
+    locationCategories,
+    categoryAssets,
+    selectedCategory,
+    setSelectedCategory,
+    selectCategory,
+    categoryLoading,
+    categoryDailyRows,
+    categoryDailyLoading,
+    selectedDay,
+    setSelectedDay,
+    selectedAsset,
+    setSelectedAsset,
+    assetTrailRows,
+    assetTrailLoading,
+    floorAssetType,
+    setFloorAssetType,
+    floorReadiness,
+    floorReadinessByType,
+    cleaningRows,
+    hidingSpotRows,
+    assetTypeOptions,
+    floorOptions,
+    departmentOptions,
+    buildingOptions,
+    optionsLoading,
+    refreshTime,
+    loading,
+    error,
+  }
+}

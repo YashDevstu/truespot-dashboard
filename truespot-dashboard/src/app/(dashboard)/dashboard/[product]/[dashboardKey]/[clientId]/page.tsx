@@ -9,6 +9,7 @@ import { getClientConfig } from '@/services/config/clientConfigService'
 import LocationHistoryDashboard from '@/components/dashboard/LocationHistoryDashboard'
 import MissingAssetsDashboard from '@/components/dashboard/MissingAssetsDashboard/MissingAssetsDashboard'
 import HealthLocationDashboard from '@/components/dashboard/HealthLocationDashboard/HealthLocationDashboard'
+import InsightHubDashboard from '@/components/dashboard/InsightHubDashboard/InsightHubDashboard'
 
 interface PageProps {
   params: Promise<{ product: string; dashboardKey: string; clientId: string }>
@@ -104,6 +105,28 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
     return (
       <Suspense fallback={fallback}>
         <HealthLocationDashboard {...sharedProps} />
+      </Suspense>
+    )
+  }
+
+  if (dashboard.dashboard_type === 'health_insight_hub') {
+    // Collect all asset types that have par configured across any floor
+    const configuredTypes = dashboard.floor_par?.floors
+      ? [...new Set(
+          Object.values(dashboard.floor_par.floors)
+            .flatMap((f) => Object.keys(f.by_type ?? {}))
+        )]
+      : undefined
+
+    return (
+      <Suspense fallback={fallback}>
+        <InsightHubDashboard
+          {...sharedProps}
+          classification={dashboard.classification}
+          spareBuffer={dashboard.spare_buffer}
+          unitValue={dashboard.unit_value}
+          configuredTypes={configuredTypes}
+        />
       </Suspense>
     )
   }

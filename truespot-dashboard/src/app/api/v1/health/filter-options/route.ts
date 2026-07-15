@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: `Dashboard "${dashboardKey}" not found` }, { status: 404 })
   }
 
-  const panel = dashboard.panels.find((p) => p.id === panelId)
+  const panel = dashboard.panels?.find((p) => p.id === panelId)
   if (!panel) {
     return Response.json({ error: `Panel "${panelId}" not found` }, { status: 404 })
   }

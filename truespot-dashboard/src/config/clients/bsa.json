@@ -55,6 +55,15 @@
           }
         }
       ]
+    },
+    "insighthub": {
+      "label": "Insight Hub",
+      "dashboard_type": "health_insight_hub",
+      "workspace_name": "Health - Missing Assets Portal",
+      "dataset_name": "BSA",
+      "icon": "insights",
+      "description": "Narrative insights on equipment utilisation across your facility.",
+      "category": "Insights"
     }
   }
 }
