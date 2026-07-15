@@ -112,45 +112,60 @@ function fmtMoney(n: number): string {
   return `$${n.toLocaleString()}`
 }
 
-function UsageBar({ pct }: { pct: number }) {
+function UsageBar({ pct, showGoalLabel }: { pct: number; showGoalLabel?: boolean }) {
   const color = barColor(pct)
   return (
-    <Box sx={{ position: 'relative', flex: 1, height: 10, bgcolor: '#e2e8f0', borderRadius: 5 }}>
+    <Box sx={{ position: 'relative', flex: 1, height: 10, bgcolor: '#e2e8f0', borderRadius: 5, overflow: 'visible' }}>
+      {/* Fill */}
+      <Box
+        sx={{
+          position:     'absolute',
+          left: 0, top: 0, bottom: 0,
+          width:        `${Math.min(pct, 100)}%`,
+          bgcolor:      color,
+          borderRadius: 5,
+          transition:   'width 0.35s ease',
+        }}
+      />
+      {/* GOAL dashed tick line */}
       <Box
         sx={{
           position:   'absolute',
-          left: 0, top: 0, bottom: 0,
-          width:      `${Math.min(pct, 100)}%`,
-          bgcolor:    color,
-          borderRadius: 5,
-          transition: 'width 0.35s ease',
+          left:       `${GOAL_PCT}%`,
+          top:        -5,
+          bottom:     -5,
+          width:      '1.5px',
+          background: 'repeating-linear-gradient(to bottom, #64748b 0px, #64748b 3px, transparent 3px, transparent 6px)',
         }}
-      />
-      {/* GOAL tick */}
-      <Box
-        sx={{
-          position: 'absolute',
-          left:     `${GOAL_PCT}%`,
-          top:      -4,
-          bottom:   -4,
-          width:    '2px',
-          bgcolor:  '#64748b',
-          borderRadius: 1,
-          '&::before': {
-            content:    '"GOAL"',
-            position:   'absolute',
-            bottom:     '100%',
-            left:       '50%',
-            transform:  'translateX(-50%)',
-            fontSize:   '8px',
-            fontWeight: 700,
-            color:      '#64748b',
-            letterSpacing: '0.04em',
-            whiteSpace: 'nowrap',
-            mb:         '2px',
-          },
-        }}
-      />
+      >
+        {/* "GOAL 70%" label — only on first row so it appears once above all bars */}
+        {showGoalLabel && (
+          <Box
+            sx={{
+              position:  'absolute',
+              bottom:    'calc(100% + 6px)',
+              left:      '50%',
+              transform: 'translateX(-50%)',
+              whiteSpace: 'nowrap',
+              display:   'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap:        0.25,
+            }}
+          >
+            <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#64748b', letterSpacing: '0.05em' }}>
+              GOAL {GOAL_PCT}%
+            </Typography>
+            {/* Downward arrow pointing to tick */}
+            <Box sx={{
+              width: 0, height: 0,
+              borderLeft:  '3px solid transparent',
+              borderRight: '3px solid transparent',
+              borderTop:   '4px solid #94a3b8',
+            }} />
+          </Box>
+        )}
+      </Box>
     </Box>
   )
 }
@@ -159,10 +174,12 @@ function EquipmentRow({
   row,
   isSelected,
   onClick,
+  showGoalLabel,
 }: {
-  row:        IHAssetTypeRow
-  isSelected: boolean
-  onClick:    () => void
+  row:           IHAssetTypeRow
+  isSelected:    boolean
+  onClick:       () => void
+  showGoalLabel?: boolean
 }) {
   const pct   = row.total > 0 ? Math.round((row.withPatient / row.total) * 100) : 0
   const color = barColor(pct)
@@ -175,7 +192,8 @@ function EquipmentRow({
         alignItems:   'center',
         gap:          1.5,
         px:           1.5,
-        py:           1.25,
+        pt:           showGoalLabel ? 3.5 : 1.25,
+        pb:           1.25,
         borderRadius: 2,
         cursor:       'pointer',
         border:       `1.5px solid ${isSelected ? TEAL : 'transparent'}`,
@@ -200,14 +218,14 @@ function EquipmentRow({
           {isSelected && (
             <Typography
               sx={{
-                fontSize:   9,
-                fontWeight: 700,
-                color:      TEAL,
+                fontSize:      9,
+                fontWeight:    700,
+                color:         TEAL,
                 letterSpacing: '0.04em',
-                border:     `1px solid ${TEAL}`,
-                borderRadius: 1,
-                px:         0.5,
-                lineHeight: 1.6,
+                border:        `1px solid ${TEAL}`,
+                borderRadius:  1,
+                px:            0.5,
+                lineHeight:    1.6,
               }}
             >
               viewing
@@ -220,8 +238,8 @@ function EquipmentRow({
       </Box>
 
       {/* Bar */}
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, mt: 1.25 }}>
-        <UsageBar pct={pct} />
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <UsageBar pct={pct} showGoalLabel={showGoalLabel} />
         <Typography sx={{ fontSize: 14, fontWeight: 700, color, minWidth: 38, textAlign: 'right' }}>
           {pct}%
         </Typography>
@@ -869,14 +887,16 @@ export default function HowMuchGetsUsed({
   })()
 
   // Flip stat cards — peak / freeable / idle values
-  const peak        = peakData?.count ?? withPatient
-  const idleAtPeak  = Math.max(0, total - peak)
-  const peakPct     = total > 0 ? Math.round((peak / total) * 100) : 0
-  const uv          = unitValue ?? 0
-  const buf         = spareBuffer ?? 0
-  const freeable    = Math.max(0, total - (peak + buf))
-  const freeablePct = total > 0 ? Math.round((freeable / total) * 100) : 0
-  const showCard3   = uv > 0 && peak > 0
+  const peak           = peakData?.count ?? withPatient
+  const idleAtPeak     = Math.max(0, total - peak)
+  const peakPct        = total > 0 ? Math.round((peak / total) * 100) : 0
+  const uv             = unitValue ?? 0
+  const buf            = spareBuffer ?? 0
+  // "What that's worth": idle at peak (645) + spare buffer (50) × unit value
+  // Represents the full cost of non-active inventory including the safety cushion
+  const costlySitting    = idleAtPeak + buf
+  const costlySittingPct = total > 0 ? Math.round((costlySitting / total) * 100) : 0
+  const showCard3        = uv > 0 && peak > 0
 
   // Compute 2-letter initials from first two words of displayName
   const initials = displayName
@@ -1159,21 +1179,38 @@ export default function HowMuchGetsUsed({
           },
         ]
 
+        const card3Why = (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box>
+              <Box component="span" sx={{ fontWeight: 700, display: 'block' }}>What this measures</Box>
+              The cost of {assetLabel.toLowerCase()} sitting unused — every unit idle at your busiest moment plus the spare cushion you keep on hand.
+            </Box>
+            <Box>
+              <Box component="span" sx={{ fontWeight: 700, display: 'block' }}>How it&apos;s calculated</Box>
+              Idle at peak ({idleAtPeak.toLocaleString()}) + spare cushion ({buf}) = {costlySitting.toLocaleString()} units × ${uv.toLocaleString()} each = {fmtMoney(costlySitting * uv)}.
+            </Box>
+            <Box>
+              <Box component="span" sx={{ fontWeight: 700, display: 'block' }}>Benchmark</Box>
+              A real 380-bed hospital cut a 1,200-pump purchase to 780 with exactly this math — over $1M saved.
+            </Box>
+          </Box>
+        )
+
         const card3Faces: StatFace[] = showCard3 ? [
           {
-            metric: fmtMoney(freeable * uv),
-            suffix: 'freeable',
-            why:    `Freeable count (${freeable.toLocaleString()}) × unit cost ($${uv.toLocaleString()}) = ${fmtMoney(freeable * uv)} worth of equipment beyond what you actually need.`,
+            metric: fmtMoney(costlySitting * uv),
+            suffix: 'sitting idle',
+            why:    card3Why,
           },
           {
-            metric: freeable.toLocaleString(),
-            suffix: `${assetLabel.toLowerCase().replace(/s$/, '')}s too many`,
-            why:    `Total (${total.toLocaleString()}) − peak demand (${peak.toLocaleString()}) − safety buffer (${buf}) = ${freeable.toLocaleString()} more ${assetLabel.toLowerCase()} than required.`,
+            metric: costlySitting.toLocaleString(),
+            suffix: `${assetLabel.toLowerCase().replace(/s$/, '')}s not active`,
+            why:    card3Why,
           },
           {
-            metric: `${freeablePct}%`,
+            metric: `${costlySittingPct}%`,
             suffix: 'of the fleet',
-            why:    `Freeable count (${freeable.toLocaleString()}) ÷ total fleet (${total.toLocaleString()}) = ${freeablePct}% of your tagged fleet is beyond what peak demand requires.`,
+            why:    card3Why,
           },
         ] : []
 
@@ -1204,7 +1241,7 @@ export default function HowMuchGetsUsed({
             card3={showCard3 ? {
               label:       'What that\'s worth',
               faces:       card3Faces,
-              description: `The value of roughly ${freeable.toLocaleString()} ${assetLabel.toLowerCase()} beyond your busiest day plus a comfortable cushion of ${buf} spares.`,
+              description: `${idleAtPeak.toLocaleString()} idle at peak + ${buf} spare cushion = ${costlySitting.toLocaleString()} ${assetLabel.toLowerCase()} × $${uv.toLocaleString()} = ${fmtMoney(costlySitting * uv)} sitting unused.`,
             } : null}
           />
         )
@@ -1232,11 +1269,12 @@ export default function HowMuchGetsUsed({
             </Typography>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {assetTypeUtilisation.map((row) => (
+              {assetTypeUtilisation.map((row, idx) => (
                 <EquipmentRow
                   key={row.assetType}
                   row={row}
                   isSelected={assetType === row.assetType}
+                  showGoalLabel={idx === 0}
                   onClick={() =>
                     onSelectAssetType(assetType === row.assetType ? undefined : row.assetType)
                   }

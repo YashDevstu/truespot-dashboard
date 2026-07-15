@@ -788,7 +788,7 @@ export function buildIHFloorReadinessQuery(filters: InsightHubFilters): string {
   const floorValid  = `NOT ISBLANK(${FLOOR_COL}) && ${FLOOR_COL} <> "" && ${FLOOR_COL} <> "Unknown"`
   // Rush hour: only count assets present on the floor during 8am–10am morning medication pass.
   // A session overlaps 8–10am if it started before 10am AND ended at or after 8am.
-  const rushHour    = `HOUR(${TL}[PreviousLastSeenNew_]) < 10 && HOUR(${TL}[Last Seen-Local]) >= 8`
+  const rushHour    = `HOUR(${TL}[Last Seen-Local]) < 10 && HOUR(${TL}[PreviousLastSeenNew_]) >= 8`
   const baseConds   = [durationOk, recentCond, floorValid, rushHour]
 
   if (filters.assetType) {
@@ -828,7 +828,7 @@ export function buildIHFloorReadinessByTypeQuery(): string {
   const floorValid = `NOT ISBLANK(${FLOOR_COL}) && ${FLOOR_COL} <> "" && ${FLOOR_COL} <> "Unknown"`
   const typeValid  = `NOT ISBLANK(${TL}[AssetType]) && ${TL}[AssetType] <> ""`
   // Rush hour: only count assets present during 8am–10am morning medication pass.
-  const rushHour   = `HOUR(${TL}[PreviousLastSeenNew_]) < 10 && HOUR(${TL}[Last Seen-Local]) >= 8`
+  const rushHour   = `HOUR(${TL}[Last Seen-Local]) < 10 && HOUR(${TL}[PreviousLastSeenNew_]) >= 8`
 
   return `EVALUATE
 SELECTCOLUMNS(

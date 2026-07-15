@@ -808,10 +808,20 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
   const [trendState,  setTrendState]  = useState<{ points: TrendPoint[]; key: string }>({ points: [], key: '' })
   const trendFetchRef = useRef<AbortController | null>(null)
 
-  // Tightest floor: lowest avgCount/par ratio — the floor most below its minimum on average
+  // Tightest floor: the floor that comes closest to par without consistently meeting it.
+  // Exclude floors with very low average counts (< 5) — these are utility/service areas
+  // with almost no tagged equipment and a par of 50, which would always rank as "worst".
+  // Among meaningful floors, prefer ones that are short or tight; break ties by avgCount/par.
   const tightestFloor = [...rows]
-    .filter((r) => r.par > 0)
-    .sort((a, b) => (a.avgCount / a.par) - (b.avgCount / b.par))[0]
+    .filter((r) => r.par > 0 && r.avgCount >= 5)
+    .sort((a, b) => {
+      // Short floors first, then tight, then enough
+      const statusRank = (r: typeof a) => r.status === 'short' ? 0 : r.status === 'tight' ? 1 : 2
+      const sr = statusRank(a) - statusRank(b)
+      if (sr !== 0) return sr
+      // Within same status, pick the one closest to par (highest ratio) — most clinically relevant
+      return (b.avgCount / b.par) - (a.avgCount / a.par)
+    })[0]
 
   // Single string that encodes all fetch inputs — safe to use as the sole dep
   const hourlyKey     = tightestFloor ? `${clientId}|${dashboardKey}|${tightestFloor.floor}|${assetType ?? ''}` : ''

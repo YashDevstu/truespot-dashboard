@@ -42,11 +42,11 @@
       "spare_buffer": 50,
       "unit_value": 3000,
       "floor_par": {
-        "default": 1,
+        "default": 50,
         "tight_pct": 0.8,
         "floors": {
           "1st Floor": {
-            "par": 25,
+            "par": 50,
             "by_type": {
               "Pumps": 25,
               "Patient Monitors": 6,
@@ -60,7 +60,7 @@
             }
           },
           "2nd Floor": {
-            "par": 44,
+            "par": 50,
             "by_type": {
               "Pumps": 44,
               "Patient Monitors": 10,
@@ -74,7 +74,7 @@
             }
           },
           "3rd Floor": {
-            "par": 94,
+            "par": 50,
             "by_type": {
               "Pumps": 94,
               "Patient Monitors": 10,
@@ -88,7 +88,7 @@
             }
           },
           "4th - Fountain Tower": {
-            "par": 41,
+            "par": 50,
             "by_type": {
               "Pumps": 41,
               "Patient Monitors": 6,
@@ -101,7 +101,7 @@
             }
           },
           "4th - France Tower": {
-            "par": 21,
+            "par": 50,
             "by_type": {
               "Pumps": 21,
               "Patient Monitors": 13,
@@ -113,7 +113,7 @@
             }
           },
           "5th - Fountain Tower": {
-            "par": 6,
+            "par": 50,
             "by_type": {
               "Pumps": 6,
               "Patient Monitors": 3,
@@ -123,7 +123,7 @@
             }
           },
           "5th - France Tower": {
-            "par": 13,
+            "par": 50,
             "by_type": {
               "Pumps": 13,
               "Patient Monitors": 11,
@@ -135,7 +135,7 @@
             }
           },
           "6th - Fountain Tower": {
-            "par": 7,
+            "par": 50,
             "by_type": {
               "Pumps": 7,
               "Patient Monitors": 10,
@@ -146,7 +146,7 @@
             }
           },
           "6th - France Tower": {
-            "par": 11,
+            "par": 50,
             "by_type": {
               "Pumps": 11,
               "Patient Monitors": 10,
@@ -158,7 +158,7 @@
             }
           },
           "7th - Fountain Tower": {
-            "par": 13,
+            "par": 50,
             "by_type": {
               "Pumps": 13,
               "Patient Monitors": 10,
@@ -170,7 +170,7 @@
             }
           },
           "7th - France Tower": {
-            "par": 20,
+            "par": 50,
             "by_type": {
               "Pumps": 20,
               "Patient Monitors": 13,
@@ -183,7 +183,7 @@
             }
           },
           "8th - Fountain Tower": {
-            "par": 6,
+            "par": 50,
             "by_type": {
               "Pumps": 6,
               "Patient Monitors": 3,
@@ -206,7 +206,7 @@
             }
           },
           "9th - Fountain Tower": {
-            "par": 3,
+            "par": 50,
             "by_type": {
               "Pumps": 3,
               "Beds": 3,
@@ -216,7 +216,7 @@
             }
           },
           "9th Floor - France": {
-            "par": 3,
+            "par": 50,
             "by_type": {
               "Beds": 3,
               "Stretchers": 3,
@@ -224,7 +224,7 @@
             }
           },
           "10th Floor - France": {
-            "par": 1,
+            "par": 50,
             "by_type": {
               "Pumps": 1,
               "Beds": 1,
@@ -233,14 +233,14 @@
             }
           },
           "10th - Fountain Tower": {
-            "par": 1,
+            "par": 50,
             "by_type": {
               "Pumps": 1,
               "Carts": 1
             }
           },
           "Ground Floor": {
-            "par": 51,
+            "par": 50,
             "by_type": {
               "Pumps": 51,
               "Patient Monitors": 27,
@@ -254,7 +254,7 @@
             }
           },
           "Halifax Health Medical Center": {
-            "par": 21,
+            "par": 50,
             "by_type": {
               "Pumps": 21,
               "Carts": 1,
@@ -263,7 +263,7 @@
             }
           },
           "Lohman Building": {
-            "par": 4,
+            "par": 50,
             "by_type": {
               "Pumps": 4,
               "Patient Monitors": 3,
@@ -274,19 +274,19 @@
             }
           },
           "ROC-ONC - 1st Floor": {
-            "par": 1,
+            "par": 50,
             "by_type": {
               "Pumps": 1
             }
           },
           "ROC-ONC - 2nd Floor": {
-            "par": 6,
+            "par": 50,
             "by_type": {
               "Pumps": 6
             }
           },
           "ROC-ONC - Ground Floor": {
-            "par": 1,
+            "par": 50,
             "by_type": {
               "Patient Monitors": 1,
               "Beds": 1,
@@ -295,7 +295,7 @@
             }
           },
           "Service Building": {
-            "par": 1,
+            "par": 50,
             "by_type": {
               "Pumps": 1,
               "Patient Monitors": 3

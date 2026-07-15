@@ -337,7 +337,7 @@ const DEBOUNCE_MS = 300
 
 export function useInsightHubData(clientId: string, dashboardKey: string) {
   const [activeReport, setActiveReport] = useState<InsightHubReport>('utilisation')
-  const [filters, setFilters]           = useState<InsightHubFilters>({})
+  const [filters, setFilters]           = useState<InsightHubFilters>({ assetType: 'Pumps' })
   const [dayOffset, setDayOffset]       = useState(1)
 
   const [utilisation,          setUtilisation]          = useState<IHUtilisationData | null>(null)

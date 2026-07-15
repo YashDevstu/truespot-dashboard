@@ -9,7 +9,7 @@ const TEAL = '#0d9488'
 export interface StatFace {
   metric: string
   suffix: string
-  why:    string
+  why:    React.ReactNode
 }
 
 export interface StatCardConfig {
@@ -185,9 +185,9 @@ export default function FlipStatCards({ card1, card2, card3 }: FlipStatCardsProp
               </Box>
 
               {isOpen && (
-                <Typography sx={{ fontSize: 12, color: dark ? 'rgba(255,255,255,0.38)' : '#6b7280', lineHeight: 1.65, mt: 1.25, pl: '26px' }}>
-                  {face?.why ?? ''}
-                </Typography>
+                <Box sx={{ mt: 1.25, pl: '26px', fontSize: 12, color: dark ? 'rgba(255,255,255,0.38)' : '#6b7280', lineHeight: 1.65 }}>
+                  {face?.why}
+                </Box>
               )}
             </Box>
           </Box>
