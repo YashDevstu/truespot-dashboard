@@ -44,7 +44,6 @@ export default function InsightHubDashboard({
   configuredTypes,
 }: InsightHubDashboardProps) {
   void dashboardLabel
-  void product
 
   const isGeofenceBased = classification === 'geofence'
 
@@ -65,7 +64,6 @@ export default function InsightHubDashboard({
     locationCategories,
     categoryAssets,
     selectedCategory,
-    setSelectedCategory,
     selectCategory,
     categoryLoading,
     categoryDailyRows,
@@ -468,6 +466,8 @@ export default function InsightHubDashboard({
 
         {activeReport === 'utilisation' && (
           <HowMuchGetsUsed
+            clientId={clientId}
+            product={product}
             data={utilisation}
             peakData={peakData}
             spareBuffer={spareBuffer}

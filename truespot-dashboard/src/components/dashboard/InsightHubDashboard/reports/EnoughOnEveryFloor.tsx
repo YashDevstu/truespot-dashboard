@@ -9,6 +9,8 @@ import type { IHFloorStatusRow, IHFloorReadinessByTypeRow } from '@/hooks/useIns
 import CheckItYourself from './CheckItYourself'
 import WhatYouCanDoAboutIt from './WhatYouCanDoAboutIt'
 import FlipStatCards from '../shared/FlipStatCards'
+import { PinIcon } from '../shared/PerTenIconGrid'
+import { parseUtcTimestamp, getFacilityParts } from '@/utils/formatters'
 
 const TEAL   = '#0d9488'
 const AMBER  = '#d97706'
@@ -30,26 +32,55 @@ function DeviceIcon({ size = 18, color = 'currentColor' }: { size?: number; colo
 // ── Status metadata ────────────────────────────────────────────────────────────
 
 const STATUS_META = {
-  enough: {
-    color:    TEAL,
-    bg:       '#f0fdfb',
-    label:    (n: number) => n === 1 ? 'floor enough on hand' : 'floors enough on hand',
-  },
-  tight: {
-    color:    AMBER,
-    bg:       '#fffbeb',
-    label:    (n: number) => n === 1 ? 'floor getting tight' : 'floors getting tight',
-  },
-  short: {
-    color:    RED,
-    bg:       '#fff1f2',
-    label:    (n: number) => n === 1 ? 'floor ran short' : 'floors ran short',
-  },
+  enough: { color: TEAL,  bg: '#f0fdfb' },
+  tight:  { color: AMBER, bg: '#fffbeb' },
+  short:  { color: RED,   bg: '#fff1f2' },
 }
 
-// ── Icon column ────────────────────────────────────────────────────────────────
+// ── "What this page tells you" checklist box ─────────────────────────────────
 
-function FloorIconColumn({
+function WhatThisPageTellsYou({ assetLabel }: { assetLabel: string }) {
+  const items = [
+    `Your TrueSpot tags count exactly how many ${assetLabel.toLowerCase()} sit on every floor, every hour — not a guess from a spreadsheet built last quarter.`,
+    `"Enough" means a floor had what it needed before the morning rush started — not after a nurse already went looking for one.`,
+    `Every morning that missed par is a morning someone went hunting. Don't trust it blindly: follow any floor and its devices below, and flag anything wrong.`,
+  ]
+
+  return (
+    <Box
+      sx={{
+        bgcolor:      'rgba(13,148,136,0.07)',
+        border:       '1px solid rgba(13,148,136,0.18)',
+        borderRadius: 3,
+        p:            2.5,
+      }}
+    >
+      <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary', mb: 1.5 }}>
+        What this page tells you
+      </Typography>
+      <Box
+        sx={{
+          display:               'grid',
+          gridTemplateColumns:    { xs: '1fr', md: 'repeat(3, 1fr)' },
+          gap:                    2,
+        }}
+      >
+        {items.map((text, i) => (
+          <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+            <Box sx={{ color: TEAL, fontSize: 14, fontWeight: 700, lineHeight: 1.5, flexShrink: 0 }}>✓</Box>
+            <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55 }}>
+              {text}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  )
+}
+
+// ── Status pin-row (horizontal) ─────────────────────────────────────────────────
+
+function FloorStatusRow({
   floors,
   status,
 }: {
@@ -58,71 +89,72 @@ function FloorIconColumn({
 }) {
   const meta  = STATUS_META[status]
   const count = floors.length
-  if (count === 0) return null
 
-  // Cap at 10 icons so the column doesn't overflow; show "+N" if more
-  const iconsVisible = Math.min(count, 10)
+  // Cap pins shown so the row doesn't run away for large floor counts
+  const iconsVisible = Math.min(count, 15)
   const overflow     = count - iconsVisible
 
   return (
-    <Box
-      sx={{
-        flex:           '1 1 0',
-        display:        'flex',
-        flexDirection:  'column',
-        alignItems:     'center',
-        gap:            0.5,
-      }}
-    >
-      {/* Tile with stacked icons */}
-      <Box
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      {/* Label */}
+      <Typography
         sx={{
-          bgcolor:        meta.bg,
-          borderRadius:   3,
-          p:              2,
-          width:          '100%',
-          display:        'flex',
-          flexDirection:  'column',
-          alignItems:     'center',
-          justifyContent: 'flex-end',
-          gap:            0.75,
-          minHeight:      80,
+          fontSize:   13,
+          fontWeight: 500,
+          color:      count > 0 ? 'text.secondary' : 'text.disabled',
+          lineHeight: 1.35,
+          minWidth:   120,
+          flexShrink: 0,
         }}
       >
-        {Array.from({ length: iconsVisible }).map((_, i) => (
-          <DeviceIcon key={i} size={20} color={meta.color} />
-        ))}
-        {overflow > 0 && (
-          <Typography sx={{ fontSize: 11, color: meta.color, fontWeight: 700 }}>
-            +{overflow} more
-          </Typography>
-        )}
-      </Box>
+        {status === 'enough' ? 'Enough on hand' : status === 'tight' ? 'Getting tight' : 'Ran short'}
+      </Typography>
+
+      {/* Pin chip — wraps if it runs out of room */}
+      {count > 0 ? (
+        <Box
+          sx={{
+            flex:         1,
+            bgcolor:      meta.bg,
+            borderRadius: 2.5,
+            px:           1.5,
+            py:           0.75,
+            display:      'flex',
+            flexWrap:     'wrap',
+            gap:          '5px',
+            alignItems:   'center',
+            minHeight:    38,
+          }}
+        >
+          {Array.from({ length: iconsVisible }).map((_, i) => (
+            <PinIcon key={i} color={meta.color} size={22} />
+          ))}
+          {overflow > 0 && (
+            <Typography sx={{ fontSize: 11, color: meta.color, fontWeight: 700, ml: 0.5 }}>
+              +{overflow} more
+            </Typography>
+          )}
+        </Box>
+      ) : (
+        <Box sx={{ flex: 1, minHeight: 38, display: 'flex', alignItems: 'center', px: 1 }}>
+          <Box sx={{ width: 20, height: 2, bgcolor: '#e2e8f0', borderRadius: 1 }} />
+        </Box>
+      )}
 
       {/* Count */}
       <Typography
         sx={{
-          fontSize:   28,
-          fontWeight: 900,
-          color:      meta.color,
-          lineHeight: 1.1,
-          mt:         0.5,
+          fontSize:      24,
+          fontWeight:    800,
+          color:         count > 0 ? meta.color : '#cbd5e1',
+          letterSpacing: '-0.02em',
+          lineHeight:    1,
+          minWidth:      28,
+          textAlign:     'right',
+          flexShrink:    0,
         }}
       >
         {count}
-      </Typography>
-
-      {/* Label */}
-      <Typography
-        sx={{
-          fontSize:   11,
-          color:      'text.secondary',
-          textAlign:  'center',
-          lineHeight: 1.35,
-          px:         0.5,
-        }}
-      >
-        {meta.label(count)}
       </Typography>
     </Box>
   )
@@ -195,16 +227,20 @@ function computeHourlyAvg(sessions: HourlySession[]): number[] {
   const dayMap = new Map<string, { vin: string; startMin: number; endMin: number }[]>()
 
   for (const s of sessions) {
-    const start = new Date(s.sessionStart)
-    const end   = new Date(s.sessionEnd)
+    const start = parseUtcTimestamp(s.sessionStart)
+    const end   = parseUtcTimestamp(s.sessionEnd)
     if (isNaN(start.getTime()) || isNaN(end.getTime())) continue
 
-    const dayKey = `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`
+    // Bucket by the facility's own local day/hour (Eastern, DST-aware), not
+    // whatever timezone the viewer's browser happens to be in.
+    const startParts = getFacilityParts(start)
+    const endParts   = getFacilityParts(end)
+    const dayKey = `${startParts.year}-${startParts.month}-${startParts.day}`
     if (!dayMap.has(dayKey)) dayMap.set(dayKey, [])
     dayMap.get(dayKey)!.push({
       vin:      s.vin,
-      startMin: start.getHours() * 60 + start.getMinutes(),
-      endMin:   end.getHours()   * 60 + end.getMinutes(),
+      startMin: startParts.hour * 60 + startParts.minute,
+      endMin:   endParts.hour   * 60 + endParts.minute,
     })
   }
 
@@ -446,7 +482,7 @@ function TypicalDayChart({
             ? <>The tightest window is{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>8–10 am</Box>{', '}when the morning medication pass starts —</>
             : <>The tightest window is{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{tightStart}–{tightEnd}</Box>{' '}—</>
           }
-          {' '}that's when{' '}
+          {' '}that&apos;s when{' '}
           <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{floorName}</Box>
           {' '}
           {lowestPct < 100
@@ -1014,6 +1050,9 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
         have enough {assetLabel.toLowerCase()} on hand — or does someone have to go hunting first?
       </Typography>
 
+      {/* ── What this page tells you ─────────────────────────────────────────── */}
+      <WhatThisPageTellsYou assetLabel={assetLabel} />
+
       {/* ── Main card ────────────────────────────────────────────────────────── */}
       <Box
         sx={{
@@ -1023,43 +1062,59 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
           boxShadow:    '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
         }}
       >
-        {/* Card heading */}
-        <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary', mb: 1.25 }}>
-          When the morning rush hits, does every floor have enough{' '}
-          {assetLabel.toLowerCase()}?
+        {/* Eyebrow */}
+        <Typography
+          sx={{
+            fontSize:      11,
+            fontWeight:    700,
+            letterSpacing: '0.08em',
+            color:         'text.disabled',
+            textTransform: 'uppercase',
+            mb:            2,
+          }}
+        >
+          Across your {rows.length} floor{rows.length !== 1 ? 's' : ''} and units, on a typical morning…
         </Typography>
 
-        {/* % of floor-days met par */}
-        <Typography sx={{ fontSize: 14, color: 'text.primary', lineHeight: 1.6 }}>
-          <Box component="span" sx={{ fontWeight: 700 }}>
-            {pctMet}% of floor-days met par
-          </Box>
-          {' '}over the last 7 days — the rest, someone had to go hunting.
-        </Typography>
+        {/* ── Left stat + narrative, right status pin-rows ────────────────────── */}
+        <Box sx={{ display: 'flex', gap: 4, alignItems: 'stretch', flexWrap: 'wrap' }}>
 
-        {/* Metadata sub-line */}
-        <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.5, mb: 3 }}>
-          {totalVINs > 0 && `Based on ${totalVINs.toLocaleString()} tagged ${assetLabel.toLowerCase()} across `}
-          {totalVINs === 0 && 'Across '}
-          {rows.length} floor{rows.length !== 1 ? 's' : ''} and units · {dateRange}
-        </Typography>
+          {/* LEFT — big stat + narrative + metadata */}
+          <Box sx={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 240 }}>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+              <Typography
+                sx={{
+                  fontSize:      56,
+                  fontWeight:    900,
+                  color:         TEAL,
+                  lineHeight:    0.95,
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {pctMet}%
+              </Typography>
+              <Typography sx={{ fontSize: 16, fontWeight: 700, color: 'text.secondary' }}>
+                met par
+              </Typography>
+            </Box>
 
-        {/* ── Three-column icon grid + right stat ───────────────────────────── */}
-        <Box sx={{ display: 'flex', gap: 3, alignItems: 'stretch' }}>
+            <Typography
+              sx={{
+                fontSize:   13,
+                color:      'text.secondary',
+                lineHeight: 1.65,
+                mt:         1.5,
+              }}
+            >
+              {narrative}
+            </Typography>
 
-          {/* LEFT — icon columns */}
-          <Box
-            sx={{
-              flex:           '1 1 auto',
-              display:        'flex',
-              gap:            2,
-              alignItems:     'flex-end',
-              minWidth:       0,
-            }}
-          >
-            <FloorIconColumn floors={enoughFloors} status="enough" />
-            <FloorIconColumn floors={tightFloors}  status="tight"  />
-            <FloorIconColumn floors={shortFloors}  status="short"  />
+            {/* Metadata sub-line */}
+            <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 1.5 }}>
+              {totalVINs > 0 && `Based on ${totalVINs.toLocaleString()} tagged ${assetLabel.toLowerCase()} across `}
+              {totalVINs === 0 && 'Across '}
+              {rows.length} floor{rows.length !== 1 ? 's' : ''} and units · {dateRange}
+            </Typography>
           </Box>
 
           {/* Vertical divider — must be '1px' string; numeric 1 = 100% in MUI sx */}
@@ -1069,52 +1124,19 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
               bgcolor:   'divider',
               flexShrink: 0,
               alignSelf: 'stretch',
+              display:   { xs: 'none', md: 'block' },
             }}
           />
 
-          {/* RIGHT — stat + narrative */}
-          <Box
-            sx={{
-              flex:    '0 0 240px',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize:   56,
-                fontWeight: 900,
-                color:      TEAL,
-                lineHeight: 0.95,
-                letterSpacing: '-0.02em',
-              }}
-            >
-              {pctMet}%
-            </Typography>
+          {/* RIGHT — status pin-rows */}
+          <Box sx={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1.5, minWidth: 280 }}>
+            <FloorStatusRow floors={enoughFloors} status="enough" />
+            <FloorStatusRow floors={tightFloors}  status="tight"  />
+            <FloorStatusRow floors={shortFloors}  status="short"  />
 
-            <Typography
-              sx={{
-                fontSize:      11,
-                fontWeight:    700,
-                letterSpacing: '0.09em',
-                color:         'text.disabled',
-                textTransform: 'uppercase',
-                mt:            1.25,
-                mb:            1.5,
-              }}
-            >
-              Of floor-days met par
-            </Typography>
-
-            <Typography
-              sx={{
-                fontSize:   13,
-                color:      'text.secondary',
-                lineHeight: 1.65,
-              }}
-            >
-              {narrative}
+            <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 0.5 }}>
+              <Box component="span" sx={{ fontWeight: 700, letterSpacing: '0.04em' }}>HOW TO READ</Box>
+              {'  '}Each row is how many of your {rows.length} floors fall in that group on a typical morning; every pin is one floor.
             </Typography>
           </Box>
         </Box>
@@ -1258,7 +1280,9 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
 
       {/* ── Floor readiness by type  +  Is it getting better? — side by side ───── */}
       {(byTypeRows.length > 0 || rows.length > 0) && (() => {
-        const visibleRows = byTypeRows
+        const visibleRows = configuredTypes
+          ? byTypeRows.filter((r) => configuredTypes.includes(r.assetType))
+          : byTypeRows
 
         const selectedRow = visibleRows.find((r) => r.assetType === assetType)
         const focusRow    = selectedRow ?? [...visibleRows].sort((a, b) => a.pctMet - b.pctMet)[0]

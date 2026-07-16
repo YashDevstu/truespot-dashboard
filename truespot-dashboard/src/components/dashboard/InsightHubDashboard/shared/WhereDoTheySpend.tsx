@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useRef } from 'react'
+import NextLink from 'next/link'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Skeleton from '@mui/material/Skeleton'
@@ -9,7 +10,9 @@ import type {
   IHCategoryAssetRow,
   IHCategoryDailyRow,
   IHAssetTrailRow,
+  IHPeakData,
 } from '@/hooks/useInsightHubData'
+import { parseUtcTimestamp, getFacilityParts } from '@/utils/formatters'
 
 const TEAL = '#0d9488'
 
@@ -28,11 +31,13 @@ interface CatMeta {
 const AMBER      = '#d97706'
 const RED        = '#ef4444'
 const DARK_NAVY  = '#0c2340'
-const SLATE      = '#334155'
 
+// 5 location-status categories — matches categoryExprGFLH and the same status
+// vocabulary used everywhere else in the app (With Patient / Moving-Cleaning /
+// Exit / Sitting Unused / Hard to Find), rather than raw building names.
 const CAT_META: Record<string, CatMeta> = {
   patient: {
-    label:    'Patient rooms',
+    label:    'With Patient',
     sublabel: 'Clinical · active',
     badge:    'WHERE IT SHOULD BE',
     bg:       TEAL,
@@ -40,44 +45,17 @@ const CAT_META: Record<string, CatMeta> = {
     badgeBg:  'rgba(255,255,255,0.18)',
     badgeFg:  '#fff',
   },
-  france_tower: {
-    label:    'France Tower',
-    sublabel: 'Sister building',
-    badge:    'SISTER BUILDING',
-    bg:       DARK_NAVY,
-    fg:       '#fff',
-    badgeBg:  'rgba(255,255,255,0.12)',
-    badgeFg:  '#93c5fd',
-  },
-  fountain: {
-    label:    'Fountain Building',
-    sublabel: 'Sister building',
-    badge:    'SISTER BUILDING',
-    bg:       SLATE,
-    fg:       '#fff',
-    badgeBg:  'rgba(255,255,255,0.12)',
-    badgeFg:  '#cbd5e1',
-  },
-  satellite: {
-    label:    'Satellite Clinics',
-    sublabel: 'Lohman & ROC-ONC',
-    badge:    'SATELLITE',
-    bg:       '#475569',
-    fg:       '#fff',
-    badgeBg:  'rgba(255,255,255,0.12)',
-    badgeFg:  '#cbd5e1',
-  },
-  unknown: {
-    label:    'Unseen / Lost signal',
-    sublabel: 'Off the radar',
-    badge:    'OFF THE RADAR',
-    bg:       '#ef4444',
+  moving_cleaning: {
+    label:    'Moving / Cleaning',
+    sublabel: 'Turnover',
+    badge:    'CLEANING & PREP',
+    bg:       AMBER,
     fg:       '#fff',
     badgeBg:  'rgba(255,255,255,0.18)',
-    badgeFg:  '#fff',
+    badgeFg:  '#fde68a',
   },
   exit: {
-    label:    'Exits & Loading',
+    label:    'Exit',
     sublabel: 'Off the radar',
     badge:    'OFF THE RADAR',
     bg:       RED,
@@ -85,68 +63,32 @@ const CAT_META: Record<string, CatMeta> = {
     badgeBg:  'rgba(255,255,255,0.18)',
     badgeFg:  '#fca5a5',
   },
-  soiled: {
-    label:    'Soiled utility',
-    sublabel: 'Turnover',
-    badge:    'CLEANING & PREP',
-    bg:       AMBER,
-    fg:       '#fff',
-    badgeBg:  'rgba(255,255,255,0.18)',
-    badgeFg:  '#fde68a',
-  },
-  clean_storage: {
-    label:    'Clean storage',
-    sublabel: 'Idle store',
-    badge:    'SITTING STORED',
+  sitting_unused: {
+    label:    'Sitting Unused',
+    sublabel: 'Idle, wherever it is',
+    badge:    'SITTING UNUSED',
     bg:       '#f1f5f9',
     fg:       '#0f172a',
     badgeBg:  '#e2e8f0',
     badgeFg:  '#475569',
   },
-  hallway: {
-    label:    'Hallways & Corridors',
-    sublabel: 'Normal moving around',
-    badge:    'NORMAL STOP',
+  unknown: {
+    label:    'Hard to Find',
+    sublabel: 'Off the radar',
+    badge:    'OFF THE RADAR',
     bg:       DARK_NAVY,
     fg:       '#fff',
     badgeBg:  'rgba(255,255,255,0.12)',
     badgeFg:  '#93c5fd',
   },
-  staff: {
-    label:    'Staff Areas',
-    sublabel: 'Normal moving around',
-    badge:    'NORMAL STOP',
-    bg:       '#f8fafc',
-    fg:       '#0f172a',
-    badgeBg:  '#e2e8f0',
-    badgeFg:  '#475569',
-  },
-  other: {
-    label:    'Other locations',
-    sublabel: 'Mixed',
-    badge:    'NORMAL STOP',
-    bg:       '#f8fafc',
-    fg:       '#0f172a',
-    badgeBg:  '#e2e8f0',
-    badgeFg:  '#475569',
-  },
-  cleaning: {
-    label:    'Soiled & SPD',
-    sublabel: 'Turnover',
-    badge:    'CLEANING & PREP',
-    bg:       AMBER,
-    fg:       '#fff',
-    badgeBg:  'rgba(255,255,255,0.18)',
-    badgeFg:  '#fde68a',
-  },
 }
 
 const LEGEND = [
-  { color: TEAL,       label: 'Time with patients' },
-  { color: DARK_NAVY,  label: 'Normal moving around' },
-  { color: AMBER,      label: 'Cleaning & prep' },
-  { color: '#e2e8f0',  label: 'Sitting stored', border: '#94a3b8' },
-  { color: RED,        label: 'Where it should not be' },
+  { color: TEAL,       label: 'With Patient' },
+  { color: AMBER,      label: 'Moving / Cleaning' },
+  { color: RED,        label: 'Exit' },
+  { color: '#e2e8f0',  label: 'Sitting Unused', border: '#94a3b8' },
+  { color: DARK_NAVY,  label: 'Hard to Find' },
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -161,7 +103,7 @@ function fmtMins(mins: number): string {
 
 function timeAgo(iso: string): string {
   if (!iso) return ''
-  const diff = Date.now() - new Date(iso).getTime()
+  const diff = Date.now() - parseUtcTimestamp(iso).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1)   return 'just now'
   if (mins < 60)  return `${mins} min ago`
@@ -170,44 +112,41 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+// Shows the facility's own local clock time (Eastern, DST-aware) — not the
+// viewer's browser timezone and not the raw UTC digits.
 function fmtTime(iso: string): string {
   if (!iso) return ''
-  const d = new Date(iso)
-  let h = d.getHours()
-  const m = d.getMinutes()
-  const ampm = h >= 12 ? 'pm' : 'am'
-  h = h % 12 || 12
-  return `${h}:${String(m).padStart(2, '0')} ${ampm}`
+  const { hour, minute } = getFacilityParts(parseUtcTimestamp(iso))
+  const ampm = hour >= 12 ? 'pm' : 'am'
+  const h12  = hour % 12 || 12
+  return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`
+}
+
+function formatPeakHour(hour: number): string {
+  if (hour === 0)  return '12am'
+  if (hour < 12)   return `${hour}am`
+  if (hour === 12) return '12pm'
+  return `${hour - 12}pm`
 }
 
 function trailLabel(row: IHAssetTrailRow, isLast: boolean): string {
   switch (row.category) {
-    case 'patient':       return 'In use with a patient'
-    case 'soiled':        return 'Dropped off after use'
-    case 'clean_storage': return isLast ? 'Parked for the night' : 'Back on the shelf, ready again'
-    case 'hallway':       return row.durMins <= 10 ? 'Picked up and rolling' : 'In transit'
-    case 'staff':         return 'At staff area'
-    case 'france_tower':  return 'In France Tower'
-    case 'fountain':      return 'In Fountain Building'
-    case 'satellite':     return 'At satellite clinic'
-    case 'exit':          return 'Near exit or loading area'
-    case 'unknown':       return 'Signal lost'
-    default:              return 'In other area'
+    case 'patient':         return 'In use with a patient'
+    case 'moving_cleaning': return 'In cleaning / turnover'
+    case 'exit':            return 'Near exit or loading area'
+    case 'unknown':         return 'Signal lost'
+    default: /* sitting_unused */ return isLast ? 'Parked for the night' : 'Sitting unused'
   }
 }
 
-// ── Mosaic: fixed grid showing all 8 categories with visit-order numbers ───────
+// ── Mosaic: fixed grid showing all 5 categories with visit-order numbers ───────
 
 const MOSAIC_CELLS: { key: string; label: string; wide?: boolean }[] = [
-  { key: 'patient',       label: 'Patient floors',      wide: true },
-  { key: 'france_tower',  label: 'France Tower' },
-  { key: 'fountain',      label: 'Fountain Building' },
-  { key: 'satellite',     label: 'Satellite clinics' },
-  { key: 'clean_storage', label: 'Clean storage' },
-  { key: 'soiled',        label: 'Soiled utility' },
-  { key: 'exit',          label: 'Exits & loading' },
-  { key: 'unknown',       label: 'Unseen / lost signal' },
-  { key: 'other',         label: 'Other locations' },
+  { key: 'patient',         label: 'With Patient', wide: true },
+  { key: 'moving_cleaning', label: 'Moving / Cleaning' },
+  { key: 'exit',            label: 'Exit' },
+  { key: 'sitting_unused',  label: 'Sitting Unused' },
+  { key: 'unknown',         label: 'Hard to Find' },
 ]
 
 function buildVisitMap(rows: IHAssetTrailRow[]): Map<string, number> {
@@ -233,7 +172,7 @@ function LocationMosaic({ rows }: { rows: IHAssetTrailRow[] }) {
     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1 }}>
       {MOSAIC_CELLS.map((cell) => {
         const visitNum = visitMap.get(cell.key)
-        const meta     = CAT_META[cell.key] ?? CAT_META.other
+        const meta     = CAT_META[cell.key] ?? CAT_META.sitting_unused
         const visited  = visitNum !== undefined
         const pct      = totalMins > 0 ? Math.round((minsByCat[cell.key] ?? 0) / totalMins * 100) : 0
         const lightBg  = meta.bg === '#f1f5f9' || meta.bg === '#f8fafc'
@@ -343,7 +282,7 @@ function CategoryTile({
   large:   boolean
   onClick: () => void
 }) {
-  const meta = CAT_META[row.category] ?? CAT_META.other
+  const meta = CAT_META[row.category] ?? CAT_META.sitting_unused
 
   return (
     <Box
@@ -455,6 +394,8 @@ function AssetRow({ row, days, onSelect }: { row: IHCategoryAssetRow; days: numb
 // ── Main component ─────────────────────────────────────────────────────────────
 
 interface WhereDoTheySpendProps {
+  clientId:            string
+  product:             string
   locationCategories:  IHLocationCategoryRow[]
   categoryAssets:      IHCategoryAssetRow[]
   selectedCategory:    string | null
@@ -471,6 +412,7 @@ interface WhereDoTheySpendProps {
   assetTrailRows:      IHAssetTrailRow[]
   assetTrailLoading:   boolean
   onSelectAsset:       (vin: string | null) => void
+  peakData?:           IHPeakData | null
 }
 
 // ── Spatial twin helpers ────────────────────────────────────────────────────
@@ -483,7 +425,7 @@ function transitionColor(fromCat: string, toCat: string): { stroke: string; dash
 
 function circleColorForCategory(cat: string): string {
   if (cat === 'hallway') return '#f97316'
-  const m = CAT_META[cat] ?? CAT_META.other
+  const m = CAT_META[cat] ?? CAT_META.sitting_unused
   if (m.bg === '#f1f5f9' || m.bg === '#e2e8f0' || m.bg === '#f8fafc') return '#64748b'
   return m.bg
 }
@@ -848,7 +790,7 @@ function DeviceUtilizationCard({ rows }: { rows: IHAssetTrailRow[] }) {
       <Box sx={{ borderTop: '1px dashed', borderColor: 'divider', pt: 1.5 }}>
         <Typography sx={{ fontSize: 11, color: 'text.disabled', lineHeight: 1.6 }}>
           <Box component="span" sx={{ fontWeight: 700, color: 'text.secondary' }}>Illustrative.</Box>
-          {' '}Battery % and signal quality shown above need a real-time device telemetry feed to be accurate — currently showing placeholders. This is an open item, not a hidden gap.
+          {' '}Battery % above is this device&apos;s own reported reading. Signal quality still needs a real-time device telemetry feed to be accurate — currently a placeholder. This is an open item, not a hidden gap.
         </Typography>
       </Box>
     </Box>
@@ -901,6 +843,8 @@ function EnrichedContextCard({ assetType }: { assetType: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function WhereDoTheySpend({
+  clientId,
+  product,
   locationCategories,
   categoryAssets,
   selectedCategory,
@@ -917,12 +861,13 @@ export default function WhereDoTheySpend({
   assetTrailRows,
   assetTrailLoading,
   onSelectAsset,
+  peakData,
 }: WhereDoTheySpendProps) {
   const [showHowTo,   setShowHowTo]   = useState(false)
   const [hoveredDay,  setHoveredDay]  = useState<number | null>(null)
   const tooltipTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const meta       = selectedCategory ? (CAT_META[selectedCategory] ?? CAT_META.other) : null
+  const meta       = selectedCategory ? (CAT_META[selectedCategory] ?? CAT_META.sitting_unused) : null
   const trailAsset = assetTrailRows[0] ?? null
   // "Last signal" = end of the most recent (last) session, not start of the first
   const lastTrailRow = assetTrailRows.length > 0 ? assetTrailRows[assetTrailRows.length - 1] : null
@@ -947,10 +892,15 @@ export default function WhereDoTheySpend({
       <Typography sx={{ fontSize: 20, fontWeight: 800, color: 'text.primary', mb: 0.5 }}>
         Check it yourself.
       </Typography>
-      <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2.5, maxWidth: 680 }}>
+      <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: peakData && !selectedCategory && !selectedAsset ? 0.5 : 2.5, maxWidth: 680 }}>
         Where do your {assetType ? assetType.toLowerCase() : 'equipment'} spend their time?
         Every claim above is built from trails like these — drill down to any single device.
       </Typography>
+      {peakData && !selectedCategory && !selectedAsset && (
+        <Typography sx={{ fontSize: 12, color: TEAL, fontWeight: 600, mb: 2.5 }}>
+          These numbers are during the busiest hour — {formatPeakHour(peakData.hour)} — not an average day.
+        </Typography>
+      )}
 
       {/* ── Breadcrumb pills + hint ────────────────────────────────────────── */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
@@ -1063,11 +1013,11 @@ export default function WhereDoTheySpend({
                   <Box sx={{ width: 12, height: 12, borderRadius: 1, bgcolor: l.color, border: l.border ? `1px solid ${l.border}` : 'none', flexShrink: 0 }} />
                   <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                     <Box component="span" sx={{ fontWeight: 600 }}>{l.label}</Box>
-                    {l.label === 'Time with patients' && ' — where equipment is actively helping a patient'}
-                    {l.label === 'Normal moving around' && ' — corridors, sister buildings, transit'}
-                    {l.label === 'Cleaning & prep' && ' — soiled utility, SPD, decontamination'}
-                    {l.label === 'Sitting stored' && ' — clean storage, ready and waiting'}
-                    {l.label === 'Where it should not be' && ' — exits, lost signal, unexplained locations'}
+                    {l.label === 'With Patient' && ' — where equipment is actively helping a patient'}
+                    {l.label === 'Moving / Cleaning' && ' — soiled utility, SPD, decontamination'}
+                    {l.label === 'Exit' && ' — near an exit or loading area'}
+                    {l.label === 'Sitting Unused' && ' — idle, wherever that happens to be'}
+                    {l.label === 'Hard to Find' && ' — not seen recently, off the radar'}
                   </Typography>
                 </Box>
               ))}
@@ -1412,15 +1362,23 @@ export default function WhereDoTheySpend({
                 <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#059669' }} />
                 <Typography sx={{ fontSize: 11, fontWeight: 700, color: '#065f46' }}>TAG HEALTHY</Typography>
               </Box>
-              {/* Battery chip */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.4, borderRadius: 6, bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2" y="7" width="18" height="11" rx="2"/>
-                  <path d="M22 11v3"/>
-                  <rect x="4" y="9" width="11" height="7" rx="1" fill="#64748b" stroke="none"/>
-                </svg>
-                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Battery —</Typography>
-              </Box>
+              {/* Battery chip — from the most recent session's reported BatteryLevel */}
+              {(() => {
+                const battery = lastTrailRow?.batteryLevel ?? null
+                const low     = battery !== null && battery <= 20
+                return (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.4, borderRadius: 6, bgcolor: low ? '#fef2f2' : '#f8fafc', border: `1px solid ${low ? '#fecaca' : '#e2e8f0'}` }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={low ? '#dc2626' : '#64748b'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="7" width="18" height="11" rx="2"/>
+                      <path d="M22 11v3"/>
+                      <rect x="4" y="9" width="11" height="7" rx="1" fill={low ? '#dc2626' : '#64748b'} stroke="none"/>
+                    </svg>
+                    <Typography sx={{ fontSize: 11, color: low ? '#b91c1c' : 'text.secondary', fontWeight: low ? 700 : 400 }}>
+                      {battery !== null ? `Battery ${battery}%` : 'Battery —'}
+                    </Typography>
+                  </Box>
+                )
+              })()}
               {/* Last signal + floor (combined) */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.4, borderRadius: 6, bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1470,7 +1428,7 @@ export default function WhereDoTheySpend({
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                     {assetTrailRows.map((row, i) => {
                       const isLast = i === assetTrailRows.length - 1
-                      const m      = CAT_META[row.category] ?? CAT_META.other
+                      const m      = CAT_META[row.category] ?? CAT_META.sitting_unused
                       const label  = trailLabel(row, isLast)
                       return (
                         <Box
@@ -1617,6 +1575,22 @@ export default function WhereDoTheySpend({
             >
               ← Back to the map
             </Box>
+            <NextLink
+              href={`/dashboard/${product}/locationhistory/${clientId}`}
+              style={{ textDecoration: 'none' }}
+            >
+              <Box
+                sx={{
+                  display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                  px: 2, py: 0.75, borderRadius: 2,
+                  border: '1.5px solid', borderColor: TEAL,
+                  cursor: 'pointer', fontSize: 13, fontWeight: 600, color: TEAL,
+                  transition: 'all 0.12s', '&:hover': { bgcolor: '#f0fdf9' },
+                }}
+              >
+                Advanced Location History →
+              </Box>
+            </NextLink>
           </Box>
 
           {/* Why this matters */}

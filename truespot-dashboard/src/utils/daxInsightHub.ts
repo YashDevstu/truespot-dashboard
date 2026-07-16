@@ -464,9 +464,9 @@ function cleanStorageCondLH(): string {
   return `${TL}[Geofence] = "Ground Floor General"`
 }
 
-// Exit geofences: Trauma Exit and CDU Exit
+// Exit geofences — any geofence whose name signals a building exit/loading area
 function exitCondLH(): string {
-  return `${TL}[Geofence] IN {"Trauma Exit", "CDU Exit"}`
+  return `${TL}[Geofence] IN {"Trauma Exit", "CDU Exit", "East Exit Lot", "France Exit", "Service Trash Exit"}`
 }
 
 // categoryExprLH: 6-category classification driven by Geofence name.
@@ -530,55 +530,36 @@ function lhBaseConds(filters: InsightHubFilters, days?: number): string[] {
   return conds
 }
 
-// ── GF-specific building groupings (Halifax campus) ──────────────────────────
-// Halifax Health is a multi-building campus. These conditions group the
-// Fountain and France Tower sister-building floors into separate categories
-// so they don't collapse into the generic "patient" bucket.
-
-function franceTowerCondLH(): string {
-  return (
-    `${TL}[Geofence] IN {` +
-    `"France - 4th Floor", "France - 5th Floor", "France - 6th Floor", ` +
-    `"France - 7th Floor", "France - 8th Floor", "France Tower - 9th Floor"}`
-  )
+// "Ground Floor" = cleaning/moving area per client spec, plus "SPD 2" (the
+// decontamination/sterile-processing zone — a clear cleaning area by name
+// that the "Ground Floor" prefix rule alone would otherwise miss). Same rule
+// as cleaningCondGF() (Post-Aggregate) but against AppendFinal's Geofence column.
+function cleaningCondGFLH(): string {
+  return `(LEFT(${TL}[Geofence], 12) = "Ground Floor" || ${TL}[Geofence] = "SPD 2")`
 }
 
-function fountainCondLH(): string {
-  return (
-    `${TL}[Geofence] IN {` +
-    `"Fountain - 4th Floor", "Fountain - 5th Floor", "Fountain - 6th Floor", ` +
-    `"Fountain - 7th Floor", "Fountain - 8th Floor"}`
-  )
-}
-
-function satelliteCondLH(): string {
-  return `${TL}[Geofence] IN {"Lohman Building IR", "ROC-ONC - 2nd Floor"}`
-}
-
-// categoryExprGFLH: 9-category classification for GF clients (Halifax).
-// Separates France Tower, Fountain, and Satellite clinics from patient floors.
-// Priority: unknown → exit → soiled → clean_storage → patient (5 zones) →
-//           france_tower → fountain → satellite → other
+// categoryExprGFLH: 5-category location-status classification for GF clients (Halifax).
+// Matches the same status vocabulary used everywhere else in the app (With Patient /
+// Moving-Cleaning / Exit / Sitting Unused / Hard to Find) instead of raw building names —
+// France Tower, Fountain Building, Satellite Clinics, and clean storage all collapse into
+// "sitting_unused" (idle/parked, wherever that happens to be).
+// "unknown" here is a session-level proxy for Hard-to-Find (signal lost during that
+// specific session) — the peak-hour summary overrides this with the true recency-based
+// Hard-to-Find flag from Post-Aggregate (see buildIHHardToFindVinsQuery), since AppendFinal
+// has no "not seen in 24h" concept of its own.
+// Priority: unknown → exit → moving_cleaning (Ground Floor) → patient (5 zones) → sitting_unused (else)
 function categoryExprGFLH(): string {
   const unk = `${TL}[Geofence] = "Unknown Geofence"`
   const e   = exitCondLH()
-  const s   = soiledCondLH()
-  const cs  = cleanStorageCondLH()
+  const c   = cleaningCondGFLH()
   const p   = patientCondGFLH()
-  const ft  = franceTowerCondLH()
-  const fo  = fountainCondLH()
-  const sat = satelliteCondLH()
   return (
     `SWITCH(TRUE(), ` +
     `${unk}, "unknown", ` +
     `${e},   "exit", ` +
-    `${s},   "soiled", ` +
-    `${cs},  "clean_storage", ` +
+    `${c},   "moving_cleaning", ` +
     `${p},   "patient", ` +
-    `${ft},  "france_tower", ` +
-    `${fo},  "fountain", ` +
-    `${sat}, "satellite", ` +
-    `"other")`
+    `"sitting_unused")`
   )
 }
 
@@ -624,7 +605,9 @@ SELECTCOLUMNS(
 ORDER BY [TotalMins] DESC`
 }
 
-// GF variant: uses 9-category expression (patient = 5 zones only, plus building splits)
+// GF variant: 5-category location-status breakdown (see categoryExprGFLH), summed
+// over the lookback window (default 7 days) — used as a fallback when no peak
+// hour is available yet.
 export function buildIHLocationCategoryGFQuery(filters: InsightHubFilters): string {
   const dur        = `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)`
   const baseFilter = lhBaseConds(filters).join(' && ')
@@ -658,6 +641,75 @@ SELECTCOLUMNS(
   "AssetCount", [AssetCount]
 )
 ORDER BY [TotalMins] DESC`
+}
+
+// GF variant: 5-category location-status breakdown restricted to ONE specific
+// (date, hour) — the facility's busiest hour, identified separately via
+// buildIHPeakUtilisationGFQuery. Unlike buildIHLocationCategoryGFQuery (which
+// sums minutes across a 7-day window), this answers "at the single busiest
+// moment, where was everything?" — so it counts distinct assets active during
+// that exact hour, not accumulated session-minutes.
+//
+// Uses the same true-occupancy method as buildIHPeakUtilisationGFQuery: exact
+// DAY/MONTH/YEAR/HOUR match on the session's start timestamp only credits a
+// VIN to the one hour its (sub-zone-granularity) session happened to start —
+// verified to undercount "With Patient" at the peak hour by nearly half versus
+// the concurrent-occupancy count that same peak hour was identified from
+// (176 vs. 346 on real data). Each VIN's same-day sessions are grouped by
+// (VIN, Category) and collapsed into one presence span per category before
+// testing whether that span overlaps the target hour — grouping by Category
+// as well as VIN (not just VIN, as the plain occupancy queries do) preserves
+// the case where a pump's category genuinely changes during the day.
+export function buildIHLocationCategoryPeakGFQuery(
+  filters: InsightHubFilters,
+  peakDateKey: number,
+  peakHour: number,
+): string {
+  const conds: string[] = [
+    `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
+  ]
+  if (filters.assetType) {
+    const vals = filters.assetType.split(',').map((s) => s.trim()).filter(Boolean)
+    if (vals.length === 1)    conds.push(`${TL}[AssetType] = "${sanitize(vals[0])}"`)
+    else if (vals.length > 1) conds.push(`${TL}[AssetType] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
+  }
+  addLHFloorBuildingConds(conds, filters)
+  const baseFilter = conds.join(' && ')
+  const catExpr    = categoryExprGFLH()
+
+  // Returns one row per (VIN, Category) still present during the target hour.
+  // Raw per-VIN rows (not pre-aggregated counts) so the API route can override
+  // any VIN's category with the true Hard-to-Find flag from Post-Aggregate
+  // (see buildIHHardToFindVinsQuery) before counting.
+  return `EVALUATE
+VAR _year      = INT(${peakDateKey} / 10000)
+VAR _month     = MOD(INT(${peakDateKey} / 100), 100)
+VAR _day       = MOD(${peakDateKey}, 100)
+VAR _dayStart  = DATE(_year, _month, _day)
+VAR _hourStart = _dayStart + ${peakHour} / 24
+VAR _hourEnd   = _hourStart + 1 / 24
+VAR _daySessions =
+  FILTER(
+    ${TL},
+    ${baseFilter} &&
+    ${TL}[Last Seen-Local] < _dayStart + 1 &&
+    ${TL}[PreviousLastSeenNew_] > _dayStart
+  )
+VAR _annotated = ADDCOLUMNS(_daySessions, "Category", ${catExpr})
+VAR _byVinCat =
+  GROUPBY(
+    _annotated,
+    [Category],
+    ${TL}[VIN],
+    "_Start", MINX(CURRENTGROUP(), ${TL}[Last Seen-Local]),
+    "_End",   MAXX(CURRENTGROUP(), ${TL}[PreviousLastSeenNew_])
+  )
+RETURN
+SELECTCOLUMNS(
+  FILTER(_byVinCat, [_Start] < _hourEnd && [_End] > _hourStart),
+  "VIN",      ${TL}[VIN],
+  "Category", [Category]
+)`
 }
 
 // ── Location category asset list (drill-down) ─────────────────────────────────
@@ -716,30 +768,22 @@ SELECTCOLUMNS(
 ORDER BY [TotalMins] DESC`
 }
 
-// GF variant: supports 9 categories including france_tower, fountain, satellite
+// GF variant: 5 location-status categories (matches categoryExprGFLH)
 export function buildIHCategoryAssetsGFQuery(filters: InsightHubFilters): string {
   const dur  = `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)`
   const base = lhBaseConds(filters)
 
   const p   = patientCondGFLH()
-  const cs  = cleanStorageCondLH()
-  const s   = soiledCondLH()
+  const c   = cleaningCondGFLH()
   const e   = exitCondLH()
-  const ft  = franceTowerCondLH()
-  const fo  = fountainCondLH()
-  const sat = satelliteCondLH()
   const unk = `${TL}[Geofence] = "Unknown Geofence"`
   let catCond: string
   switch (filters.category) {
-    case 'patient':       catCond = p;   break
-    case 'clean_storage': catCond = cs;  break
-    case 'soiled':        catCond = s;   break
-    case 'exit':          catCond = e;   break
-    case 'france_tower':  catCond = ft;  break
-    case 'fountain':      catCond = fo;  break
-    case 'satellite':     catCond = sat; break
-    case 'unknown':       catCond = unk; break
-    default:              catCond = `NOT ${p} && NOT ${cs} && NOT ${s} && NOT ${e} && NOT ${ft} && NOT ${fo} && NOT ${sat} && NOT ${unk}`
+    case 'patient':         catCond = p;   break
+    case 'moving_cleaning': catCond = c;   break
+    case 'exit':            catCond = e;   break
+    case 'unknown':         catCond = unk; break
+    default: /* sitting_unused */ catCond = `NOT ${p} && NOT ${c} && NOT ${e} && NOT ${unk}`
   }
 
   const allConds = [...base, catCond].join(' && ')
@@ -1257,14 +1301,15 @@ SELECTCOLUMNS(
     ),
     [DurMins] > 0
   ),
-  "StartTime",  ${TL}[Last Seen-Local],
-  "DurMins",    [DurMins],
-  "SubGeoZone", ${TL}[SubGeoZone],
-  "Geofence",   ${TL}[Geofence],
-  "FloorLevel", ${TL}[Floor Level],
-  "Category",   [Category],
-  "AssetName",  ${TL}[Name],
-  "AssetType",  ${TL}[AssetType]
+  "StartTime",    ${TL}[Last Seen-Local],
+  "DurMins",      [DurMins],
+  "SubGeoZone",   ${TL}[SubGeoZone],
+  "Geofence",     ${TL}[Geofence],
+  "FloorLevel",   ${TL}[Floor Level],
+  "Category",     [Category],
+  "AssetName",    ${TL}[Name],
+  "AssetType",    ${TL}[AssetType],
+  "BatteryLevel", ${TL}[BatteryLevel]
 )
 ORDER BY [StartTime] ASC`
 }
@@ -1288,8 +1333,9 @@ function patientCondGF(): string {
 }
 
 function cleaningCondGF(): string {
-  // "Ground Floor" = cleaning/moving area per client spec (prefix match, 12 chars)
-  return `LEFT(${T}[Geofence], 12) = "Ground Floor"`
+  // "Ground Floor" = cleaning/moving area per client spec (prefix match, 12 chars),
+  // plus "SPD 2" — the decontamination zone, a clear cleaning area by name.
+  return `(LEFT(${T}[Geofence], 12) = "Ground Floor" || ${T}[Geofence] = "SPD 2")`
 }
 
 function hardToFindCondGF(): string {
@@ -1297,17 +1343,41 @@ function hardToFindCondGF(): string {
   return `${T}[Not seen since] >= 24`
 }
 
+function exitCondGF(): string {
+  // Same exit geofences as exitCondLH() (AppendFinal), against Post-Aggregate's Geofence column
+  return `${T}[Geofence] IN {"Trauma Exit", "CDU Exit", "East Exit Lot", "France Exit", "Service Trash Exit"}`
+}
+
+// Returns the VIN list of assets currently Hard-to-Find (per client spec: not
+// seen in 24h+) from the live Post-Aggregate snapshot. Used to override any
+// AppendFinal-derived location category with Hard-to-Find when applicable —
+// e.g. a pump's last AppendFinal session might place it in a patient zone
+// days ago, but if it hasn't been seen since, it's Hard-to-Find, not "with a
+// patient."
+export function buildIHHardToFindVinsQuery(filters: InsightHubFilters): string {
+  const src = buildSource(filters)
+  const h   = hardToFindCondGF()
+  return `EVALUATE
+SELECTCOLUMNS(
+  FILTER(${src}, ${h}),
+  "VIN", ${T}[VIN]
+)`
+}
+
+// Priority (matches categoryExprGFLH): HardToFind → Exit → Cleaning → WithPatient → SittingUnused (else)
 export function buildIHUtilisationGFQuery(filters: InsightHubFilters): string {
   const src = buildSource(filters)
   const h   = hardToFindCondGF()
   const c   = cleaningCondGF()
   const p   = patientCondGF()
+  const e   = exitCondGF()
   const countWhere = (cond: string) => `COUNTROWS(FILTER(${src}, ${cond}))`
   return `EVALUATE
 ROW(
   "Total",       COUNTROWS(${src}),
-  "WithPatient", ${countWhere(`NOT ${h} && NOT ${c} && ${p}`)},
-  "Cleaning",    ${countWhere(`NOT ${h} && ${c}`)},
+  "WithPatient", ${countWhere(`NOT ${h} && NOT ${e} && NOT ${c} && ${p}`)},
+  "Cleaning",    ${countWhere(`NOT ${h} && NOT ${e} && ${c}`)},
+  "Exit",        ${countWhere(`NOT ${h} && ${e}`)},
   "HardToFind",  ${countWhere(h)}
 )`
 }
@@ -1411,9 +1481,13 @@ ORDER BY [Count] DESC`
 // Returned as [HoursBasedPct] and merged into the utilisation response by route.ts.
 
 export function buildIHUtilisationHoursGFQuery(filters: InsightHubFilters): string {
+  // Respect the selected "When" window (7/30/90 days) instead of a fixed 7-day lookback —
+  // otherwise the % figure silently reflects only the last 7 days even when the UI
+  // label (and pump count) show a longer selected range, e.g. "Last 90 days".
+  const d = filters.days ?? 7
   const conds: string[] = [
     `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
-    `${TL}[Last Seen-Local] >= TODAY() - 7`,
+    `${TL}[Last Seen-Local] >= TODAY() - ${d}`,
   ]
 
   if (filters.assetType) {
@@ -1432,7 +1506,7 @@ export function buildIHUtilisationHoursGFQuery(filters: InsightHubFilters): stri
   const durExpr = `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)`
 
   return `EVALUATE
-VAR _days    = 7
+VAR _days    = ${d}
 VAR _base    = FILTER(${TL}, ${baseFilter})
 VAR _vins    = CALCULATE(DISTINCTCOUNT(${TL}[VIN]), _base)
 VAR _capMins = _vins * _days * 24 * 60
@@ -1455,10 +1529,33 @@ function patientCondGFLH(): string {
 // ── GF hourly utilisation for a specific day (AppendFinal) ───────────────────
 // Returns 24 rows (one per hour) with distinct VINs in patient zones for the
 // selected calendar day (TODAY() - dayOffset). dayOffset=1 = yesterday (full day).
+//
+// TRUE OCCUPANCY, not "session started this hour": a pump counts toward every
+// hour its session overlaps (start < hourEnd && end > hourStart), not just the
+// single hour it happened to start in. The old "HOUR(Last Seen-Local) = hr"
+// method only credited a pump to the hour it arrived, so a pump that arrived
+// at 2am and stayed with a patient until 11am would vanish from every hour
+// after 2am — verified against a real client data export to undercount by a
+// wide margin (showed literally 0 pumps for a 16-hour stretch on real data).
+// Because a session can start the day BEFORE the target day and still be
+// ongoing into it (e.g. 11pm-3am), the day filter here is also an overlap
+// test against the whole day's span, not an exact-date match on the start.
+//
+// AppendFinal rows are recorded at SubGeoZone granularity, so a pump sitting
+// on one floor all day still produces many separate short session rows as it
+// moves between sub-zones. Testing hour-overlap against those raw rows
+// saturates to a near-flat count every hour (verified: ~280-305 all day,
+// no shape at all). To get the true presence pattern, each VIN's same-day
+// sessions are first collapsed into one span (earliest start → latest end)
+// before testing which hours that span covers.
 export function buildIHHourlyByDayGFQuery(filters: InsightHubFilters, dayOffset: number): string {
+  const offset = Math.max(0, Math.round(dayOffset))
   const conds: string[] = [
     `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
-    `DATE(YEAR(${TL}[Last Seen-Local]), MONTH(${TL}[Last Seen-Local]), DAY(${TL}[Last Seen-Local])) = TODAY() - ${Math.max(0, Math.round(dayOffset))}`,
+    // Overlaps the target day at all (not just "started on" it) — catches
+    // sessions that began the previous evening and ran past midnight.
+    `${TL}[Last Seen-Local] < (TODAY() - ${offset} + 1)`,
+    `${TL}[PreviousLastSeenNew_] > (TODAY() - ${offset})`,
   ]
   if (filters.assetType) {
     const vals = filters.assetType.split(',').map((s) => s.trim()).filter(Boolean)
@@ -1470,14 +1567,32 @@ export function buildIHHourlyByDayGFQuery(filters: InsightHubFilters, dayOffset:
   const p = patientCondGFLH()
 
   return `EVALUATE
+VAR _sessions =
+  FILTER(
+    ${TL},
+    ${baseFilter} && (${p})
+  )
+VAR _byVin =
+  GROUPBY(
+    _sessions,
+    ${TL}[VIN],
+    "_Start", MINX(CURRENTGROUP(), ${TL}[Last Seen-Local]),
+    "_End",   MAXX(CURRENTGROUP(), ${TL}[PreviousLastSeenNew_])
+  )
+RETURN
 SELECTCOLUMNS(
   ADDCOLUMNS(
     GENERATESERIES(0, 23),
     "WithPatient",
-      VAR hr = [Value]
-      RETURN CALCULATE(
-        DISTINCTCOUNT(${TL}[VIN]),
-        FILTER(${TL}, ${baseFilter} && (${p}) && HOUR(${TL}[Last Seen-Local]) = hr)
+      VAR hr        = [Value]
+      VAR dayStart  = TODAY() - ${offset}
+      VAR hourStart = dayStart + hr / 24
+      VAR hourEnd   = hourStart + 1 / 24
+      RETURN COUNTROWS(
+        FILTER(
+          _byVin,
+          [_Start] < hourEnd && [_End] > hourStart
+        )
       )
   ),
   "Hour",        [Value],
@@ -1491,7 +1606,16 @@ SELECTCOLUMNS(
 // ── GF peak utilisation — max concurrent VINs in patient zones (last 7 days) ─────
 // Same logic as buildIHPeakUtilisationLHQuery but uses the 5-zone GF patient
 // definition instead of the 18-zone BSA definition.
-export function buildIHPeakUtilisationGFQuery(filters: InsightHubFilters): string {
+//
+// Both queries below use the same true-occupancy method as buildIHHourlyByDayGFQuery:
+// for each of the 7 days × 24 hours (168 buckets), each VIN's same-day sessions are
+// collapsed into one presence span (earliest start → latest end) before testing
+// hour-overlap, instead of deduping by session-start-hour. Deduping by session-start
+// hour was the same "counts a pump only for the hour it arrived" flaw described above,
+// and separately, testing overlap against raw un-collapsed SubGeoZone session rows
+// saturates to a near-flat count (verified) because a pump generates many short
+// sessions as it moves between sub-zones on the same floor.
+function buildIHOccupancyGridGF(filters: InsightHubFilters): { baseFilterDecl: string; gridDecl: string } {
   const conds: string[] = [
     `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
     `${TL}[Last Seen-Local] >= TODAY() - 7`,
@@ -1505,65 +1629,78 @@ export function buildIHPeakUtilisationGFQuery(filters: InsightHubFilters): strin
   const baseFilter = conds.join(' && ')
   const p = patientCondGFLH()
 
+  const baseFilterDecl = `VAR _base = FILTER(${TL}, ${baseFilter} && (${p}))`
+  const gridDecl = `VAR _grid =
+  CROSSJOIN(
+    SELECTCOLUMNS(GENERATESERIES(0, 6),  "Day", [Value]),
+    SELECTCOLUMNS(GENERATESERIES(0, 23), "Hr",  [Value])
+  )
+VAR _withCounts =
+  ADDCOLUMNS(
+    _grid,
+    "Count",
+      VAR d         = [Day]
+      VAR hr        = [Hr]
+      VAR dayStart  = TODAY() - d
+      VAR hourStart = dayStart + hr / 24
+      VAR hourEnd   = hourStart + 1 / 24
+      VAR _daySessions =
+        FILTER(
+          _base,
+          ${TL}[Last Seen-Local] < dayStart + 1 &&
+          ${TL}[PreviousLastSeenNew_] > dayStart
+        )
+      VAR _byVin =
+        GROUPBY(
+          _daySessions,
+          ${TL}[VIN],
+          "_Start", MINX(CURRENTGROUP(), ${TL}[Last Seen-Local]),
+          "_End",   MAXX(CURRENTGROUP(), ${TL}[PreviousLastSeenNew_])
+        )
+      RETURN
+        COUNTROWS(FILTER(_byVin, [_Start] < hourEnd && [_End] > hourStart))
+  )`
+  return { baseFilterDecl, gridDecl }
+}
+
+export function buildIHPeakUtilisationGFQuery(filters: InsightHubFilters): string {
+  const { baseFilterDecl, gridDecl } = buildIHOccupancyGridGF(filters)
+
   return `EVALUATE
-VAR _patSessions = ADDCOLUMNS(
-  FILTER(${TL}, ${baseFilter} && (${p})),
-  "__DH",
-    HOUR(${TL}[Last Seen-Local]) +
-    DAY(${TL}[Last Seen-Local])   * 100 +
-    MONTH(${TL}[Last Seen-Local]) * 10000 +
-    YEAR(${TL}[Last Seen-Local])  * 1000000
-)
-VAR _deduped  = SUMMARIZE(_patSessions, ${TL}[VIN], [__DH])
-VAR _byDH     = GROUPBY(_deduped, [__DH], "__Count", COUNTX(CURRENTGROUP(), ${TL}[VIN]))
-VAR _peak     = IF(COUNTROWS(_byDH) > 0, MAXX(_byDH, [__Count]), 0)
-VAR _peakDH   = MAXX(FILTER(_byDH, [__Count] = _peak), [__DH])
-VAR _peakHour = MOD(_peakDH, 100)
-VAR _peakDay  = MOD(INT(DIVIDE(_peakDH, 100)), 100)
-VAR _peakMon  = MOD(INT(DIVIDE(_peakDH, 10000)), 100)
-VAR _peakYear = INT(DIVIDE(_peakDH, 1000000))
+${baseFilterDecl}
+${gridDecl}
+VAR _peak     = IF(COUNTROWS(_withCounts) > 0, MAXX(_withCounts, [Count]), 0)
+VAR _peakDay  = MAXX(FILTER(_withCounts, [Count] = _peak), [Day])
+VAR _peakHour = MAXX(FILTER(_withCounts, [Count] = _peak && [Day] = _peakDay), [Hr])
+VAR _peakDate = TODAY() - _peakDay
 RETURN
 ROW(
   "PeakCount", _peak,
   "PeakHour",  _peakHour,
-  "PeakDay",   _peakDay,
-  "PeakMonth", _peakMon,
-  "PeakYear",  _peakYear
+  "PeakDay",   DAY(_peakDate),
+  "PeakMonth", MONTH(_peakDate),
+  "PeakYear",  YEAR(_peakDate)
 )`
 }
 
 export function buildIHDailyPeakGFQuery(filters: InsightHubFilters): string {
-  const conds: string[] = [
-    `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
-    `${TL}[Last Seen-Local] >= TODAY() - 7`,
-  ]
-  if (filters.assetType) {
-    const vals = filters.assetType.split(',').map((s) => s.trim()).filter(Boolean)
-    if (vals.length === 1)    conds.push(`${TL}[AssetType] = "${sanitize(vals[0])}"`)
-    else if (vals.length > 1) conds.push(`${TL}[AssetType] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
-  }
-  addLHFloorBuildingConds(conds, filters)
-  const baseFilter = conds.join(' && ')
-  const p = patientCondGFLH()
+  const { baseFilterDecl, gridDecl } = buildIHOccupancyGridGF(filters)
 
   return `EVALUATE
-VAR _pat = FILTER(${TL}, ${baseFilter} && (${p}))
-VAR _withDH = ADDCOLUMNS(
-  _pat,
-  "__DH",
-    HOUR(${TL}[Last Seen-Local]) +
-    DAY(${TL}[Last Seen-Local])   * 100 +
-    MONTH(${TL}[Last Seen-Local]) * 10000 +
-    YEAR(${TL}[Last Seen-Local])  * 1000000
-)
-VAR _deduped     = SUMMARIZE(_withDH, ${TL}[VIN], [__DH])
-VAR _byDH        = GROUPBY(_deduped, [__DH], "__Count", COUNTX(CURRENTGROUP(), ${TL}[VIN]))
-VAR _withDateKey = ADDCOLUMNS(_byDH, "__DateKey", INT(DIVIDE([__DH], 100)))
-VAR _byDay       = GROUPBY(_withDateKey, [__DateKey], "PeakCount", MAXX(CURRENTGROUP(), [__Count]))
+${baseFilterDecl}
+${gridDecl}
+VAR _withDateKey =
+  ADDCOLUMNS(
+    _withCounts,
+    "DateKey",
+      VAR _d = TODAY() - [Day]
+      RETURN DAY(_d) + MONTH(_d) * 100 + YEAR(_d) * 10000
+  )
+VAR _byDay = GROUPBY(_withDateKey, [DateKey], "PeakCount", MAXX(CURRENTGROUP(), [Count]))
 RETURN
 SELECTCOLUMNS(
   _byDay,
-  "DateKey",   [__DateKey],
+  "DateKey",   [DateKey],
   "PeakCount", [PeakCount]
 )
 ORDER BY [DateKey] ASC`

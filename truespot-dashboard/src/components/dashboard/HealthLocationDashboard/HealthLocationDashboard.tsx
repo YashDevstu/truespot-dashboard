@@ -276,11 +276,21 @@ export default function HealthLocationDashboard({
           sx={{
             display: 'grid',
             gridTemplateColumns: { xs: '1fr', lg: '370px 1fr' },
+            // Explicit row track so the row actually fills the container's height —
+            // without this, "auto" row sizing ignores height on the container and
+            // children's height:100% can't resolve, pushing content (like the
+            // pagination footer) out below the visible area.
+            gridTemplateRows: '1fr',
             gap: 2.5,
             alignItems: 'stretch',
-            // min-height anchors the grid row so both panels share the same height via stretch.
-            // calc mirrors LocationPointsTable's panel total: header(~50) + AG Grid(100vh-430) + footer(~46).
-            minHeight: 'calc(100vh - 334px)',
+            // Single clamped value (not separate height + maxHeight) — a browser's
+            // grid "auto" row-track algorithm resolves one definite value reliably,
+            // but two competing height properties produced inconsistent results
+            // across browser zoom levels (100vh is recomputed in CSS px per zoom),
+            // which is why the pagination footer disappeared only at 100% zoom.
+            // Floor 480px keeps it usable on short viewports; ceiling 760px stops
+            // it stretching past what the rows need on tall viewports.
+            height: 'clamp(480px, calc(100vh - 334px), 760px)',
           }}
         >
           <GeofenceSummaryPanel

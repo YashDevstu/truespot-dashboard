@@ -7,12 +7,14 @@ import Typography from '@mui/material/Typography'
 const TEAL   = '#0d9488'
 const SLATE  = '#64748b'
 const AMBER  = '#d97706'
+const ORANGE = '#f97316'
 const RED    = '#ef4444'
 
 export const BUCKET_COLORS = {
   withPatient:   TEAL,
   sittingUnused: SLATE,
   cleaning:      AMBER,
+  exit:          ORANGE,
   hardToFind:    RED,
 }
 
@@ -20,6 +22,7 @@ export const BUCKET_BG = {
   withPatient:   '#d1faf5',
   sittingUnused: '#f1f5f9',
   cleaning:      '#fef3c7',
+  exit:          '#ffedd5',
   hardToFind:    '#fee2e2',
 }
 
@@ -27,10 +30,11 @@ export const BUCKET_LABELS = {
   withPatient:   'With Patient',
   sittingUnused: 'Sitting Unused',
   cleaning:      'Cleaning / Moving',
+  exit:          'Exit',
   hardToFind:    'Hard to Find',
 }
 
-function PinIcon({ color, size = 20 }: { color: string; size?: number }) {
+export function PinIcon({ color, size = 20 }: { color: string; size?: number }) {
   return (
     <svg width={size} height={Math.round(size * 1.35)} viewBox="0 0 12 16" fill="none">
       <path
@@ -71,6 +75,8 @@ interface BucketRowProps {
 }
 
 function BucketRow({ n, label, iconColor, chipBg }: BucketRowProps) {
+  const active = n > 0
+
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 0.5 }}>
       {/* Category label */}
@@ -78,7 +84,7 @@ function BucketRow({ n, label, iconColor, chipBg }: BucketRowProps) {
         sx={{
           fontSize:   13,
           fontWeight: 500,
-          color:      n > 0 ? 'text.secondary' : 'text.disabled',
+          color:      active ? 'text.secondary' : 'text.disabled',
           lineHeight: 1.35,
           minWidth:   130,
           flexShrink: 0,
@@ -87,7 +93,7 @@ function BucketRow({ n, label, iconColor, chipBg }: BucketRowProps) {
         {label}
       </Typography>
 
-      {/* Colored chip — only shown when n > 0; zero rows get a subtle dash */}
+      {/* Colored chip — full pins when n > 0; empty track otherwise */}
       {n > 0 ? (
         <Box
           sx={{
@@ -123,11 +129,12 @@ function BucketRow({ n, label, iconColor, chipBg }: BucketRowProps) {
       {/* Spacer */}
       <Box sx={{ flex: 1 }} />
 
-      {/* Count — hidden when zero to keep row clean */}
+      {/* Count — same size/weight whether it's a pin count or a plain 0,
+          so every row's number reads consistently at a glance */}
       <Typography
         sx={{
-          fontSize:      n > 0 ? 24 : 13,
-          fontWeight:    n > 0 ? 800 : 400,
+          fontSize:      24,
+          fontWeight:    800,
           color:         n > 0 ? iconColor : '#cbd5e1',
           letterSpacing: '-0.02em',
           lineHeight:    1,
@@ -135,7 +142,7 @@ function BucketRow({ n, label, iconColor, chipBg }: BucketRowProps) {
           textAlign:     'right',
         }}
       >
-        {n > 0 ? n : '—'}
+        {n}
       </Typography>
     </Box>
   )
@@ -147,6 +154,7 @@ interface PerTenIconGridProps {
   cleaning:      number
   sittingUnused: number
   hardToFind:    number
+  exit?:         number  // GF clients only — omit to keep the 4-bucket layout
 }
 
 export default function PerTenIconGrid({
@@ -155,18 +163,23 @@ export default function PerTenIconGrid({
   cleaning,
   sittingUnused,
   hardToFind,
+  exit,
 }: PerTenIconGridProps) {
-  const [nPatient, nCleaning, nUnused, nHard] = scaleTo10(
-    [withPatient, cleaning, sittingUnused, hardToFind],
+  const hasExit = exit !== undefined
+  const [nPatient, nCleaning, nExit, nUnused, nHard] = scaleTo10(
+    [withPatient, cleaning, exit ?? 0, sittingUnused, hardToFind],
     total,
   )
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-      <BucketRow n={nPatient}  label="With a patient"    iconColor={TEAL}  chipBg={BUCKET_BG.withPatient}   />
-      <BucketRow n={nCleaning} label="Cleaning / moving" iconColor={AMBER} chipBg={BUCKET_BG.cleaning}      />
-      <BucketRow n={nUnused}   label="Sitting unused"    iconColor={SLATE} chipBg={BUCKET_BG.sittingUnused} />
-      <BucketRow n={nHard}     label="Hard to find"      iconColor={RED}   chipBg={BUCKET_BG.hardToFind}    />
+      <BucketRow n={nPatient}  label="With a patient"    iconColor={TEAL}   chipBg={BUCKET_BG.withPatient}   />
+      <BucketRow n={nCleaning} label="Cleaning / moving" iconColor={AMBER}  chipBg={BUCKET_BG.cleaning}      />
+      {hasExit && (
+        <BucketRow n={nExit}   label="Exit"              iconColor={ORANGE} chipBg={BUCKET_BG.exit}          />
+      )}
+      <BucketRow n={nUnused}   label="Sitting unused"    iconColor={SLATE}  chipBg={BUCKET_BG.sittingUnused} />
+      <BucketRow n={nHard}     label="Hard to find"      iconColor={RED}    chipBg={BUCKET_BG.hardToFind}    />
     </Box>
   )
 }

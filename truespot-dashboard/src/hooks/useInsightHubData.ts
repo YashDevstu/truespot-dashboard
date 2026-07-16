@@ -18,6 +18,7 @@ export interface IHUtilisationData {
   withPatient:    number
   cleaning:       number
   hardToFind:     number
+  exit?:          number  // GF clients only — folds into sittingUnused when absent
   sittingUnused:  number
   hoursBasedPct?: number  // hours-based avg-day utilisation % (GF clients only)
 }
@@ -114,14 +115,15 @@ export interface IHCategoryAssetRow {
 }
 
 export interface IHAssetTrailRow {
-  startTime:  string
-  durMins:    number
-  subGeoZone: string
-  geofence:   string
-  floorLevel: string
-  category:   string
-  assetName:  string
-  assetType:  string
+  startTime:     string
+  durMins:       number
+  subGeoZone:    string
+  geofence:      string
+  floorLevel:    string
+  category:      string
+  assetName:     string
+  assetType:     string
+  batteryLevel:  number | null  // 0-100, null if not reported for this session
 }
 
 export interface IHAssetTypeRow {
@@ -142,13 +144,15 @@ function parseUtilisation(rows: Record<string, unknown>[]): IHUtilisationData | 
   const withPatient   = Number(r['[WithPatient]'] ?? 0)
   const cleaning      = Number(r['[Cleaning]']    ?? 0)
   const hardToFind    = Number(r['[HardToFind]']  ?? 0)
+  const exit          = r['[Exit]'] != null ? Number(r['[Exit]']) : undefined
   const hoursBasedPct = r['[HoursBasedPct]'] != null ? Number(r['[HoursBasedPct]']) : undefined
   return {
     total,
     withPatient,
     cleaning,
     hardToFind,
-    sittingUnused: Math.max(0, total - withPatient - cleaning - hardToFind),
+    exit,
+    sittingUnused: Math.max(0, total - withPatient - cleaning - hardToFind - (exit ?? 0)),
     hoursBasedPct,
   }
 }
@@ -202,15 +206,24 @@ function parseWeeklyRows(rows: Record<string, unknown>[]): IHWeeklyRow[] {
   }).filter((r) => r.weekNum > 0 && r.year > 0)
 }
 
+// TotalMins is only present for the 7-day-total query; the busiest-hour query
+// (buildIHLocationCategoryPeakGFQuery) returns AssetCount only. Percentage falls
+// back to an asset-count share when no minutes data is present.
 function parseLocationCategoryRows(rows: Record<string, unknown>[]): IHLocationCategoryRow[] {
   const parsed = rows.map((r) => ({
     category:   String(r['[Category]']   ?? 'other'),
     totalMins:  Number(r['[TotalMins]']  ?? 0),
     assetCount: Number(r['[AssetCount]'] ?? 0),
     pct:        0,
-  })).filter((r) => r.totalMins > 0)
-  const totalAll = parsed.reduce((s, r) => s + r.totalMins, 0)
-  return parsed.map((r) => ({ ...r, pct: totalAll > 0 ? (r.totalMins / totalAll) * 100 : 0 }))
+  })).filter((r) => r.totalMins > 0 || r.assetCount > 0)
+  const totalMinsAll  = parsed.reduce((s, r) => s + r.totalMins,  0)
+  const totalCountAll = parsed.reduce((s, r) => s + r.assetCount, 0)
+  return parsed.map((r) => ({
+    ...r,
+    pct: totalMinsAll > 0
+      ? (r.totalMins / totalMinsAll) * 100
+      : totalCountAll > 0 ? (r.assetCount / totalCountAll) * 100 : 0,
+  }))
 }
 
 function parseCategoryAssetRows(rows: Record<string, unknown>[]): IHCategoryAssetRow[] {
@@ -242,16 +255,21 @@ function parseCategoryDailyRows(rows: Record<string, unknown>[]): IHCategoryDail
 
 function parseAssetTrailRows(rows: Record<string, unknown>[]): IHAssetTrailRow[] {
   return rows
-    .map((r) => ({
-      startTime:  String(r['[StartTime]']  ?? ''),
-      durMins:    Number(r['[DurMins]']    ?? 0),
-      subGeoZone: String(r['[SubGeoZone]'] ?? ''),
-      geofence:   String(r['[Geofence]']   ?? ''),
-      floorLevel: String(r['[FloorLevel]'] ?? ''),
-      category:   String(r['[Category]']   ?? 'other'),
-      assetName:  String(r['[AssetName]']  ?? ''),
-      assetType:  String(r['[AssetType]']  ?? ''),
-    }))
+    .map((r) => {
+      const rawBattery = r['[BatteryLevel]']
+      const batteryNum = rawBattery != null ? Number(rawBattery) : NaN
+      return {
+        startTime:    String(r['[StartTime]']  ?? ''),
+        durMins:      Number(r['[DurMins]']    ?? 0),
+        subGeoZone:   String(r['[SubGeoZone]'] ?? ''),
+        geofence:     String(r['[Geofence]']   ?? ''),
+        floorLevel:   String(r['[FloorLevel]'] ?? ''),
+        category:     String(r['[Category]']   ?? 'other'),
+        assetName:    String(r['[AssetName]']  ?? ''),
+        assetType:    String(r['[AssetType]']  ?? ''),
+        batteryLevel: Number.isFinite(batteryNum) ? batteryNum : null,
+      }
+    })
     .filter((r) => r.startTime && r.durMins > 0)
 }
 
@@ -315,12 +333,11 @@ async function postIHQuery(
   queryType: string,
   filters: InsightHubFilters,
   signal: AbortSignal,
-  dayOffset?: number,
 ): Promise<Record<string, unknown>[]> {
   const response = await fetch('/api/v1/insight-hub/query', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, dashboardKey, queryType, filters, dayOffset }),
+    body: JSON.stringify({ clientId, dashboardKey, queryType, filters }),
     signal,
   })
   if (!response.ok) {
@@ -373,12 +390,7 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
   const [error,       setError]       = useState<string | null>(null)
 
   const abortRef           = useRef<AbortController | null>(null)
-  const hourlyAbortRef     = useRef<AbortController | null>(null)
   const debounceRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const dayOffsetRef       = useRef(dayOffset)
-  const dayOffsetInited    = useRef(false)
-
-  useEffect(() => { dayOffsetRef.current = dayOffset }, [dayOffset])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -464,7 +476,7 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
               postIHQuery(clientId, dashboardKey, 'asset-type-utilisation',    filtersWithoutType, signal),
               postIHQuery(clientId, dashboardKey, 'weekly-trend',              currentFilters,     signal),
               postIHQuery(clientId, dashboardKey, 'location-category-summary', currentFilters,     signal),
-              postIHQuery(clientId, dashboardKey, 'hourly-utilisation',        currentFilters,     signal, dayOffsetRef.current),
+              postIHQuery(clientId, dashboardKey, 'hourly-utilisation',        currentFilters,     signal),
               postIHQuery(clientId, dashboardKey, 'daily-peak',                currentFilters,     signal),
             ])
             if (signal.aborted) return
@@ -642,35 +654,6 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
       setAssetTrailLoading(false)
     }
   }, [selectedAsset, selectedDay, clientId, dashboardKey, filters])
-
-  // Re-fetch only hourly when the user selects a different day chip.
-  // Skips the initial render — the main fetchReport batch handles first load.
-  useEffect(() => {
-    if (!dayOffsetInited.current) {
-      dayOffsetInited.current = true
-      return
-    }
-    hourlyAbortRef.current?.abort()
-    const controller = new AbortController()
-    hourlyAbortRef.current = controller
-    const { signal } = controller
-
-    void (async () => {
-      try {
-        const rows = await postIHQuery(
-          clientId, dashboardKey, 'hourly-utilisation', filters, signal, dayOffset
-        )
-        if (!signal.aborted) setHourlyRows(parseHourlyRows(rows))
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError')
-          console.error('[InsightHub] hourly re-fetch failed:', err)
-      }
-    })()
-
-    return () => controller.abort()
-  // filters intentionally omitted — filter changes are handled by the main fetchReport batch
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayOffset, clientId, dashboardKey])
 
   const selectReport = useCallback((report: InsightHubReport) => {
     setActiveReport(report)

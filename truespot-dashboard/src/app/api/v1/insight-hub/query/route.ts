@@ -20,6 +20,7 @@ import {
   buildIHWeeklyTrendGFQuery,
   buildIHLocationCategoryQuery,
   buildIHLocationCategoryGFQuery,
+  buildIHLocationCategoryPeakGFQuery,
   buildIHCategoryAssetsQuery,
   buildIHCategoryAssetsGFQuery,
   buildIHFloorReadinessQuery,
@@ -78,7 +79,6 @@ interface IHQueryBody {
   dashboardKey: string
   queryType:    IHQueryType
   filters?:     InsightHubFilters
-  dayOffset?:   number  // for hourly-by-day: 0=today, 1=yesterday (default), …, 6
 }
 
 // ── LH-based detection helper ────────────────────────────────────────────────
@@ -315,6 +315,41 @@ function computeFloorDailyTrend(
   return result.sort((a, b) => String(a['[Date]']).localeCompare(String(b['[Date]'])))
 }
 
+// Aggregates 7 separate per-day hourly query results (offsets 0-6, including
+// today, each 24 rows from buildIHHourlyByDayGFQuery — the same proven query
+// the single-day chart
+// used) into one 24-row "typical day" average.
+//
+// Divisor is dynamic PER HOUR, not per day: each hour independently averages
+// only over the days that actually returned a non-null value for that exact
+// hour. This matters because data sync lag tends to blank out only the most
+// recent hours of the most recent day (the same reason "today" is fully
+// null) — a whole-day "is this day active" flag would treat those specific
+// missing hours as real zeros and silently understate them, while a fully
+// legitimate zero-activity hour on an otherwise-complete day is still
+// correctly counted as 0 (it has a real, non-null value from the query).
+function computeHourlyAverage(dailyResults: Record<string, unknown>[][]): Record<string, unknown>[] {
+  const result: Record<string, unknown>[] = []
+
+  for (let hour = 0; hour < 24; hour++) {
+    const values: number[] = []
+    for (const day of dailyResults) {
+      const row = day.find((r) => Number(r['[Hour]']) === hour)
+      const raw = row?.['[WithPatient]']
+      if (raw === null || raw === undefined) continue
+      const val = Number(raw)
+      if (Number.isFinite(val)) values.push(val)
+    }
+    const divisor = values.length
+    result.push({
+      '[Hour]':        hour,
+      '[WithPatient]': divisor > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / divisor) : null,
+    })
+  }
+
+  return result
+}
+
 export async function POST(request: NextRequest) {
   let body: IHQueryBody
   try {
@@ -323,7 +358,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { clientId, dashboardKey, queryType, filters = {}, dayOffset = 1 } = body
+  const { clientId, dashboardKey, queryType, filters = {} } = body
 
   if (!clientId || !dashboardKey || !queryType) {
     return Response.json(
@@ -423,13 +458,25 @@ export async function POST(request: NextRequest) {
     }
     case 'hourly-utilisation': {
       const lhDash = clientConfig.dashboards['locationhistory']
-      // GF clients (Halifax): per-day hourly from AppendFinal — shows real session history
+      // GF clients (Halifax): "typical day" average across the last 7 days
+      // (offsets 0-6, including today), matching the client's original 7-day spec.
+      // Including today is safe even though it's partial: computeHourlyAverage's
+      // divisor is dynamic PER HOUR, so an hour today hasn't reached yet is simply
+      // null and gets skipped — it can never drag an average down. As today's real
+      // data arrives, it's automatically folded into the average for those hours.
+      // Fires the same proven per-day query 7× in parallel, then averages
+      // server-side — see computeHourlyAverage.
       if (isGeofenceBased && lhDash) {
         const lhWorkspaceId = lhDash.workspace_name
           ? await resolveWorkspaceId(lhDash.workspace_name)
           : (process.env.FABRIC_WORKSPACE_ID ?? '')
         try {
-          const rows = await executeQuery(lhDash.dataset_name, buildIHHourlyByDayGFQuery(filters, dayOffset), CACHE_TTL_CHARTS, lhWorkspaceId)
+          const dailyResults = await Promise.all(
+            [0, 1, 2, 3, 4, 5, 6].map((offset) =>
+              executeQuery(lhDash.dataset_name, buildIHHourlyByDayGFQuery(filters, offset), CACHE_TTL_CHARTS, lhWorkspaceId)
+            )
+          )
+          const rows = computeHourlyAverage(dailyResults)
           return Response.json({ rows })
         } catch (err) {
           return Response.json({ error: String(err) }, { status: 500 })
@@ -617,8 +664,111 @@ export async function POST(request: NextRequest) {
       ttl = CACHE_TTL_CHARTS
       break
     }
+    case 'location-category-summary': {
+      const lhDash = clientConfig.dashboards['locationhistory']
+      if (!lhDash) {
+        return Response.json(
+          { error: 'Location History dashboard not configured for this client' },
+          { status: 404 }
+        )
+      }
+      const lhWorkspaceId = lhDash.workspace_name
+        ? await resolveWorkspaceId(lhDash.workspace_name)
+        : (process.env.FABRIC_WORKSPACE_ID ?? '')
+
+      // GF clients (Halifax): "at your busiest hour, where was everything?" —
+      // find the peak hour first (same peak used in "Your busiest moment"
+      // elsewhere on the page), then break that exact hour down by category.
+      // This must reconcile exactly with "Your busiest moment" — the whole
+      // point of this section is to let the client verify that headline
+      // number against real session trails, so "With Patient" here must equal
+      // the peak count, not a version adjusted with today's Hard-to-Find
+      // status. (An earlier version applied the live Post-Aggregate
+      // Hard-to-Find override here, so a pump seen with a patient at the
+      // historical peak hour but gone quiet since would get reclassified —
+      // correct for a "where do things stand today" view, but it made this
+      // section contradict the headline it's supposed to be proving, so it
+      // was removed. Hard-to-Find here is purely the session-level "Unknown
+      // Geofence" signal-loss proxy from that specific historical hour.)
+      // Falls back to the 7-day-total version if no peak hour is found yet.
+      if (isGeofenceBased) {
+        try {
+          const peakRows = await executeQuery(lhDash.dataset_name, buildIHPeakUtilisationGFQuery(filters), CACHE_TTL_CHARTS, lhWorkspaceId)
+          const peak = peakRows[0]
+          const peakCount = Number(peak?.['[PeakCount]'] ?? 0)
+          if (peak && peakCount > 0) {
+            const peakDateKey =
+              Number(peak['[PeakDay]'])   +
+              Number(peak['[PeakMonth]']) * 100 +
+              Number(peak['[PeakYear]'])  * 10000
+            const peakHour = Number(peak['[PeakHour]'])
+
+            const [catRows, utilRows] = await Promise.all([
+              executeQuery(lhDash.dataset_name, buildIHLocationCategoryPeakGFQuery(filters, peakDateKey, peakHour), CACHE_TTL_CHARTS, lhWorkspaceId),
+              executeQuery(dashboard.dataset_name, buildIHUtilisationGFQuery(filters), CACHE_TTL_KPIS, workspaceId),
+            ])
+
+            const total = Number(utilRows[0]?.['[Total]'] ?? 0)
+
+            // Dedup: a VIN can have multiple sessions (and thus categories) within
+            // the same hour if it moved between locations. Resolve by priority
+            // (not "whichever row DAX happened to return first") — being with a
+            // patient at any point that hour is the most meaningful signal, down
+            // to "sitting unused" as the least informative catch-all. Using
+            // first-seen-wins previously undercounted "With Patient" whenever a
+            // VIN's sitting_unused session happened to be returned before its
+            // patient session for the same hour.
+            const CATEGORY_PRIORITY: Record<string, number> = {
+              patient: 0, exit: 1, moving_cleaning: 2, unknown: 3, sitting_unused: 4,
+            }
+            const vinCategory = new Map<string, string>()
+            for (const row of catRows) {
+              const vin = String(row['[VIN]']      ?? '').trim()
+              const cat = String(row['[Category]'] ?? '').trim()
+              if (!vin) continue
+              const existing = vinCategory.get(vin)
+              if (!existing || (CATEGORY_PRIORITY[cat] ?? 9) < (CATEGORY_PRIORITY[existing] ?? 9)) {
+                vinCategory.set(vin, cat)
+              }
+            }
+
+            let patientCount = 0, movingCount = 0, exitCount = 0, sittingDirectCount = 0, hardToFindCount = 0
+            for (const [, cat] of vinCategory) {
+              if (cat === 'patient')              patientCount++
+              else if (cat === 'moving_cleaning')  movingCount++
+              else if (cat === 'exit')             exitCount++
+              else if (cat === 'unknown')          hardToFindCount++
+              else sittingDirectCount++ // 'sitting_unused'
+            }
+
+            // Pumps with no AppendFinal session at all during the peak hour
+            // default to Sitting Unused (spec's catch-all).
+            const accounted = patientCount + movingCount + exitCount + sittingDirectCount + hardToFindCount
+            const remaining = Math.max(0, total - accounted)
+            const sittingCount = sittingDirectCount + remaining
+
+            const rows = [
+              { '[Category]': 'patient',         '[AssetCount]': patientCount },
+              { '[Category]': 'moving_cleaning', '[AssetCount]': movingCount },
+              { '[Category]': 'exit',            '[AssetCount]': exitCount },
+              { '[Category]': 'sitting_unused',  '[AssetCount]': sittingCount },
+              { '[Category]': 'unknown',         '[AssetCount]': hardToFindCount },
+            ].filter((r) => r['[AssetCount]'] > 0)
+
+            return Response.json({ rows, peakHour, peakDateKey })
+          }
+        } catch { /* fall through to 7-day-total version below */ }
+      }
+
+      try {
+        const lhDax = isGeofenceBased ? buildIHLocationCategoryGFQuery(filters) : buildIHLocationCategoryQuery(filters)
+        const rows = await executeQuery(lhDash.dataset_name, lhDax, CACHE_TTL_CHARTS, lhWorkspaceId)
+        return Response.json({ rows })
+      } catch (err) {
+        return Response.json({ error: String(err) }, { status: 500 })
+      }
+    }
     case 'weekly-trend':
-    case 'location-category-summary':
     case 'location-category-assets': {
       const lhDash = clientConfig.dashboards['locationhistory']
       if (!lhDash) {
@@ -631,10 +781,9 @@ export async function POST(request: NextRequest) {
         ? await resolveWorkspaceId(lhDash.workspace_name)
         : (process.env.FABRIC_WORKSPACE_ID ?? '')
 
-      let lhDax: string
-      if (queryType === 'weekly-trend')                    lhDax = isGeofenceBased ? buildIHWeeklyTrendGFQuery(filters) : buildIHWeeklyTrendQuery(filters)
-      else if (queryType === 'location-category-summary')  lhDax = isGeofenceBased ? buildIHLocationCategoryGFQuery(filters) : buildIHLocationCategoryQuery(filters)
-      else                                                 lhDax = isGeofenceBased ? buildIHCategoryAssetsGFQuery(filters) : buildIHCategoryAssetsQuery(filters)
+      const lhDax = queryType === 'weekly-trend'
+        ? (isGeofenceBased ? buildIHWeeklyTrendGFQuery(filters) : buildIHWeeklyTrendQuery(filters))
+        : (isGeofenceBased ? buildIHCategoryAssetsGFQuery(filters) : buildIHCategoryAssetsQuery(filters))
 
       try {
         const rows = await executeQuery(lhDash.dataset_name, lhDax, CACHE_TTL_CHARTS, lhWorkspaceId)

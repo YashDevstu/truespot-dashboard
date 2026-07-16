@@ -5,6 +5,7 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
 import type { IHFloorStatusRow } from '@/hooks/useInsightHubData'
+import { parseUtcTimestamp, getFacilityParts } from '@/utils/formatters'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -70,39 +71,48 @@ function floorTooltip(row: IHFloorStatusRow): string {
   return `${avg} on hand for a rush that needs ${par} — ${Math.abs(extra)} short`
 }
 
+const DAY_NAMES_FULL   = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTH_NAMES_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+// Shows the facility's own local clock time (Eastern, DST-aware) — not the
+// viewer's browser timezone and not the raw UTC digits in the string.
 function fmtTime(iso: string): string {
   if (!iso) return '—'
-  const d = new Date(iso)
+  const d = parseUtcTimestamp(iso)
   if (isNaN(d.getTime())) return '—'
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+  const { hour, minute } = getFacilityParts(d)
+  const ampm = hour >= 12 ? 'pm' : 'am'
+  const h12  = hour % 12 || 12
+  return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`
 }
 
 function fmtDateHeader(iso: string): string {
   if (!iso) return ''
-  const d = new Date(iso)
+  const d = parseUtcTimestamp(iso)
   if (isNaN(d.getTime())) return ''
-  const today     = new Date()
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-  const sameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-  const label = sameDay(d, today)     ? 'Today'
-              : sameDay(d, yesterday) ? 'Yesterday'
+  const p       = getFacilityParts(d)
+  const today   = getFacilityParts(new Date())
+  const yesterdayDate = new Date(Date.UTC(today.year, today.month - 1, today.day) - 86400000)
+  const yesterday     = getFacilityParts(yesterdayDate)
+  const sameDay = (a: typeof p, b: typeof p) => a.year === b.year && a.month === b.month && a.day === b.day
+  const label = sameDay(p, today)     ? 'Today'
+              : sameDay(p, yesterday) ? 'Yesterday'
               : ''
-  const dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  const dateStr = `${DAY_NAMES_FULL[p.weekday]}, ${MONTH_NAMES_FULL[p.month - 1]} ${p.day}, ${p.year}`
   return label ? `${label} · ${dateStr}` : dateStr
 }
 
 function getDateKey(iso: string): string {
   if (!iso) return ''
-  const d = new Date(iso)
+  const d = parseUtcTimestamp(iso)
   if (isNaN(d.getTime())) return ''
-  return `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  const { year, month, day } = getFacilityParts(d)
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`
 }
 
 function fmtAgo(iso: string): string {
   if (!iso) return '—'
-  const d    = new Date(iso)
+  const d    = parseUtcTimestamp(iso)
   if (isNaN(d.getTime())) return '—'
   const diff = Math.floor((Date.now() - d.getTime()) / 60000)
   if (diff < 1)  return 'just now'
@@ -602,6 +612,9 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
     if (!externalFloor || externalFloor === externalFloorRef.current) return
     externalFloorRef.current = externalFloor
     const target = rows.find((r) => r.floor === externalFloor)
+    // selectFloor fetches that floor's assets — a legitimate effect (syncing
+    // the parent's requested floor to a data fetch), not a plain state mirror.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (target) selectFloor(target)
   }, [externalFloor, rows, selectFloor])
 
@@ -642,15 +655,6 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
   const backToFloor = useCallback((floorRow: IHFloorStatusRow) => {
     void selectFloor(floorRow)
   }, [selectFloor])
-
-  // ── Derived ────────────────────────────────────────────────────────────────
-
-  const problemFloors   = rows.filter((r) => r.status !== 'enough')
-  const problemSummary  = problemFloors.length === 0
-    ? 'All floors are comfortably stocked based on the last 7 days.'
-    : problemFloors.length === 1
-      ? `1 floor shows a pattern concern — ${problemFloors[0].floor}`
-      : `${problemFloors.length} floors show pattern concerns`
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

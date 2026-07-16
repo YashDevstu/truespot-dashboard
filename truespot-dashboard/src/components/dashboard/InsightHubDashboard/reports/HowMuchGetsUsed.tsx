@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Skeleton from '@mui/material/Skeleton'
@@ -11,7 +11,7 @@ import {
 import type { IHUtilisationData, IHPeakData, IHDailyPeakRow, IHAssetTypeRow, IHHourlyRow, IHWeeklyRow, IHLocationCategoryRow, IHCategoryAssetRow, IHCategoryDailyRow } from '@/hooks/useInsightHubData'
 import PerTenIconGrid from '../shared/PerTenIconGrid'
 import FlipStatCards from '../shared/FlipStatCards'
-import type { StatFace, StatCardConfig } from '../shared/FlipStatCards'
+import type { StatFace } from '../shared/FlipStatCards'
 import WhereDoTheySpend from '../shared/WhereDoTheySpend'
 
 const TEAL = '#0d9488'
@@ -100,10 +100,21 @@ function formatPeakDateTime(d: IHPeakData): string {
 
 const GOAL_PCT = 70  // target utilisation — shown as a tick on every bar
 
+// Today's peak-so-far is naturally lower than a completed day's peak (fewer
+// hours observed), which can make the "Is it getting better?" trend look like
+// a sudden drop even though nothing changed. Excluded from the trend line for
+// now — flip to false if the client wants today included as it fills in live.
+const EXCLUDE_TODAY_FROM_DAILY_PEAK_TREND = true
+
+function isToday(day: number, month: number, year: number): boolean {
+  const now = new Date()
+  return day === now.getDate() && month === now.getMonth() + 1 && year === now.getFullYear()
+}
+
 function barColor(pct: number): string {
-  if (pct >= 60) return TEAL
-  if (pct >= 30) return '#d97706'
-  return '#ef4444'
+  if (pct >= 70) return TEAL       // green — at or above goal
+  if (pct >= 25) return '#d97706'  // orange — 25-69%
+  return '#ef4444'                // red — below 25%
 }
 
 function fmtMoney(n: number): string {
@@ -209,10 +220,17 @@ function EquipmentRow({
         <DeviceIcon size={18} />
       </Box>
 
-      {/* Name + tag count */}
-      <Box sx={{ flex: '0 0 auto', minWidth: 140 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary', lineHeight: 1.2 }}>
+      {/* Name + tag count — fixed width so the bar always starts at the same x position,
+          regardless of how long the asset type name is */}
+      <Box sx={{ flex: '0 0 150px', width: 150, minWidth: 0, overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+          <Typography
+            sx={{
+              fontSize: 13, fontWeight: 600, color: 'text.primary', lineHeight: 1.2,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+            }}
+            title={row.assetType}
+          >
             {row.assetType}
           </Typography>
           {isSelected && (
@@ -265,15 +283,26 @@ function HourByHourChart({ rows, assetLabel }: { rows: IHHourlyRow[]; assetLabel
   const peakRow  = [...rows].sort((a, b) => b.withPatient - a.withPatient)[0]
   const maxCount = peakRow?.withPatient ?? 1
 
-  // Find the range of the peak — consecutive hours within 80% of peak
-  const peakHour  = peakRow?.hour ?? 0
-  let rushStart   = peakHour
-  let rushEnd     = peakHour
-  for (const r of rows) {
-    if (r.withPatient >= maxCount * 0.8) {
-      rushStart = Math.min(rushStart, r.hour)
-      rushEnd   = Math.max(rushEnd, r.hour)
-    }
+  // Find the rush window — contiguous hours around the peak within 85% of it.
+  // True occupancy is a gentle all-day plateau (overnight low is still ~80%
+  // of the peak), so this must (a) require contiguity, expanding outward from
+  // the peak hour and stopping at the first hour that drops below threshold,
+  // rather than taking the min/max hour anywhere in the day that clears it,
+  // and (b) use a threshold high enough to actually exclude the overnight lull
+  // — verified against real data: 80% of peak was low enough that literally
+  // every hour of the day qualified, producing a "12am-11pm" rush window.
+  const byHour   = new Map(rows.map((r) => [r.hour, r.withPatient]))
+  const peakHour = peakRow?.hour ?? 0
+  const rushMin  = maxCount * 0.85
+  let rushStart  = peakHour
+  let rushEnd    = peakHour
+  for (let h = peakHour - 1; h >= 0; h--) {
+    if ((byHour.get(h) ?? 0) < rushMin) break
+    rushStart = h
+  }
+  for (let h = peakHour + 1; h <= 23; h++) {
+    if ((byHour.get(h) ?? 0) < rushMin) break
+    rushEnd = h
   }
   const rushLabel = rushStart === rushEnd
     ? hourLabelLong(rushStart)
@@ -404,8 +433,8 @@ function WeeklyTrendChart({ rows }: { rows: IHWeeklyRow[] }) {
   return (
     <Box>
       <ResponsiveContainer width="100%" height={150}>
-        <LineChart data={chartData} margin={{ top: 20, right: 70, left: -28, bottom: 0 }}>
-          <ReferenceArea y1={60} y2={80} fill="#ccfbf1" fillOpacity={0.5} label={{ value: 'Healthy zone: 60–80%', position: 'insideTopLeft', fontSize: 9.5, fill: '#0d9488', dy: 4 }} />
+        <LineChart data={chartData} margin={{ top: 20, right: 16, left: -8, bottom: 0 }}>
+          <ReferenceArea y1={60} y2={80} fill="#ccfbf1" fillOpacity={0.5} label={{ value: 'Healthy zone: 60–80%', position: 'insideTopLeft', fontSize: 9.5, fill: '#0d9488', dy: 4, dx: 4 }} />
           <ReferenceLine y={60} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
           <ReferenceLine y={80} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
           <XAxis
@@ -432,7 +461,7 @@ function WeeklyTrendChart({ rows }: { rows: IHWeeklyRow[] }) {
               const p = props as { x: number; y: number; value: number; index: number }
               if (p.index !== chartData.length - 1) return <g key={p.index} />
               return (
-                <text key={p.index} x={p.x + 4} y={p.y} dy={-4} textAnchor="start" fill={TEAL} fontSize={12} fontWeight="bold">
+                <text key={p.index} x={p.x - 6} y={p.y} dy={-8} textAnchor="end" fill={TEAL} fontSize={12} fontWeight="bold">
                   {p.value}% this week
                 </text>
               )
@@ -443,68 +472,6 @@ function WeeklyTrendChart({ rows }: { rows: IHWeeklyRow[] }) {
       <Typography sx={{ fontSize: 13, mt: 0.5, lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 700 }}>{last}% this week.</Box>{' '}
         {trendText}
-      </Typography>
-    </Box>
-  )
-}
-
-// ── Daily peak bar chart (GF clients) ─────────────────────────────────────────
-
-function DailyPeakChart({
-  rows,
-  dayOffset,
-  onSetDayOffset,
-}: {
-  rows: IHDailyPeakRow[]
-  dayOffset: number
-  onSetDayOffset: (offset: number) => void
-}) {
-  if (rows.length === 0) return null
-
-  const today = new Date()
-  const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
-
-  const chartData = rows.map((r) => {
-    const rowDate  = new Date(r.year, r.month - 1, r.day)
-    const offset   = Math.round((todayMs - rowDate.getTime()) / 86400000)
-    const label    = offset === 0
-      ? 'Today'
-      : rowDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }).replace(',', '')
-    return { label, peakCount: r.peakCount, offset }
-  })
-
-  const maxPeak = Math.max(...chartData.map((d) => d.peakCount), 1)
-
-  return (
-    <Box>
-      <ResponsiveContainer width="100%" height={120}>
-        <BarChart data={chartData} barSize={22} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-          <XAxis
-            dataKey="label"
-            tick={{ fontSize: 10, fill: '#94a3b8' }}
-            axisLine={false}
-            tickLine={false}
-          />
-          <YAxis hide domain={[0, maxPeak * 1.15]} />
-          <Tooltip
-            cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-            contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
-            formatter={(v: unknown) => [`${v} assets`, 'Peak concurrent']}
-          />
-          <Bar dataKey="peakCount" radius={[3, 3, 0, 0]} onClick={(d) => onSetDayOffset((d as unknown as typeof chartData[number]).offset)}>
-            {chartData.map((entry, i) => (
-              <Cell
-                key={i}
-                fill={TEAL}
-                opacity={entry.offset === dayOffset ? 1 : 0.35 + 0.55 * (entry.peakCount / maxPeak)}
-                style={{ cursor: 'pointer' }}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-      <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-        Click a bar to see that day&apos;s hourly breakdown above.
       </Typography>
     </Box>
   )
@@ -554,8 +521,8 @@ function DailyLineChart({
   return (
     <Box>
       <ResponsiveContainer width="100%" height={150}>
-        <LineChart data={chartData} margin={{ top: 20, right: 70, left: -28, bottom: 0 }}>
-          <ReferenceArea y1={60} y2={80} fill="#ccfbf1" fillOpacity={0.5} label={{ value: 'Healthy zone: 60–80%', position: 'insideTopLeft', fontSize: 9.5, fill: '#0d9488', dy: 4 }} />
+        <LineChart data={chartData} margin={{ top: 20, right: 16, left: -8, bottom: 0 }}>
+          <ReferenceArea y1={60} y2={80} fill="#ccfbf1" fillOpacity={0.5} label={{ value: 'Healthy zone: 60–80%', position: 'insideTopLeft', fontSize: 9.5, fill: '#0d9488', dy: 4, dx: 4 }} />
           <ReferenceLine y={60} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
           <ReferenceLine y={80} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
           <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
@@ -592,7 +559,7 @@ function DailyLineChart({
               const p = props as { x: number; y: number; value: number; index: number }
               if (p.index !== chartData.length - 1) return <g key={p.index} />
               return (
-                <text key={p.index} x={p.x + 4} y={p.y} dy={-4} textAnchor="start" fill={TEAL} fontSize={12} fontWeight="bold">
+                <text key={p.index} x={p.x - 6} y={p.y} dy={-8} textAnchor="end" fill={TEAL} fontSize={12} fontWeight="bold">
                   {p.value}% {lastItem?.label === 'Today' ? 'today' : 'yesterday'}
                 </text>
               )
@@ -727,7 +694,7 @@ function WhatCanYouDoAboutIt({
           description={
             offRadar > 0 ? (
               <>
-                {offRadar} {label}s haven't been reliably tracked in {days}+ days.{' '}
+                {offRadar} {label}s haven&apos;t been reliably tracked in {days}+ days.{' '}
                 <Box component="span" sx={{ color: TEAL, fontWeight: 500 }}>
                   Find them before assuming you need more — they may be in a storeroom, closet, or a sister unit.
                 </Box>
@@ -779,7 +746,7 @@ function WhatCanYouDoAboutIt({
               <>
                 Peak demand over {days} days reached {peakCount} {label}s — close to your total fleet of {data.total}.{' '}
                 <Box component="span" sx={{ color: '#f97316', fontWeight: 500 }}>
-                  Hold off on new purchases until you've recovered the off-radar ones first.
+                  Hold off on new purchases until you&apos;ve recovered the off-radar ones first.
                 </Box>
               </>
             )
@@ -796,6 +763,8 @@ function WhatCanYouDoAboutIt({
 // ── Component props ────────────────────────────────────────────────────────────
 
 interface HowMuchGetsUsedProps {
+  clientId:              string
+  product:               string
   data:                  IHUtilisationData | null
   peakData:              IHPeakData | null
   spareBuffer?:          number
@@ -828,6 +797,8 @@ interface HowMuchGetsUsedProps {
 }
 
 export default function HowMuchGetsUsed({
+  clientId,
+  product,
   data,
   peakData,
   spareBuffer,
@@ -869,7 +840,7 @@ export default function HowMuchGetsUsed({
     )
   }
 
-  const { total, withPatient, cleaning, hardToFind, sittingUnused } = data
+  const { total, withPatient, cleaning, hardToFind, sittingUnused, exit } = data
   // For GF clients (Halifax), hoursBasedPct reflects average session-hours in patient zones per day.
   // Count-based (withPatient/total) is used only when no hours data is available (BSA fallback).
   const utilisationPct = data.hoursBasedPct ?? (total > 0 ? (withPatient / total) * 100 : 0)
@@ -1089,6 +1060,7 @@ export default function HowMuchGetsUsed({
               cleaning={cleaning}
               sittingUnused={sittingUnused}
               hardToFind={hardToFind}
+              exit={exit}
             />
 
             {/* HOW TO READ — sits naturally below pin rows, no date conflict */}
@@ -1107,7 +1079,7 @@ export default function HowMuchGetsUsed({
                 How to read
               </Typography>
               <Typography sx={{ fontSize: 11.5, color: 'text.disabled', lineHeight: 1.55 }}>
-                Each bar's length is that group's share of the fleet; every pin is one {assetType ? assetType.toLowerCase().replace(/s$/, '') : 'device'} in ten.
+                Each bar&apos;s length is that group&apos;s share of the fleet; every pin is one {assetType ? assetType.toLowerCase().replace(/s$/, '') : 'device'} in ten.
               </Typography>
             </Box>
           </Box>
@@ -1304,57 +1276,11 @@ export default function HowMuchGetsUsed({
               <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary' }}>
                 A typical day, hour by hour
               </Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5, mb: isGeofenceBased ? 1.5 : 2 }}>
-                {(() => {
-                  if (!isGeofenceBased) {
-                    return `${assetType ?? 'Equipment'} with patients at each hour of the day`
-                  }
-                  const d = new Date()
-                  d.setDate(d.getDate() - dayOffset)
-                  const dayName = d.toLocaleDateString('en-US', { weekday: 'short' })
-                  const monDay  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                  return `${assetType ?? 'Pumps'} with patients at each hour on ${dayName} ${monDay}`
-                })()}
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5, mb: 2 }}>
+                {isGeofenceBased
+                  ? `${assetType ?? 'Pumps'} with patients at each hour, averaged across recent days`
+                  : `${assetType ?? 'Equipment'} with patients at each hour of the day`}
               </Typography>
-
-              {/* S — 7-day chip row (GF clients only) */}
-              {isGeofenceBased && (
-                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 2 }}>
-                  {Array.from({ length: 7 }, (_, i) => {
-                    const offset = 6 - i
-                    const d      = new Date()
-                    d.setDate(d.getDate() - offset)
-                    const isToday    = offset === 0
-                    const isSelected = dayOffset === offset
-                    const label      = isToday
-                      ? 'Today'
-                      : `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${d.getDate()}`
-                    return (
-                      <Box
-                        key={offset}
-                        onClick={() => onSetDayOffset(offset)}
-                        sx={{
-                          px:           1.5,
-                          py:           0.5,
-                          borderRadius: 6,
-                          fontSize:     11.5,
-                          fontWeight:   isSelected ? 700 : 500,
-                          cursor:       'pointer',
-                          bgcolor:      isSelected ? TEAL : '#f1f5f9',
-                          color:        isSelected ? '#fff' : '#475569',
-                          border:       `1.5px solid ${isSelected ? TEAL : 'transparent'}`,
-                          transition:   'all 0.12s',
-                          '&:hover': {
-                            bgcolor: isSelected ? TEAL : '#e2e8f0',
-                          },
-                        }}
-                      >
-                        {label}
-                      </Box>
-                    )
-                  })}
-                </Box>
-              )}
 
               {loading ? (
                 <Skeleton variant="rectangular" height={140} sx={{ borderRadius: 2 }} />
@@ -1401,7 +1327,16 @@ export default function HowMuchGetsUsed({
               ) : weeklyTrend.length >= 4 ? (
                 <WeeklyTrendChart rows={weeklyTrend} />
               ) : dailyPeakRows.length > 0 ? (
-                <DailyLineChart rows={dailyPeakRows} total={data.total} dayOffset={dayOffset} onSetDayOffset={onSetDayOffset} />
+                <DailyLineChart
+                  rows={
+                    EXCLUDE_TODAY_FROM_DAILY_PEAK_TREND
+                      ? dailyPeakRows.filter((r) => !isToday(r.day, r.month, r.year))
+                      : dailyPeakRows
+                  }
+                  total={data.total}
+                  dayOffset={dayOffset}
+                  onSetDayOffset={onSetDayOffset}
+                />
               ) : (
                 <Box
                   sx={{
@@ -1426,6 +1361,8 @@ export default function HowMuchGetsUsed({
 
       {/* ── Where do they spend their time? ───────────────────────────────── */}
       <WhereDoTheySpend
+        clientId={clientId}
+        product={product}
         locationCategories={locationCategories}
         categoryAssets={categoryAssets}
         selectedCategory={selectedCategory}
@@ -1442,6 +1379,7 @@ export default function HowMuchGetsUsed({
         assetTrailRows={assetTrailRows}
         assetTrailLoading={assetTrailLoading}
         onSelectAsset={onSelectAsset}
+        peakData={peakData}
       />
 
       {/* ── What you can do about it ──────────────────────────────────────── */}
