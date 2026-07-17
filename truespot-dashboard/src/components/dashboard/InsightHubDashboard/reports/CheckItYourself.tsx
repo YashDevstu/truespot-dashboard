@@ -55,7 +55,7 @@ const TIER_STYLE = {
 
 // Par-coverage bands for the Level-1 floor grid — how much is on hand, on
 // average, relative to what the floor needs at the rush.
-export const HOARD_PCT    = 130  // 30%+ over par, on average → sitting on more than needed
+export const HOARD_PCT    = 100  // more than 100% of par, on average → sitting on more than needed
 export const NEAR_PAR_PCT = 90   // under 90% of par, on average → short at the rush
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ export function getFloorParTier(row: IHFloorStatusRow): { label: string; tier: k
   const par    = row.par || 0
   const rawPct = par > 0 ? Math.round((row.avgCount / par) * 100) : 100
   const pct    = Math.min(100, rawPct)
-  if (rawPct >= HOARD_PCT)    return { label: 'MORE THAN NEEDED',    tier: 'hoarding',  pct }
+  if (rawPct > HOARD_PCT)     return { label: 'MORE THAN NEEDED',    tier: 'hoarding',  pct }
   if (rawPct < NEAR_PAR_PCT)  return { label: 'SHORT AT THE RUSH',   tier: 'shortfall', pct }
   return                             { label: 'COMFORTABLY STOCKED', tier: 'stocked',   pct }
 }
