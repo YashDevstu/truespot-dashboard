@@ -36,20 +36,21 @@ type Level =
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TEAL  = '#0d9488'
-const RED   = '#ef4444'
-const AMBER = '#d97706'
+const TEAL       = '#0d9488'
+const RED        = '#FF6B6B'
+const AMBER      = '#d97706'
+const HOARD_GOLD = '#E7B93B'
 
 // Solid fills for every status, not just "stocked" — a short/tight floor should
 // read as urgent at a glance, not blend in as a pale tile among green ones.
 const TIER_STYLE = {
-  stocked:   { bg: TEAL,  text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
-  tight:     { bg: AMBER, text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
-  shortfall: { bg: RED,   text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
-  // Same amber as 'tight' — distinct key so the Level-1 par-coverage grid's
-  // "sitting on way more than it needs" case reads separately from Level 2/3's
-  // day-based "ran tight some days" concept, even though they share a color.
-  hoarding:  { bg: AMBER, text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  stocked:   { bg: TEAL,       text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  tight:     { bg: AMBER,      text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  shortfall: { bg: RED,        text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  // Distinct key from 'tight' (Level 2/3's day-based "ran tight some days"
+  // concept) — this is the Level-1 par-coverage grid's "sitting on way more
+  // than it needs" case, using the client-specified gold.
+  hoarding:  { bg: HOARD_GOLD, text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
 }
 
 // Par-coverage bands for the Level-1 floor grid — how much is on hand, on
