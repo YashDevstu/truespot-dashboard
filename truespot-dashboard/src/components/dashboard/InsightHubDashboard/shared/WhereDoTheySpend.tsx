@@ -12,7 +12,7 @@ import type {
   IHAssetTrailRow,
   IHPeakData,
 } from '@/hooks/useInsightHubData'
-import { parseUtcTimestamp, getFacilityParts } from '@/utils/formatters'
+import { parseFacilityLocalParts, facilityLocalToUtcInstant } from '@/utils/formatters'
 
 const TEAL = '#0d9488'
 
@@ -32,12 +32,93 @@ const AMBER      = '#d97706'
 const RED        = '#ef4444'
 const DARK_NAVY  = '#0c2340'
 
+// Fetches real department names (Post-Aggregate[My Department]) scoped to
+// whichever asset type is currently selected — verified live for Pumps (PACU 4,
+// Biomed 2, "8 France" 2, ED 2, out of 938; blank for the other 928). Sparse by
+// design: this field isn't populated widely enough yet to support a complete
+// per-device breakdown, but re-fetching per asset type at least keeps whatever
+// it shows accurate to the current selection instead of hardcoded to Pumps.
+function DepartmentBlocks({
+  clientId,
+  dashboardKey,
+  assetType,
+}: {
+  clientId:     string
+  dashboardKey: string
+  assetType:    string | undefined
+}) {
+  const [depts, setDepts]     = useState<{ name: string; count: number }[]>([])
+  const [loading, setLoading] = useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    // Resets the loading flag for this new fetch (re-triggered by assetType
+    // changes) — a legitimate effect (syncing external data to a fetch), not a
+    // plain state mirror.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true)
+    fetch('/api/v1/insight-hub/query', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        clientId,
+        dashboardKey,
+        queryType: 'departments',
+        filters:   assetType ? { assetType } : {},
+      }),
+    })
+      .then((r) => r.json() as Promise<{ rows?: Record<string, unknown>[] }>)
+      .then((data) => {
+        if (cancelled) return
+        const rows = (data.rows ?? [])
+          .map((r) => ({
+            name:  String(r['[Department]'] ?? '').trim(),
+            count: Number(r['[Count]'] ?? 0),
+          }))
+          .filter((r) => r.name)
+        setDepts(rows)
+      })
+      .catch(() => { if (!cancelled) setDepts([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [clientId, dashboardKey, assetType])
+
+  if (loading || depts.length === 0) return null
+
+  return (
+    <Box sx={{ mb: 2.5 }}>
+      <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'text.disabled', textTransform: 'uppercase', mb: 1 }}>
+        Departments at this location
+      </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+        {depts.map((dept) => (
+          <Box
+            key={dept.name}
+            sx={{
+              px:           1.5,
+              py:           0.75,
+              borderRadius: 2,
+              bgcolor:      '#f1f5f9',
+              border:       '1px solid #e2e8f0',
+              fontSize:     13,
+              fontWeight:   600,
+              color:        '#334155',
+            }}
+          >
+            {dept.name}
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  )
+}
+
 // 5 location-status categories — matches categoryExprGFLH and the same status
-// vocabulary used everywhere else in the app (With Patient / Moving-Cleaning /
+// vocabulary used everywhere else in the app (Patient Area / Moving-Cleaning /
 // Exit / Sitting Unused / Hard to Find), rather than raw building names.
 const CAT_META: Record<string, CatMeta> = {
   patient: {
-    label:    'With Patient',
+    label:    'Patient Area',
     sublabel: 'Clinical · active',
     badge:    'WHERE IT SHOULD BE',
     bg:       TEAL,
@@ -84,7 +165,7 @@ const CAT_META: Record<string, CatMeta> = {
 }
 
 const LEGEND = [
-  { color: TEAL,       label: 'With Patient' },
+  { color: TEAL,       label: 'Patient Area' },
   { color: AMBER,      label: 'Moving / Cleaning' },
   { color: RED,        label: 'Exit' },
   { color: '#e2e8f0',  label: 'Sitting Unused', border: '#94a3b8' },
@@ -101,9 +182,8 @@ function fmtMins(mins: number): string {
   return `${h}h ${m}m`
 }
 
-function timeAgo(iso: string): string {
-  if (!iso) return ''
-  const diff = Date.now() - parseUtcTimestamp(iso).getTime()
+function timeAgoFromInstant(d: Date): string {
+  const diff = Date.now() - d.getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1)   return 'just now'
   if (mins < 60)  return `${mins} min ago`
@@ -112,11 +192,17 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-// Shows the facility's own local clock time (Eastern, DST-aware) — not the
-// viewer's browser timezone and not the raw UTC digits.
+function timeAgo(iso: string): string {
+  if (!iso) return ''
+  return timeAgoFromInstant(facilityLocalToUtcInstant(iso))
+}
+
+// Shows the facility's own local clock time as literally recorded — AppendFinal's
+// "Last Seen-Local" is already facility-local wall-clock time, so no timezone
+// conversion is needed (or wanted — see formatters.ts).
 function fmtTime(iso: string): string {
   if (!iso) return ''
-  const { hour, minute } = getFacilityParts(parseUtcTimestamp(iso))
+  const { hour, minute } = parseFacilityLocalParts(iso)
   const ampm = hour >= 12 ? 'pm' : 'am'
   const h12  = hour % 12 || 12
   return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`
@@ -142,7 +228,7 @@ function trailLabel(row: IHAssetTrailRow, isLast: boolean): string {
 // ── Mosaic: fixed grid showing all 5 categories with visit-order numbers ───────
 
 const MOSAIC_CELLS: { key: string; label: string; wide?: boolean }[] = [
-  { key: 'patient',         label: 'With Patient', wide: true },
+  { key: 'patient',         label: 'Patient Area', wide: true },
   { key: 'moving_cleaning', label: 'Moving / Cleaning' },
   { key: 'exit',            label: 'Exit' },
   { key: 'sitting_unused',  label: 'Sitting Unused' },
@@ -324,8 +410,7 @@ function CategoryTile({
 
 // ── Asset row in drill-down ────────────────────────────────────────────────────
 
-function AssetRow({ row, days, onSelect }: { row: IHCategoryAssetRow; days: number; onSelect: () => void }) {
-  const periodLabel = days === 7 ? 'here this week' : `over ${days} days`
+function AssetRow({ row, periodLabel, onSelect }: { row: IHCategoryAssetRow; periodLabel: string; onSelect: () => void }) {
   return (
     <Box
       sx={{
@@ -395,6 +480,7 @@ function AssetRow({ row, days, onSelect }: { row: IHCategoryAssetRow; days: numb
 
 interface WhereDoTheySpendProps {
   clientId:            string
+  dashboardKey:        string
   product:             string
   locationCategories:  IHLocationCategoryRow[]
   categoryAssets:      IHCategoryAssetRow[]
@@ -844,6 +930,7 @@ function EnrichedContextCard({ assetType }: { assetType: string }) {
 
 export default function WhereDoTheySpend({
   clientId,
+  dashboardKey,
   product,
   locationCategories,
   categoryAssets,
@@ -869,10 +956,13 @@ export default function WhereDoTheySpend({
 
   const meta       = selectedCategory ? (CAT_META[selectedCategory] ?? CAT_META.sitting_unused) : null
   const trailAsset = assetTrailRows[0] ?? null
-  // "Last signal" = end of the most recent (last) session, not start of the first
+  // "Last signal" = end of the most recent (last) session, not start of the first.
+  // startTime is a facility-local wall-clock string — convert to a true UTC
+  // instant before adding the duration, rather than letting the browser's own
+  // timezone silently reinterpret it.
   const lastTrailRow = assetTrailRows.length > 0 ? assetTrailRows[assetTrailRows.length - 1] : null
-  const lastSignalIso = lastTrailRow
-    ? new Date(new Date(lastTrailRow.startTime).getTime() + lastTrailRow.durMins * 60000).toISOString()
+  const lastSignalDate = lastTrailRow
+    ? new Date(facilityLocalToUtcInstant(lastTrailRow.startTime).getTime() + lastTrailRow.durMins * 60000)
     : null
 
   // Split into big tiles (top row) and small tiles (bottom strip)
@@ -1013,7 +1103,7 @@ export default function WhereDoTheySpend({
                   <Box sx={{ width: 12, height: 12, borderRadius: 1, bgcolor: l.color, border: l.border ? `1px solid ${l.border}` : 'none', flexShrink: 0 }} />
                   <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                     <Box component="span" sx={{ fontWeight: 600 }}>{l.label}</Box>
-                    {l.label === 'With Patient' && ' — where equipment is actively helping a patient'}
+                    {l.label === 'Patient Area' && ' — where equipment is actively helping a patient'}
                     {l.label === 'Moving / Cleaning' && ' — soiled utility, SPD, decontamination'}
                     {l.label === 'Exit' && ' — near an exit or loading area'}
                     {l.label === 'Sitting Unused' && ' — idle, wherever that happens to be'}
@@ -1245,6 +1335,8 @@ export default function WhereDoTheySpend({
             </Box>
           </Box>
 
+          <DepartmentBlocks clientId={clientId} dashboardKey={dashboardKey} assetType={assetType} />
+
           {/* Bottom actions */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Box
@@ -1386,8 +1478,8 @@ export default function WhereDoTheySpend({
                   <polyline points="12 6 12 12 16 14"/>
                 </svg>
                 <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                  {lastSignalIso
-                    ? `Last signal ${timeAgo(lastSignalIso)}${lastTrailRow?.floorLevel ? ` · Floor ${lastTrailRow.floorLevel}` : ''}`
+                  {lastSignalDate
+                    ? `Last signal ${timeAgoFromInstant(lastSignalDate)}${lastTrailRow?.floorLevel ? ` · Floor ${lastTrailRow.floorLevel}` : ''}`
                     : 'Last signal unknown'}
                 </Typography>
               </Box>
@@ -1543,9 +1635,14 @@ export default function WhereDoTheySpend({
             </Typography>
           ) : (
             <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
-              {categoryAssets.map((row) => (
-                <AssetRow key={row.assetId} row={row} days={days} onSelect={() => onSelectAsset(row.assetId)} />
-              ))}
+              {(() => {
+                const rowPeriodLabel = selectedDay === -1
+                  ? (days === 7 ? 'here this week' : `over ${days} days`)
+                  : (() => { const d = dateFromKey(selectedDay!); return `on ${DAY_NAMES[d.getDay()]}, ${MON_NAMES[d.getMonth()]} ${d.getDate()}` })()
+                return categoryAssets.map((row) => (
+                  <AssetRow key={row.assetId} row={row} periodLabel={rowPeriodLabel} onSelect={() => onSelectAsset(row.assetId)} />
+                ))
+              })()}
             </Box>
           )}
 

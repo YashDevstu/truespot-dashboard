@@ -36,6 +36,7 @@ import {
   buildIHRefreshTimeLHQuery,
   buildIHPeakUtilisationLHQuery,
   buildIHUtilisationGFQuery,
+  buildIHDepartmentsQuery,
   buildIHUtilisationHoursGFQuery,
   buildIHHourlyByDayGFQuery,
   buildIHAssetTypeUtilisationGFQuery,
@@ -73,6 +74,7 @@ type IHQueryType =
   | 'location-category-assets'
   | 'location-category-daily'
   | 'refresh-time'
+  | 'departments'
 
 interface IHQueryBody {
   clientId:     string
@@ -129,18 +131,39 @@ function computeFloorReadiness(
 ): Record<string, unknown>[] {
   const TIGHT_PCT = parConfig.tight_pct ?? 0.7
 
+  // Resolve each VIN to a single dominant floor per day — the floor it spent
+  // the most rush-window minutes on — before counting. Without this, a pump
+  // that moved between floors during the 8-10am window would be counted as
+  // "present" on every floor it touched that day, inflating every floor it
+  // passed through instead of crediting just the one it actually belonged to.
+  const dominance = new Map<string, Map<string, number>>()  // "date|vin" -> floor -> minutes
+  for (const row of rawRows) {
+    const floor = String(row['[Floor]']   ?? '').trim()
+    const date  = String(row['[Date]']    ?? '').trim()
+    const vin   = String(row['[VIN]']     ?? '').trim()
+    const dur   = Number(row['[DurMins]'] ?? 0)
+    if (!floor || !date || !vin) continue
+    const key = `${date}|${vin}`
+    if (!dominance.has(key)) dominance.set(key, new Map())
+    const floorMins = dominance.get(key)!
+    floorMins.set(floor, (floorMins.get(floor) ?? 0) + dur)
+  }
+
   // Group: floor → date → Set<VIN>
   const byFloor = new Map<string, Map<string, Set<string>>>()
   const allVINs  = new Set<string>()
 
-  for (const row of rawRows) {
-    const floor = String(row['[Floor]'] ?? '').trim()
-    const date  = String(row['[Date]']  ?? '').trim()
-    const vin   = String(row['[VIN]']   ?? '').trim()
-    if (!floor || !date || !vin) continue
+  for (const [key, floorMins] of dominance) {
+    const [date, vin] = key.split('|')
+    let bestFloor = ''
+    let bestMins  = -1
+    for (const [floor, mins] of floorMins) {
+      if (mins > bestMins) { bestFloor = floor; bestMins = mins }
+    }
+    if (!bestFloor) continue
     allVINs.add(vin)
-    if (!byFloor.has(floor)) byFloor.set(floor, new Map())
-    const dateMap = byFloor.get(floor)!
+    if (!byFloor.has(bestFloor)) byFloor.set(bestFloor, new Map())
+    const dateMap = byFloor.get(bestFloor)!
     if (!dateMap.has(date)) dateMap.set(date, new Set())
     dateMap.get(date)!.add(vin)
   }
@@ -198,21 +221,40 @@ function computeFloorReadinessByType(
 ): Record<string, unknown>[] {
   const TIGHT_PCT = parConfig.tight_pct ?? 0.7
 
-  // byType → floor → date → Set<VIN>
-  const byType = new Map<string, Map<string, Map<string, Set<string>>>>()
-  const vinsByType = new Map<string, Set<string>>()
-
+  // Resolve each (AssetType, VIN) to a single dominant floor per day — same
+  // rationale as computeFloorReadiness: a pump that moved floors during the
+  // rush window shouldn't be counted as "present" on every floor it touched.
+  const dominance = new Map<string, Map<string, number>>()  // "assetType|date|vin" -> floor -> minutes
   for (const row of rawRows) {
     const assetType = String(row['[AssetType]'] ?? '').trim()
     const floor     = String(row['[Floor]']     ?? '').trim()
     const date      = String(row['[Date]']      ?? '').trim()
     const vin       = String(row['[VIN]']       ?? '').trim()
+    const dur       = Number(row['[DurMins]']   ?? 0)
     if (!assetType || !floor || !date || !vin) continue
+    const key = `${assetType}|${date}|${vin}`
+    if (!dominance.has(key)) dominance.set(key, new Map())
+    const floorMins = dominance.get(key)!
+    floorMins.set(floor, (floorMins.get(floor) ?? 0) + dur)
+  }
+
+  // byType → floor → date → Set<VIN>
+  const byType = new Map<string, Map<string, Map<string, Set<string>>>>()
+  const vinsByType = new Map<string, Set<string>>()
+
+  for (const [key, floorMins] of dominance) {
+    const [assetType, date, vin] = key.split('|')
+    let bestFloor = ''
+    let bestMins  = -1
+    for (const [floor, mins] of floorMins) {
+      if (mins > bestMins) { bestFloor = floor; bestMins = mins }
+    }
+    if (!bestFloor) continue
 
     if (!byType.has(assetType)) byType.set(assetType, new Map())
     const byFloor = byType.get(assetType)!
-    if (!byFloor.has(floor)) byFloor.set(floor, new Map())
-    const byDate = byFloor.get(floor)!
+    if (!byFloor.has(bestFloor)) byFloor.set(bestFloor, new Map())
+    const byDate = byFloor.get(bestFloor)!
     if (!byDate.has(date)) byDate.set(date, new Set())
     byDate.get(date)!.add(vin)
 
@@ -277,18 +319,37 @@ function computeFloorDailyTrend(
   parConfig: FloorParConfig,
   assetType: string | undefined,
 ): Record<string, unknown>[] {
+  // Same dominant-floor resolution as computeFloorReadiness — a VIN that moved
+  // floors during the rush window is credited to only the floor it spent the
+  // most time on that day, not every floor it passed through.
+  const dominance = new Map<string, Map<string, number>>()  // "date|vin" -> floor -> minutes
+  for (const row of rawRows) {
+    const floor = String(row['[Floor]']   ?? '').trim()
+    const date  = String(row['[Date]']    ?? '').trim()
+    const vin   = String(row['[VIN]']     ?? '').trim()
+    const dur   = Number(row['[DurMins]'] ?? 0)
+    if (!floor || !date || !vin) continue
+    const key = `${date}|${vin}`
+    if (!dominance.has(key)) dominance.set(key, new Map())
+    const floorMins = dominance.get(key)!
+    floorMins.set(floor, (floorMins.get(floor) ?? 0) + dur)
+  }
+
   // byDate → floor → Set<VIN>
   const byDate = new Map<string, Map<string, Set<string>>>()
 
-  for (const row of rawRows) {
-    const floor = String(row['[Floor]'] ?? '').trim()
-    const date  = String(row['[Date]']  ?? '').trim()
-    const vin   = String(row['[VIN]']   ?? '').trim()
-    if (!floor || !date || !vin) continue
+  for (const [key, floorMins] of dominance) {
+    const [date, vin] = key.split('|')
+    let bestFloor = ''
+    let bestMins  = -1
+    for (const [floor, mins] of floorMins) {
+      if (mins > bestMins) { bestFloor = floor; bestMins = mins }
+    }
+    if (!bestFloor) continue
     if (!byDate.has(date)) byDate.set(date, new Map())
     const floorMap = byDate.get(date)!
-    if (!floorMap.has(floor)) floorMap.set(floor, new Set())
-    floorMap.get(floor)!.add(vin)
+    if (!floorMap.has(bestFloor)) floorMap.set(bestFloor, new Set())
+    floorMap.get(bestFloor)!.add(vin)
   }
 
   const result: Record<string, unknown>[] = []
@@ -979,7 +1040,7 @@ export async function POST(request: NextRequest) {
       try {
         const rows = await executeQuery(
           lhDash.dataset_name,
-          buildIHAssetTrailQuery(filters),
+          buildIHAssetTrailQuery(filters, isGeofenceBased),
           0,  // no cache — trail is always fresh for a specific asset
           lhWorkspaceId,
         )
@@ -1004,6 +1065,16 @@ export async function POST(request: NextRequest) {
       daxQuery = isGeofenceBased ? buildIHRefreshTimeGFQuery() : buildIHRefreshTimeQuery()
       ttl = CACHE_TTL_KPIS
       break
+    }
+    case 'departments': {
+      // GF-only for now — Post-Aggregate[My Department] is a Halifax/GF-style field.
+      if (!isGeofenceBased) return Response.json({ rows: [] })
+      try {
+        const rows = await executeQuery(dashboard.dataset_name, buildIHDepartmentsQuery(filters), CACHE_TTL_CHARTS, workspaceId)
+        return Response.json({ rows })
+      } catch (err) {
+        return Response.json({ error: String(err) }, { status: 500 })
+      }
     }
     default:
       return Response.json({ error: `Unknown queryType "${queryType}"` }, { status: 400 })

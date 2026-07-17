@@ -6,11 +6,11 @@ import Typography from '@mui/material/Typography'
 import Skeleton from '@mui/material/Skeleton'
 import { BarChart, Bar, XAxis, YAxis, ReferenceLine, ResponsiveContainer, Cell, Tooltip, LabelList, LineChart, Line, ReferenceArea } from 'recharts'
 import type { IHFloorStatusRow, IHFloorReadinessByTypeRow } from '@/hooks/useInsightHubData'
-import CheckItYourself from './CheckItYourself'
+import CheckItYourself, { getFloorParTier, NEAR_PAR_PCT } from './CheckItYourself'
 import WhatYouCanDoAboutIt from './WhatYouCanDoAboutIt'
 import FlipStatCards from '../shared/FlipStatCards'
 import { PinIcon } from '../shared/PerTenIconGrid'
-import { parseUtcTimestamp, getFacilityParts } from '@/utils/formatters'
+import { parseFacilityLocalParts } from '@/utils/formatters'
 
 const TEAL   = '#0d9488'
 const AMBER  = '#d97706'
@@ -227,14 +227,12 @@ function computeHourlyAvg(sessions: HourlySession[]): number[] {
   const dayMap = new Map<string, { vin: string; startMin: number; endMin: number }[]>()
 
   for (const s of sessions) {
-    const start = parseUtcTimestamp(s.sessionStart)
-    const end   = parseUtcTimestamp(s.sessionEnd)
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) continue
+    // sessionStart/sessionEnd are already facility-local wall-clock strings —
+    // read the components directly, no UTC round-trip (see formatters.ts).
+    const startParts = parseFacilityLocalParts(s.sessionStart)
+    const endParts   = parseFacilityLocalParts(s.sessionEnd)
+    if (!startParts.year || !endParts.year) continue
 
-    // Bucket by the facility's own local day/hour (Eastern, DST-aware), not
-    // whatever timezone the viewer's browser happens to be in.
-    const startParts = getFacilityParts(start)
-    const endParts   = getFacilityParts(end)
     const dayKey = `${startParts.year}-${startParts.month}-${startParts.day}`
     if (!dayMap.has(dayKey)) dayMap.set(dayKey, [])
     dayMap.get(dayKey)!.push({
@@ -1144,26 +1142,27 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
 
       {/* ── Three summary cards — flip animation ────────────────────────────── */}
       {rows.length > 0 && (() => {
-        const worstShort  = [...shortFloors].sort((a, b) => b.daysShort - a.daysShort)[0]
-        const worstPctAvg = worstShort && worstShort.par > 0
-          ? Math.round((worstShort.avgCount / worstShort.par) * 100)
-          : 0
-        const worstPctDays = worstShort && worstShort.totalDays > 0
-          ? Math.round((worstShort.daysEnough / worstShort.totalDays) * 100)
-          : 0
+        // Same metric as the "Dive deeper" grid below — average on-hand vs par —
+        // so the summary cards and the grid never disagree about which floor is
+        // worst or by how much. (Day-count-based selection was tried first but
+        // can pick a floor whose weekly *average* sits above 100% of par even
+        // though it's the most frequent day-level offender — a self-contradictory
+        // "tightest moment ... 117% on hand" headline.)
+        const parTiers   = rows.map((r) => ({ row: r, ...getFloorParTier(r) }))
+        const shortByPar = parTiers.filter((t) => t.tier === 'shortfall').sort((a, b) => a.pct - b.pct)
+        const hoardByPar = parTiers.filter((t) => t.tier === 'hoarding').sort((a, b) => b.pct - a.pct)
+        const stockedCount = parTiers.filter((t) => t.tier === 'stocked').length
 
-        // Pick the floor with the highest total count — the most stocked donor candidate.
-        // surplus = how many above par (can be 0 or negative if counts are at/below par).
-        const surplusFloor = [...rows]
-          .map((r) => ({ ...r, surplus: Math.round(r.avgCount - r.par) }))
-          .sort((a, b) => b.avgCount - a.avgCount)[0]
+        const worstFloor = shortByPar[0]?.row
+        const worstPct   = shortByPar[0]?.pct ?? 0
 
-        const surplus = surplusFloor?.surplus ?? 0
+        // Prefer an actual hoarding-flagged floor as the donor candidate (30%+ over
+        // par); fall back to the largest raw surplus if none crossed that line.
+        const surplusFloor = hoardByPar[0]?.row ?? [...rows].sort((a, b) => (b.avgCount - b.par) - (a.avgCount - a.par))[0]
+        const surplus = surplusFloor ? Math.round(surplusFloor.avgCount - surplusFloor.par) : 0
         const savings = surplus > 0 && unitValue ? surplus * unitValue : 0
 
-        const shortNames = [...shortFloors]
-          .sort((a, b) => b.daysShort - a.daysShort)
-          .map((f) => f.floor)
+        const shortNames = shortByPar.map((t) => t.row.floor)
         const shortDesc = shortNames.length === 0
           ? 'No floors ran short in the last 7 days.'
           : shortNames.length === 1
@@ -1172,12 +1171,12 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
               ? `${shortNames[0]} and ${shortNames[1]}`
               : `${shortNames.slice(0, -1).join(', ')}, and ${shortNames[shortNames.length - 1]}`
 
-        const card1Desc = shortFloors.length === 0
+        const card1Desc = shortByPar.length === 0
           ? 'Every floor had enough pumps each morning of the last 7 days.'
           : <>{<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{shortDesc}</Box>}{' '}regularly {shortNames.length === 1 ? "doesn't" : "don't"} have enough {assetLabel.toLowerCase()} when the morning rush hits.</>
 
-        const card2Desc = worstShort
-          ? <>Weekday mornings, 8–10 am — the medication pass window. On average, only{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstPctAvg}%</Box>{' '}of the required minimum ({worstShort.par} {assetLabel.toLowerCase()}) is on hand at <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstShort.floor}</Box>.</>
+        const card2Desc = worstFloor
+          ? <>Weekday mornings, 8–10 am — the medication pass window. <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstFloor.floor}</Box>{' '}meets par only{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstPct}%</Box>{' '}of the time.</>
           : 'Every floor met par throughout the last 7 days.'
 
         const card3Desc = surplusFloor && surplus > 0
@@ -1197,40 +1196,40 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
                   why:    `Across all ${rows.length} floors, ${100 - pctMet}% of morning rush hours saw fewer ${assetLabel.toLowerCase()} than the required minimum over the last 7 days.`,
                 },
                 {
-                  metric: `${shortFloors.length}`,
-                  suffix: shortFloors.length === 1 ? 'floor' : 'floors',
-                  why:    `A floor is counted as 'short' when it falls below its ${assetLabel.toLowerCase()} minimum on 2 or more mornings in 7 days.`,
+                  metric: `${shortByPar.length}`,
+                  suffix: shortByPar.length === 1 ? 'floor' : 'floors',
+                  why:    `A floor is counted as 'short' when it has, on average, less than ${NEAR_PAR_PCT}% of its required minimum on hand.`,
                 },
                 {
-                  metric: `${enoughFloors.length} of ${rows.length}`,
+                  metric: `${stockedCount} of ${rows.length}`,
                   suffix: 'meet par',
-                  why:    `Of the ${rows.length} floors tracked, ${enoughFloors.length} consistently had enough ${assetLabel.toLowerCase()} during morning rounds.`,
+                  why:    `Of the ${rows.length} floors tracked, ${stockedCount} sit at or near par on average during morning rounds.`,
                 },
               ],
               description: card1Desc,
             }}
             card2={{
               label: 'The tightest moment',
-              faces: worstShort ? [
+              faces: worstFloor ? [
                 {
                   metric: '8–10 am',
                   suffix: 'is the crunch',
                   why:    'The morning medication pass window — when all floors compete for the same pool of devices at the same time.',
                 },
                 {
-                  metric: worstShort.floor,
+                  metric: worstFloor.floor,
                   suffix: '',
-                  why:    `This floor ran short most often in the last 7 days — most likely where staff are hunting for ${assetLabel.toLowerCase()} during rounds.`,
+                  why:    `This floor has the least ${assetLabel.toLowerCase()} on hand relative to what it needs — most likely where staff are hunting during rounds.`,
                 },
                 {
-                  metric: `${worstPctDays}%`,
-                  suffix: 'of mornings at par',
-                  why:    `Out of ${worstShort.totalDays} mornings checked, ${worstShort.floor} had enough ${assetLabel.toLowerCase()} on only ${worstShort.daysEnough}.`,
+                  metric: `${worstPct}%`,
+                  suffix: 'of par, on average',
+                  why:    `${worstFloor.floor} averages ${worstFloor.avgCount} ${assetLabel.toLowerCase()} on hand against a par of ${worstFloor.par} — ${worstPct}% coverage.`,
                 },
               ] : [
                 { metric: 'All clear', suffix: '', why: 'Every floor met par on every morning tracked.' },
                 { metric: '0', suffix: 'floors short', why: 'No floor fell below its minimum during the 8–10 am window in the last 7 days.' },
-                { metric: '100%', suffix: 'of mornings at par', why: 'Every morning, every floor had at least its required minimum number of devices.' },
+                { metric: '100%', suffix: 'of par, on average', why: 'Every floor averages at or above its required minimum.' },
               ],
               description: card2Desc,
             }}

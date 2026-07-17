@@ -61,6 +61,12 @@ const IconHiding = (
   </svg>
 )
 
+const IconMaintenance = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <path d="M10.6 2.4a3 3 0 0 0-3.9 3.6L2 11l2 2 5-4.7a3 3 0 0 0 3.6-3.9l-2 2-1.4-1.4 2-2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round"/>
+  </svg>
+)
+
 const IconMaps = (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
     <path d="M2 4l4-1.5 4 1.5 4-1.5v9l-4 1.5-4-1.5-4 1.5V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" opacity=".7"/>
@@ -78,10 +84,11 @@ const IconRental = (
 // ── Nav data ──────────────────────────────────────────────────────────────────
 
 const LIVE_ITEMS: NavItem[] = [
-  { id: 'utilisation',        label: 'How much gets used?',    icon: IconUsage  },
-  { id: 'floor-distribution', label: 'Enough on every floor?', icon: IconFloors },
-  { id: 'cleaning-loop',      label: 'The cleaning loop',      icon: IconLoop   },
-  { id: 'hiding-spots',       label: 'The hiding spots',       icon: IconHiding },
+  { id: 'utilisation',            label: 'How much gets used?',           icon: IconUsage       },
+  { id: 'floor-distribution',     label: 'Enough on every floor?',        icon: IconFloors      },
+  { id: 'preventive-maintenance', label: 'Preventive Maintenance Status', icon: IconMaintenance },
+  { id: 'cleaning-loop',          label: 'The cleaning loop',             icon: IconLoop        },
+  { id: 'hiding-spots',           label: 'The hiding spots',              icon: IconHiding      },
 ]
 
 const SOON_ITEMS: NavItem[] = [
@@ -92,10 +99,11 @@ const SOON_ITEMS: NavItem[] = [
 // ── Public exports ────────────────────────────────────────────────────────────
 
 export const REPORT_LABELS: Record<InsightHubReport, string> = {
-  'utilisation':        'How much gets used?',
-  'floor-distribution': 'Enough on every floor?',
-  'cleaning-loop':      'The cleaning loop',
-  'hiding-spots':       'The hiding spots',
+  'utilisation':            'How much gets used?',
+  'floor-distribution':     'Enough on every floor?',
+  'preventive-maintenance': 'Preventive Maintenance Status',
+  'cleaning-loop':          'The cleaning loop',
+  'hiding-spots':           'The hiding spots',
 }
 
 export function formatRefreshAgo(raw: string): string {

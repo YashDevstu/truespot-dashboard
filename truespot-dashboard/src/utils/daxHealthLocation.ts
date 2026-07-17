@@ -263,6 +263,24 @@ TOPN(
 )`
 }
 
+// ── Latest asset — most-recently-seen VIN, for cold-start auto-select ────────
+// TOPN(1, ..., [LastSeen], 0) picks the single max-LastSeen row; with N=1 the
+// output-order caveat that applies to larger TOPN calls doesn't matter here.
+export function buildHLLatestAssetQuery(filters: ActiveHealthLocationFilters): string {
+  const conds = buildHealthLocationConditions(filters)
+  const src = filteredSource(conds)
+  return `EVALUATE
+TOPN(
+  1,
+  SELECTCOLUMNS(
+    ${src},
+    "AssetId",  ${T}[VIN],
+    "LastSeen", ${T}[PreviousLastSeenNew_]
+  ),
+  [LastSeen], 0
+)`
+}
+
 // ── Refresh time ──────────────────────────────────────────────────────────────
 
 export function buildHLRefreshTimeQuery(): string {

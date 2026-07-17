@@ -5,7 +5,7 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
 import type { IHFloorStatusRow } from '@/hooks/useInsightHubData'
-import { parseUtcTimestamp, getFacilityParts } from '@/utils/formatters'
+import { parseFacilityLocalParts, facilityLocalToUtcInstant, getFacilityParts } from '@/utils/formatters'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,6 +25,8 @@ interface AssetTrailRow {
   sessionEnd:   string   // ISO — when asset was next pinged (possibly elsewhere)
   assetType:    string
   durMins:      number
+  category:     string   // 'patient' | 'moving_cleaning' | 'exit' | 'unknown' | 'sitting_unused'
+  batteryLevel: number | null  // 0-100, null if not reported for this session
 }
 
 type Level =
@@ -35,37 +37,78 @@ type Level =
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const TEAL  = '#0d9488'
-const RED   = '#dc2626'
+const RED   = '#ef4444'
 const AMBER = '#d97706'
 
+// Solid fills for every status, not just "stocked" — a short/tight floor should
+// read as urgent at a glance, not blend in as a pale tile among green ones.
 const TIER_STYLE = {
-  stocked:   { bg: '#0d9488', text: '#fff',    subtext: 'rgba(255,255,255,0.8)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff',    dot: '#fff' },
-  fine:      { bg: '#f0fdfb', text: '#0f4f4a', subtext: '#1e7268',              border: '#99f6e4',      badge: '#ccfbf1',                badgeText: TEAL,      dot: TEAL },
-  tight:     { bg: '#fef9ec', text: '#78350f', subtext: '#92400e',              border: '#fde68a',      badge: '#fef3c7',                badgeText: AMBER,     dot: AMBER },
-  shortfall: { bg: '#fff1f2', text: '#881337', subtext: '#9f1239',              border: '#fecdd3',      badge: '#ffe4e6',                badgeText: RED,       dot: RED },
+  stocked:   { bg: TEAL,  text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  tight:     { bg: AMBER, text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  shortfall: { bg: RED,   text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  // Same amber as 'tight' — distinct key so the Level-1 par-coverage grid's
+  // "sitting on way more than it needs" case reads separately from Level 2/3's
+  // day-based "ran tight some days" concept, even though they share a color.
+  hoarding:  { bg: AMBER, text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
 }
+
+// Par-coverage bands for the Level-1 floor grid — how much is on hand, on
+// average, relative to what the floor needs at the rush.
+export const HOARD_PCT    = 130  // 30%+ over par, on average → sitting on more than needed
+export const NEAR_PAR_PCT = 90   // under 90% of par, on average → short at the rush
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getFloorTier(row: IHFloorStatusRow): { label: string; tier: keyof typeof TIER_STYLE; pct: number } {
-  const pct = row.totalDays > 0 ? Math.round((row.daysEnough / row.totalDays) * 100) : 0
-  if (row.status === 'short') return { label: 'SHORT AT THE RUSH',  tier: 'shortfall', pct }
-  if (row.status === 'tight') return { label: 'TIGHT',              tier: 'tight',     pct }
-  if (pct >= 95)              return { label: 'COMFORTABLY STOCKED', tier: 'stocked',  pct }
-  return                             { label: 'FINE',               tier: 'fine',      pct }
+// The single tier definition shared by every level of this page (grid tiles,
+// summary cards, floor-detail banner, floor mini-map) — how well-stocked a
+// floor is on average, relative to par. Percentage is capped at 100 for
+// display (a floor sitting on 2x par still just reads "100%"); the real
+// surplus/deficit shows in the description text alongside it.
+export function getFloorParTier(row: IHFloorStatusRow): { label: string; tier: keyof typeof TIER_STYLE; pct: number } {
+  const par    = row.par || 0
+  const rawPct = par > 0 ? Math.round((row.avgCount / par) * 100) : 100
+  const pct    = Math.min(100, rawPct)
+  if (rawPct >= HOARD_PCT)    return { label: 'MORE THAN NEEDED',    tier: 'hoarding',  pct }
+  if (rawPct < NEAR_PAR_PCT)  return { label: 'SHORT AT THE RUSH',   tier: 'shortfall', pct }
+  return                             { label: 'COMFORTABLY STOCKED', tier: 'stocked',   pct }
 }
 
-function floorDescription(row: IHFloorStatusRow): string {
-  const avg   = row.avgCount
-  const par   = row.par
-  const extra = avg - par
-  if (extra >= 0) return `${avg} on hand — ${extra} more than needed`
-  return `${avg} on hand — ${Math.abs(extra)} below par`
+function floorParDescription(row: IHFloorStatusRow): string {
+  const diff = row.avgCount - row.par
+  if (diff === 0) return 'Right at par'
+  return diff > 0 ? `+${diff} above par` : `${diff} below par`
+}
+
+// Friendlier, sentence-case labels for the same tiers — used by the Legend and
+// the Level-2 floor banner, where the FloorCard's shouty uppercase badge text
+// ('COMFORTABLY STOCKED') would read wrong next to a full sentence.
+const PAR_TIER_LABEL: Record<keyof typeof TIER_STYLE, string> = {
+  stocked:   'At or near par',
+  hoarding:  'More than needed (hoarding risk)',
+  shortfall: 'Short at the rush',
+  tight:     'Tight',
+}
+
+// One-sentence version for the Level-2 floor banner: names the actual counts
+// (avg on hand vs par) rather than the abstract percentage, and highlights the
+// gap in tier-matching color regardless of the banner's overall badge color.
+function floorParSummary(row: IHFloorStatusRow, assetNoun: string) {
+  const diff = row.avgCount - row.par
+  const lead = <>At the rush this floor typically has{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{row.avgCount}</Box>{' '}{assetNoun} on hand for a par of{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{row.par}</Box></>
+  if (diff === 0) return <>{lead} — right at par.</>
+  const over = diff > 0
+  return <>{lead} — about{' '}<Box component="span" sx={{ fontWeight: 700, color: over ? AMBER : RED }}>{Math.abs(diff)}</Box>{' '}{over ? 'more than needed' : 'short'}.</>
 }
 
 function floorTooltip(row: IHFloorStatusRow): string {
+  const par = row.par
+  if (row.status === 'short' || row.status === 'tight') {
+    const worst = row.minCount
+    const short = par - worst
+    if (short > 0) return `${row.avgCount} on hand on average, but dropped to ${worst} on its worst day — ${short} short of the ${par} needed`
+    return `${row.avgCount} on hand on average — as low as ${worst} on its tightest day (par: ${par})`
+  }
   const avg   = row.avgCount
-  const par   = row.par
   const extra = avg - par
   if (extra >= 0) return `${avg} on hand for a rush that needs ${par}`
   return `${avg} on hand for a rush that needs ${par} — ${Math.abs(extra)} short`
@@ -74,13 +117,12 @@ function floorTooltip(row: IHFloorStatusRow): string {
 const DAY_NAMES_FULL   = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MONTH_NAMES_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-// Shows the facility's own local clock time (Eastern, DST-aware) — not the
-// viewer's browser timezone and not the raw UTC digits in the string.
+// Shows the facility's own local clock time as literally recorded — AppendFinal's
+// timestamps are already facility-local wall-clock time, so no timezone
+// conversion is needed (or wanted — see formatters.ts).
 function fmtTime(iso: string): string {
   if (!iso) return '—'
-  const d = parseUtcTimestamp(iso)
-  if (isNaN(d.getTime())) return '—'
-  const { hour, minute } = getFacilityParts(d)
+  const { hour, minute } = parseFacilityLocalParts(iso)
   const ampm = hour >= 12 ? 'pm' : 'am'
   const h12  = hour % 12 || 12
   return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`
@@ -88,9 +130,8 @@ function fmtTime(iso: string): string {
 
 function fmtDateHeader(iso: string): string {
   if (!iso) return ''
-  const d = parseUtcTimestamp(iso)
-  if (isNaN(d.getTime())) return ''
-  const p       = getFacilityParts(d)
+  const p       = parseFacilityLocalParts(iso)
+  if (!p.year) return ''
   const today   = getFacilityParts(new Date())
   const yesterdayDate = new Date(Date.UTC(today.year, today.month - 1, today.day) - 86400000)
   const yesterday     = getFacilityParts(yesterdayDate)
@@ -104,15 +145,14 @@ function fmtDateHeader(iso: string): string {
 
 function getDateKey(iso: string): string {
   if (!iso) return ''
-  const d = parseUtcTimestamp(iso)
-  if (isNaN(d.getTime())) return ''
-  const { year, month, day } = getFacilityParts(d)
+  const { year, month, day } = parseFacilityLocalParts(iso)
+  if (!year) return ''
   return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`
 }
 
 function fmtAgo(iso: string): string {
   if (!iso) return '—'
-  const d    = parseUtcTimestamp(iso)
+  const d    = facilityLocalToUtcInstant(iso)
   if (isNaN(d.getTime())) return '—'
   const diff = Math.floor((Date.now() - d.getTime()) / 60000)
   if (diff < 1)  return 'just now'
@@ -131,9 +171,21 @@ function fmtDuration(mins: number): string {
   return m > 0 ? `${h} hr ${m} min` : `${h} hr`
 }
 
-function trailContext(mins: number, floor: string): string {
+// Category comes from the same patient/cleaning/exit/hard-to-find classification
+// used everywhere else on this dashboard (see categoryExprGFLH in daxInsightHub.ts),
+// so "In use with a patient" is a real geofence match, not a guess from duration alone.
+// Duration-based phrasing is the fallback for 'sitting_unused' stops, where the
+// zone itself doesn't imply anything beyond how long the asset sat there.
+function trailContext(mins: number, floor: string, category: string, prevCategory?: string): string {
   const unknown = !floor || floor.toLowerCase().includes('unknown')
-  if (unknown)     return 'Signal lost or outside coverage'
+  if (unknown || category === 'unknown') return 'Signal lost or outside coverage'
+  if (category === 'patient')  return 'In use with a patient'
+  if (category === 'exit')     return "Near an exit — confirm it hasn't left the building"
+  if (category === 'moving_cleaning') {
+    return prevCategory === 'patient'
+      ? `Back on ${floor}, ready for the next patient`
+      : 'In a cleaning/utility area'
+  }
   if (mins >= 480) return 'Parked overnight, unused'
   if (mins >= 120) return 'Sitting in one place — check if needed elsewhere'
   if (mins >= 30)  return 'Active stay'
@@ -206,10 +258,9 @@ async function fetchIH(
 
 function Legend() {
   const items: [keyof typeof TIER_STYLE, string][] = [
-    ['stocked',   'Comfortably stocked'],
-    ['fine',      'Fine'],
-    ['tight',     'Tight'],
-    ['shortfall', 'Frequent shortfall'],
+    ['stocked',   PAR_TIER_LABEL.stocked],
+    ['hoarding',  PAR_TIER_LABEL.hoarding],
+    ['shortfall', PAR_TIER_LABEL.shortfall],
   ]
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, mt: 0.5 }}>
@@ -238,9 +289,9 @@ function Legend() {
 // ── Floor Card (Level 1) ──────────────────────────────────────────────────────
 
 function FloorCard({ row, onClick }: { row: IHFloorStatusRow; onClick: () => void }) {
-  const { tier, label, pct } = getFloorTier(row)
+  const { tier, label, pct } = getFloorParTier(row)
   const s       = TIER_STYLE[tier]
-  const desc    = floorDescription(row)
+  const desc    = floorParDescription(row)
   const tooltip = floorTooltip(row)
   const [tipOpen, setTipOpen] = useState(false)
 
@@ -434,7 +485,7 @@ function FloorMiniMap({
       {sorted.map((f) => {
         const order    = visitOrderMap.get(f.floor)
         const visited  = order !== undefined
-        const { tier } = getFloorTier(f)
+        const { tier } = getFloorParTier(f)
         const s        = TIER_STYLE[tier]
         return (
           <Box
@@ -626,14 +677,20 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
 
     try {
       const rawRows = await fetchIH(clientId, dashboardKey, 'asset-trail', { vin: asset.vin }, signal)
-      const trail: AssetTrailRow[] = rawRows.map((r) => ({
-        floor:        String(r['[FloorLevel]']   ?? '').trim(),
-        subGeo:       String(r['[SubGeoZone]']   ?? '').trim(),
-        sessionStart: String(r['[StartTime]']    ?? '').trim(),
-        sessionEnd:   '',
-        assetType:    String(r['[AssetType]']    ?? '').trim(),
-        durMins:      typeof r['[DurMins]'] === 'number' ? Math.round(r['[DurMins]'] as number) : 0,
-      }))
+      const trail: AssetTrailRow[] = rawRows.map((r) => {
+        const rawBattery = r['[BatteryLevel]']
+        const batteryNum = rawBattery != null ? Number(rawBattery) : NaN
+        return {
+          floor:        String(r['[FloorLevel]']   ?? '').trim(),
+          subGeo:       String(r['[SubGeoZone]']   ?? '').trim(),
+          sessionStart: String(r['[StartTime]']    ?? '').trim(),
+          sessionEnd:   '',
+          assetType:    String(r['[AssetType]']    ?? '').trim(),
+          durMins:      typeof r['[DurMins]'] === 'number' ? Math.round(r['[DurMins]'] as number) : 0,
+          category:     String(r['[Category]']     ?? '').trim(),
+          batteryLevel: Number.isFinite(batteryNum) ? batteryNum : null,
+        }
+      })
       setLevel((prev) =>
         prev.kind === 'trail' && prev.asset.vin === asset.vin
           ? { ...prev, trail, loadingTrail: false }
@@ -701,7 +758,7 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
               borderRadius: 10,
             }}
           >
-            All floors
+            All places
           </Box>
         </Box>
 
@@ -716,8 +773,9 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
         >
           {[...rows]
             .sort((a, b) => {
-              const tierOrder = { short: 0, tight: 1, enough: 2 }
-              return tierOrder[a.status] - tierOrder[b.status] || a.floor.localeCompare(b.floor)
+              const tierOrder = { shortfall: 0, hoarding: 1, stocked: 2, tight: 2 }
+              return tierOrder[getFloorParTier(a).tier] - tierOrder[getFloorParTier(b).tier]
+                || a.floor.localeCompare(b.floor)
             })
             .map((row) => (
               <FloorCard key={row.floor} row={row} onClick={() => void selectFloor(row)} />
@@ -739,7 +797,9 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
 
   if (level.kind === 'floor') {
     const { floorRow, assets, loadingAssets } = level
-    const { tier, label, pct }                = getFloorTier(floorRow)
+    // Same avg-vs-par tier as the Level-1 grid and the summary cards above —
+    // not the day-based getFloorTier, so this banner never disagrees with them.
+    const { tier }                            = getFloorParTier(floorRow)
     const s                                   = TIER_STYLE[tier]
 
     return (
@@ -754,12 +814,15 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
         {/* Breadcrumb nav */}
         <Breadcrumb
           parts={[
-            { label: 'All floors', onClick: backToFloors },
+            { label: 'All places', onClick: backToFloors },
             { label: floorRow.floor },
           ]}
         />
 
-        {/* Floor summary banner */}
+        {/* Floor summary banner — neutral background, colored pill does the work.
+            A solid status-colored banner (matching the Level-1 tiles) reads as
+            an alarm on every visit, even for "stocked" floors; the pill alone
+            is enough signal here since the visitor already chose this floor. */}
         <Box
           sx={{
             display:      'flex',
@@ -768,40 +831,33 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
             gap:          1.5,
             p:            { xs: 1.5, sm: 2 },
             borderRadius: 2.5,
-            bgcolor:      s.bg,
-            border:       `1.5px solid ${s.border}`,
+            bgcolor:      '#f8fafc',
+            border:       '1px solid',
+            borderColor:  'divider',
             mb:           2.5,
           }}
         >
-          <Typography sx={{ fontSize: 18, fontWeight: 900, color: s.text, lineHeight: 1 }}>
+          <Typography sx={{ fontSize: 18, fontWeight: 900, color: 'text.primary', lineHeight: 1 }}>
             {floorRow.floor}
           </Typography>
           <Box
             sx={{
-              bgcolor:       s.badge,
-              color:         s.badgeText,
-              fontSize:      10,
-              fontWeight:    800,
-              letterSpacing: '0.08em',
-              px:            1,
-              py:            0.35,
-              borderRadius:  1.5,
-              textTransform: 'uppercase',
-              flexShrink:    0,
+              bgcolor:      s.bg,
+              color:        '#fff',
+              fontSize:     12,
+              fontWeight:   700,
+              px:           1.25,
+              py:           0.4,
+              borderRadius: 10,
+              flexShrink:   0,
             }}
           >
-            {label}
+            {PAR_TIER_LABEL[tier]}
           </Box>
-          <Typography sx={{ fontSize: 13, color: s.subtext, flex: 1, lineHeight: 1.5 }}>
-            Meets par <Box component="span" sx={{ fontWeight: 700, color: s.text }}>{pct}% of mornings</Box>
-            {' · '}{floorTooltip(floorRow)}
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', flex: 1, lineHeight: 1.5 }}>
+            {floorParSummary(floorRow, assetType?.toLowerCase() ?? 'equipment')}
           </Typography>
         </Box>
-
-        {/* Asset list heading */}
-        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary', mb: 1.25 }}>
-          Assets seen here in the last 48 hours
-        </Typography>
 
         {/* Loading */}
         {loadingAssets && (
@@ -881,7 +937,7 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
 
         <Breadcrumb
           parts={[
-            { label: 'All floors',  onClick: backToFloors },
+            { label: 'All places',  onClick: backToFloors },
             { label: floorRow.floor, onClick: () => backToFloor(floorRow) },
             { label: asset.assetName || asset.vin },
           ]}
@@ -928,9 +984,37 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
             <Box sx={{ bgcolor: '#f0fdfb', border: `1px solid ${TEAL}40`, color: TEAL, fontSize: 11, fontWeight: 600, px: 1, py: 0.35, borderRadius: 1 }}>
               Tag healthy
             </Box>
+            {/* Battery — this device's own most recently reported level */}
+            {(() => {
+              const battery = trail[trail.length - 1]?.batteryLevel ?? null
+              const low     = battery !== null && battery <= 20
+              return (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: low ? '#fef2f2' : '#f8fafc', border: `1px solid ${low ? '#fecaca' : '#e2e8f0'}`, borderRadius: 1, px: 1, py: 0.35 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={low ? '#dc2626' : '#64748b'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="7" width="18" height="11" rx="2"/>
+                    <path d="M22 11v3"/>
+                    <rect x="4" y="9" width="11" height="7" rx="1" fill={low ? '#dc2626' : '#64748b'} stroke="none"/>
+                  </svg>
+                  <Typography sx={{ fontSize: 11, color: low ? '#b91c1c' : 'text.secondary', fontWeight: low ? 700 : 600 }}>
+                    {battery !== null ? `Battery ${battery}%` : 'Battery —'}
+                  </Typography>
+                </Box>
+              )
+            })()}
             <Box sx={{ bgcolor: '#f0fdfb', border: `1px solid ${TEAL}40`, color: TEAL, fontSize: 11, fontWeight: 600, px: 1, py: 0.35, borderRadius: 1 }}>
               Last confirmed {fmtAgo(asset.lastSeen)}
               {asset.subGeo && !asset.subGeo.toLowerCase().includes('unknown') ? ` · ${asset.subGeo}` : ''}
+            </Box>
+            {/* Signal quality — illustrative placeholder; needs a real-time device
+                telemetry feed to be accurate. Open item, not a hidden gap. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 1, px: 1, py: 0.35 }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                <circle cx="12" cy="20" r="1" fill="#64748b" stroke="none"/>
+              </svg>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Signal good</Typography>
             </Box>
           </Box>
         </Box>
@@ -1068,7 +1152,7 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
                               )}
                             </Typography>
                             <Typography sx={{ fontSize: 12, color: textColor, mt: 0.25, lineHeight: 1.5 }}>
-                              {trailContext(t.durMins, t.floor)}
+                              {trailContext(t.durMins, t.floor, t.category, i > 0 ? trail[i - 1].category : undefined)}
                               {t.durMins > 0 && (
                                 <Box
                                   component="span"

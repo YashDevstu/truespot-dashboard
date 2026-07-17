@@ -325,6 +325,29 @@ export function useHealthLocationData(clientId: string, dashboardKey: string) {
 
   const resetFilters = useCallback(() => setFilters({ dateSeen: 'Today' }), [])
 
+  // Cold-start auto-select: on first page load, default the Asset ID filter to the
+  // most-recently-seen VIN so the dashboard opens scoped to one asset instead of
+  // the full unfiltered fleet. Skipped if the URL/state already has an asset filter
+  // (bookmark / back-nav) — mirrors the CarVision LocationHistoryDashboard pattern.
+  const didAutoSelectAsset = useRef(false)
+  useEffect(() => {
+    if (didAutoSelectAsset.current) return
+    if (filters.vin || filters.beaconId || filters.assetName) {
+      didAutoSelectAsset.current = true
+      return
+    }
+    didAutoSelectAsset.current = true
+    const controller = new AbortController()
+    postHLQuery(clientId, dashboardKey, 'latest-asset', filters, controller.signal)
+      .then((rows) => {
+        const vin = String(rows[0]?.['[AssetId]'] ?? '').trim()
+        if (vin) updateFilter('vin', vin)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, dashboardKey])
+
   const applyFilters = useCallback(
     (updates: Partial<Record<keyof ActiveHealthLocationFilters, string | number | boolean | undefined>>) => {
       setFilters((prev) => {

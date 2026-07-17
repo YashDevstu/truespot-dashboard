@@ -5,13 +5,21 @@ export function toTitleCase(s: string): string {
   return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-// Fabric session timestamps (e.g. AppendFinal's "Last Seen-Local") are stored
-// in UTC but returned as naive strings with no timezone marker (e.g.
-// "2026-07-10T23:59:00"). A bare `new Date(iso)` makes JS assume the VIEWER's
-// local timezone instead of UTC, silently shifting every "time ago" / duration
-// calculation by that offset depending on where the browser or server happens
-// to run. Always use this instead of `new Date(iso)` when parsing a raw
-// Fabric timestamp string.
+// Some Fabric session timestamps are stored in UTC but returned as naive
+// strings with no timezone marker (e.g. "2026-07-10T23:59:00"). A bare
+// `new Date(iso)` makes JS assume the VIEWER's local timezone instead of UTC,
+// silently shifting every "time ago" / duration calculation by that offset
+// depending on where the browser or server happens to run. Use this instead
+// of `new Date(iso)` for timestamp columns confirmed to be true UTC.
+//
+// NOT applicable to Halifax's AppendFinal "Last Seen-Local" / "PreviousLastSeenNew_" —
+// those are genuinely already facility-local wall-clock time (confirmed by
+// cross-checking against the Location History dashboard's raw, unconverted
+// display, which lines up with true local midnight-to-midnight days). Running
+// those through parseUtcTimestamp + getFacilityParts double-shifts them by the
+// facility's UTC offset — this was the cause of Insight Hub's trail views
+// appearing to start around 8pm instead of midnight. Use
+// parseFacilityLocalParts / facilityLocalToUtcInstant for those instead.
 export function parseUtcTimestamp(iso: string): Date {
   if (!iso) return new Date(NaN)
   return new Date(iso.endsWith('Z') ? iso : `${iso}Z`)
@@ -55,4 +63,31 @@ export function getFacilityParts(d: Date): FacilityDateParts {
     minute:  Number(get('minute')),
     weekday: WEEKDAY_INDEX[get('weekday')] ?? 0,
   }
+}
+
+// Reads the y/m/d/h/mi components literally off a facility-local naive string
+// (Halifax's AppendFinal "Last Seen-Local" / "PreviousLastSeenNew_") — no Date
+// object, no timezone conversion, since the string is already the correct
+// facility wall-clock reading. Weekday is derived from the calendar date alone
+// (timezone-independent).
+export function parseFacilityLocalParts(iso: string): FacilityDateParts {
+  const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!m) return { year: 0, month: 0, day: 0, hour: 0, minute: 0, weekday: 0 }
+  const [, y, mo, d, h, mi] = m
+  const weekday = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d))).getUTCDay()
+  return { year: Number(y), month: Number(mo), day: Number(d), hour: Number(h), minute: Number(mi), weekday }
+}
+
+// Converts an already-facility-local wall-clock string into the true UTC
+// instant it represents (DST-aware) — needed only when diffing against
+// Date.now() for "time ago" style displays. Not needed for plain display of
+// the date/time itself — use parseFacilityLocalParts for that.
+export function facilityLocalToUtcInstant(iso: string): Date {
+  const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):?(\d{2})?/)
+  if (!m) return new Date(NaN)
+  const [, y, mo, d, h, mi, s] = m
+  const guess      = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), s ? Number(s) : 0))
+  const asFacility = new Date(guess.toLocaleString('en-US', { timeZone: FACILITY_TIME_ZONE }))
+  const offset     = guess.getTime() - asFacility.getTime()
+  return new Date(guess.getTime() + offset)
 }

@@ -34,6 +34,73 @@ function DeviceIcon({ size = 16 }: { size?: number }) {
   )
 }
 
+// Placeholder — untagged assets are, by definition, invisible to our tracking
+// system (no tag means no VIN, no session, no way for us to know they exist).
+// Placed per client request even though it can't be wired up to real data yet.
+function UntaggedAssetButton({ assetLabel }: { assetLabel: string }) {
+  const [open, setOpen] = React.useState(false)
+
+  return (
+    <Box sx={{ position: 'relative' }}>
+      <Box
+        component="button"
+        onClick={() => setOpen((v) => !v)}
+        sx={{
+          display:      'inline-flex',
+          alignItems:   'center',
+          gap:          0.6,
+          px:           1.75,
+          py:           0.85,
+          borderRadius: 6,
+          border:       '1.5px solid',
+          borderColor:  TEAL,
+          bgcolor:      'transparent',
+          color:        TEAL,
+          fontSize:     13,
+          fontWeight:   700,
+          cursor:       'pointer',
+          fontFamily:   'inherit',
+          transition:   'background-color 0.12s',
+          '&:hover':    { bgcolor: `${TEAL}12` },
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2 2 7l10 5 10-5-10-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+        Untagged Asset
+      </Box>
+
+      {open && (
+        <Box
+          sx={{
+            position:     'absolute',
+            top:          'calc(100% + 8px)',
+            right:        0,
+            zIndex:       5,
+            bgcolor:      'background.paper',
+            border:       '1px solid',
+            borderColor:  'divider',
+            borderRadius: 2,
+            boxShadow:    '0 4px 16px rgba(0,0,0,0.12)',
+            p:            1.75,
+            width:        260,
+          }}
+        >
+          <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary', mb: 0.5 }}>
+            Coming soon
+          </Typography>
+          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.6 }}>
+            Flagging untagged {assetLabel.toLowerCase()}{' '}
+            isn&apos;t available yet — an asset without a TrueSpot tag can&apos;t be seen by
+            our tracking system, so this will need a separate way to report them.
+          </Typography>
+        </Box>
+      )}
+    </Box>
+  )
+}
 
 function getNarrativeJSX(pct: number, assetLabel: string, nPatient10: number, TEAL: string): React.ReactNode {
   const label   = assetLabel.toLowerCase()
@@ -102,9 +169,9 @@ const GOAL_PCT = 70  // target utilisation — shown as a tick on every bar
 
 // Today's peak-so-far is naturally lower than a completed day's peak (fewer
 // hours observed), which can make the "Is it getting better?" trend look like
-// a sudden drop even though nothing changed. Excluded from the trend line for
-// now — flip to false if the client wants today included as it fills in live.
-const EXCLUDE_TODAY_FROM_DAILY_PEAK_TREND = true
+// a sudden drop even though nothing changed. Client asked to include it anyway
+// so it fills in live over the course of the day.
+const EXCLUDE_TODAY_FROM_DAILY_PEAK_TREND = false
 
 function isToday(day: number, month: number, year: number): boolean {
   const now = new Date()
@@ -277,32 +344,51 @@ function hourLabelLong(h: number): string {
   return `${h - 12}pm`
 }
 
-function HourByHourChart({ rows, assetLabel }: { rows: IHHourlyRow[]; assetLabel: string }) {
+// Axis tick label — "9 am" / "12 pm", spaced out (distinct from hourLabelLong's
+// compact "9am"/"12pm" used in the tooltip and callout text).
+function hourLabelAxis(h: number): string {
+  if (h === 0)  return '12 am'
+  if (h < 12)   return `${h} am`
+  if (h === 12) return '12 pm'
+  return `${h - 12} pm`
+}
+
+function HourByHourChart({ rows, assetLabel, total }: { rows: IHHourlyRow[]; assetLabel: string; total: number }) {
+  const [hoverHour, setHoverHour] = React.useState<number | null>(null)
   if (rows.length === 0) return null
+
+  const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0
 
   const peakRow  = [...rows].sort((a, b) => b.withPatient - a.withPatient)[0]
   const maxCount = peakRow?.withPatient ?? 1
+  // Halifax's real occupancy curve only varies ~20-25% peak-to-trough, so an
+  // auto-scaled (0-based) axis makes every bar look nearly the same height.
+  // Zooming the domain in on the actual data range (with a little headroom)
+  // makes the real hour-to-hour shape of the day visible, matching the
+  // reference design's much more dramatic-looking bars for the same data.
+  const minCount = Math.min(...rows.map((r) => r.withPatient))
+  const yMin     = Math.max(0, Math.floor(minCount * 0.85))
+  const yMax     = Math.ceil(maxCount * 1.05)
 
-  // Find the rush window — contiguous hours around the peak within 85% of it.
+  // Find the rush window — a fixed 2-hour span around the peak hour.
   // True occupancy is a gentle all-day plateau (overnight low is still ~80%
-  // of the peak), so this must (a) require contiguity, expanding outward from
-  // the peak hour and stopping at the first hour that drops below threshold,
-  // rather than taking the min/max hour anywhere in the day that clears it,
-  // and (b) use a threshold high enough to actually exclude the overnight lull
-  // — verified against real data: 80% of peak was low enough that literally
-  // every hour of the day qualified, producing a "12am-11pm" rush window.
+  // of the peak), so any percentage-of-peak threshold is fragile: it has to be
+  // re-tuned every time the live data's peak-to-plateau shape shifts (80% of
+  // peak once matched literally every hour of the day; 99% once produced
+  // exactly a 2-hour window against one day's data, then widened to ~5 hours
+  // against a flatter day). Client asked specifically for a tight ~2-hour rush
+  // window, so pick it deterministically instead: the peak hour plus whichever
+  // adjacent hour (before or after) has the higher count — always exactly 2
+  // hours, regardless of how flat or peaky the underlying data is.
   const byHour   = new Map(rows.map((r) => [r.hour, r.withPatient]))
   const peakHour = peakRow?.hour ?? 0
-  const rushMin  = maxCount * 0.85
-  let rushStart  = peakHour
-  let rushEnd    = peakHour
-  for (let h = peakHour - 1; h >= 0; h--) {
-    if ((byHour.get(h) ?? 0) < rushMin) break
-    rushStart = h
-  }
-  for (let h = peakHour + 1; h <= 23; h++) {
-    if ((byHour.get(h) ?? 0) < rushMin) break
-    rushEnd = h
+  const prevCount = byHour.get(peakHour - 1) ?? -1
+  const nextCount = byHour.get(peakHour + 1) ?? -1
+  let rushStart = peakHour
+  let rushEnd   = peakHour
+  if (prevCount >= 0 || nextCount >= 0) {
+    if (nextCount >= prevCount) rushEnd   = peakHour + 1
+    else                        rushStart = peakHour - 1
   }
   const rushLabel = rushStart === rushEnd
     ? hourLabelLong(rushStart)
@@ -311,8 +397,9 @@ function HourByHourChart({ rows, assetLabel }: { rows: IHHourlyRow[]; assetLabel
   const chartData = rows.map((r) => ({
     hour:        r.hour,
     withPatient: r.withPatient,
-    // Only the peak bar gets a LabelList value; others get null so no label renders
-    peakLabel:   r.withPatient === maxCount ? r.withPatient : null,
+    // Only the hovered bar gets a label value; others get null so no label renders.
+    // Above the bar we show the raw quantity; the tooltip below shows the percentage.
+    hoverLabel:  r.hour === hoverHour ? r.withPatient : null,
   }))
 
   return (
@@ -324,12 +411,12 @@ function HourByHourChart({ rows, assetLabel }: { rows: IHHourlyRow[]; assetLabel
             type="number"
             domain={[0, 23]}
             ticks={[0, 3, 6, 9, 12, 15, 18, 21]}
-            tickFormatter={(h: number) => hourLabelLong(h)}
+            tickFormatter={(h: number) => hourLabelAxis(h)}
             tick={{ fontSize: 10, fill: '#94a3b8' }}
             axisLine={false}
             tickLine={false}
           />
-          <YAxis hide />
+          <YAxis hide domain={[yMin, yMax]} />
           <Tooltip
             cursor={{ fill: 'rgba(0,0,0,0.04)' }}
             content={({ active, payload }) => {
@@ -338,28 +425,35 @@ function HourByHourChart({ rows, assetLabel }: { rows: IHHourlyRow[]; assetLabel
               const v  = payload[0]?.value ?? 0
               return (
                 <div style={{
-                  fontSize: 12, fontWeight: 600,
-                  background: '#fff', border: '1px solid #e2e8f0',
-                  borderRadius: 8, padding: '6px 12px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                  fontSize: 12.5, fontWeight: 600,
+                  background: '#0f172a', color: '#fff',
+                  borderRadius: 999, padding: '7px 14px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                  whiteSpace: 'nowrap',
                 }}>
-                  {hourLabelLong(hr)} — {String(v)} in use
+                  {hourLabelLong(hr)} — {pct(Number(v))}% in use
                 </div>
               )
             }}
           />
           <Bar dataKey="withPatient" radius={[3, 3, 0, 0]}>
-            {chartData.map((entry, i) => (
-              <Cell
-                key={i}
-                fill={TEAL}
-                opacity={maxCount > 0 ? 0.35 + 0.65 * (entry.withPatient / maxCount) : 0.5}
-              />
-            ))}
+            {chartData.map((entry, i) => {
+              const inRush = entry.hour >= rushStart && entry.hour <= rushEnd
+              const hovered = entry.hour === hoverHour
+              return (
+                <Cell
+                  key={i}
+                  fill={inRush ? TEAL : hovered ? '#cbd5e1' : '#e2e8f0'}
+                  onMouseEnter={() => setHoverHour(entry.hour)}
+                  onMouseLeave={() => setHoverHour(null)}
+                />
+              )
+            })}
             <LabelList
-              dataKey="peakLabel"
+              dataKey="hoverLabel"
               position="top"
-              style={{ fontSize: 11, fontWeight: 700, fill: TEAL }}
+              formatter={(v?: React.ReactNode) => (v === null || v === undefined ? '' : String(v))}
+              style={{ fontSize: 11, fontWeight: 700, fill: '#475569' }}
             />
           </Bar>
         </BarChart>
@@ -386,7 +480,9 @@ function HourByHourChart({ rows, assetLabel }: { rows: IHHourlyRow[]; assetLabel
             <Box component="span" sx={{ fontWeight: 700 }}>
               The rush is {rushLabel}
             </Box>
-            {' '}— when the most {assetLabel.toLowerCase()} are with patients.
+            {rushStart >= 6 && rushStart <= 11
+              ? ', when morning medications start.'
+              : `, when the most ${assetLabel.toLowerCase()} are with patients.`}
             {' '}That&apos;s when any shortage hurts most.
           </Typography>
         </Box>
@@ -764,6 +860,7 @@ function WhatCanYouDoAboutIt({
 
 interface HowMuchGetsUsedProps {
   clientId:              string
+  dashboardKey:          string
   product:               string
   data:                  IHUtilisationData | null
   peakData:              IHPeakData | null
@@ -798,6 +895,7 @@ interface HowMuchGetsUsedProps {
 
 export default function HowMuchGetsUsed({
   clientId,
+  dashboardKey,
   product,
   data,
   peakData,
@@ -884,32 +982,36 @@ export default function HowMuchGetsUsed({
       <Box>
 
         {/* Client identity row */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-          <Box
-            sx={{
-              width:          48,
-              height:         48,
-              borderRadius:   '50%',
-              bgcolor:        '#0c1a27',
-              display:        'flex',
-              alignItems:     'center',
-              justifyContent: 'center',
-              flexShrink:     0,
-            }}
-          >
-            <Typography sx={{ fontSize: 15, fontWeight: 800, color: '#fff', letterSpacing: '0.04em' }}>
-              {initials}
-            </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box
+              sx={{
+                width:          48,
+                height:         48,
+                borderRadius:   '50%',
+                bgcolor:        '#0c1a27',
+                display:        'flex',
+                alignItems:     'center',
+                justifyContent: 'center',
+                flexShrink:     0,
+              }}
+            >
+              <Typography sx={{ fontSize: 15, fontWeight: 800, color: '#fff', letterSpacing: '0.04em' }}>
+                {initials}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary', lineHeight: 1.2 }}>
+                {displayName}
+              </Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1.3, mt: 0.25 }}>
+                Your Location Insights · powered by{' '}
+                <Box component="span" sx={{ color: TEAL, fontWeight: 600 }}>TrueSpot</Box>
+              </Typography>
+            </Box>
           </Box>
-          <Box>
-            <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary', lineHeight: 1.2 }}>
-              {displayName}
-            </Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1.3, mt: 0.25 }}>
-              Your Location Insights · powered by{' '}
-              <Box component="span" sx={{ color: TEAL, fontWeight: 600 }}>TrueSpot</Box>
-            </Typography>
-          </Box>
+
+          <UntaggedAssetButton assetLabel={assetLabel} />
         </Box>
 
         {/* Eyebrow — teal dot + label */}
@@ -1135,7 +1237,7 @@ export default function HowMuchGetsUsed({
           {
             metric: total.toLocaleString(),
             suffix: 'owned',
-            why:    `All ${assetLabel.toLowerCase()} with an active TrueSpot tag and at least one recent location ping across your facility.`,
+            why:    `Every ${assetLabel.toLowerCase()} registered to your facility with a TrueSpot tag — including ones that haven't been seen recently. Those show up separately as "Hard to Find," not dropped from the count.`,
           },
           {
             metric: uv > 0 ? fmtMoney(total * uv) : `${idleAtPeak.toLocaleString()}`,
@@ -1189,7 +1291,7 @@ export default function HowMuchGetsUsed({
         return (
           <FlipStatCards
             card1={{
-              label:       peakData ? 'Your busiest moment' : 'With patients',
+              label:       peakData ? 'Your busiest moment' : 'Patient area',
               faces:       card1Faces,
               description: peakData
                 ? `The most ${assetLabel.toLowerCase()} ever needed at the same time in ${days} days (${formatPeakDateTime(peakData)}).`
@@ -1278,14 +1380,14 @@ export default function HowMuchGetsUsed({
               </Typography>
               <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5, mb: 2 }}>
                 {isGeofenceBased
-                  ? `${assetType ?? 'Pumps'} with patients at each hour, averaged across recent days`
+                  ? `Share of ${(assetType ?? 'Pumps').toLowerCase()} with patients at each hour — hover a bar for its value`
                   : `${assetType ?? 'Equipment'} with patients at each hour of the day`}
               </Typography>
 
               {loading ? (
                 <Skeleton variant="rectangular" height={140} sx={{ borderRadius: 2 }} />
               ) : hourlyRows.length > 0 ? (
-                <HourByHourChart rows={hourlyRows} assetLabel={assetType ?? 'equipment'} />
+                <HourByHourChart rows={hourlyRows} assetLabel={assetType ?? 'equipment'} total={total} />
               ) : (
                 <Box
                   sx={{
@@ -1362,6 +1464,7 @@ export default function HowMuchGetsUsed({
       {/* ── Where do they spend their time? ───────────────────────────────── */}
       <WhereDoTheySpend
         clientId={clientId}
+        dashboardKey={dashboardKey}
         product={product}
         locationCategories={locationCategories}
         categoryAssets={categoryAssets}

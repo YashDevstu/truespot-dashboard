@@ -3,7 +3,7 @@
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 
-// Brand teal for "With Patient" — matches the Insight Hub design system
+// Brand teal for "Patient Area" — matches the Insight Hub design system
 const TEAL   = '#0d9488'
 const SLATE  = '#64748b'
 const AMBER  = '#d97706'
@@ -27,7 +27,7 @@ export const BUCKET_BG = {
 }
 
 export const BUCKET_LABELS = {
-  withPatient:   'With Patient',
+  withPatient:   'Patient Area',
   sittingUnused: 'Sitting Unused',
   cleaning:      'Cleaning / Moving',
   exit:          'Exit',
@@ -173,7 +173,7 @@ export default function PerTenIconGrid({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-      <BucketRow n={nPatient}  label="With a patient"    iconColor={TEAL}   chipBg={BUCKET_BG.withPatient}   />
+      <BucketRow n={nPatient}  label="Patient area"      iconColor={TEAL}   chipBg={BUCKET_BG.withPatient}   />
       <BucketRow n={nCleaning} label="Cleaning / moving" iconColor={AMBER}  chipBg={BUCKET_BG.cleaning}      />
       {hasExit && (
         <BucketRow n={nExit}   label="Exit"              iconColor={ORANGE} chipBg={BUCKET_BG.exit}          />

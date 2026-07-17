@@ -8,6 +8,7 @@ import type { InsightHubFilters } from '@/utils/daxInsightHub'
 export type InsightHubReport =
   | 'utilisation'
   | 'floor-distribution'
+  | 'preventive-maintenance'
   | 'cleaning-loop'
   | 'hiding-spots'
 
@@ -465,6 +466,13 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
       debounceRef.current = setTimeout(async () => {
         setLoading(true)
         setError(null)
+
+        // No data source exists yet — skip the fetch entirely rather than
+        // hitting the API with a queryType the backend doesn't recognize.
+        if (report === 'preventive-maintenance') {
+          setLoading(false)
+          return
+        }
 
         try {
           if (report === 'utilisation') {

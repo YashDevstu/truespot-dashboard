@@ -13,6 +13,7 @@ import {
   buildHLLocationPointsCountQuery,
   buildHLLocationPointsPageQuery,
   buildHLRefreshTimeQuery,
+  buildHLLatestAssetQuery,
   HL_DEFAULT_PAGE_SIZE,
   type ActiveHealthLocationFilters,
 } from '@/utils/daxHealthLocation'
@@ -39,6 +40,7 @@ type HLQueryType =
   | 'location-points-count'
   | 'location-points-page'
   | 'refresh-time'
+  | 'latest-asset'
 
 interface HLQueryBody {
   clientId: string
@@ -119,6 +121,10 @@ export async function POST(request: NextRequest) {
       break
     case 'refresh-time':
       daxQuery = buildHLRefreshTimeQuery()
+      ttl = CACHE_TTL_KPIS
+      break
+    case 'latest-asset':
+      daxQuery = buildHLLatestAssetQuery(filters)
       ttl = CACHE_TTL_KPIS
       break
     default:

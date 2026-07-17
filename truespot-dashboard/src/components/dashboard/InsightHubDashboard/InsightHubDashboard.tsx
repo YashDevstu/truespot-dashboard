@@ -12,6 +12,7 @@ import HowMuchGetsUsed from './reports/HowMuchGetsUsed'
 import EnoughOnEveryFloor from './reports/EnoughOnEveryFloor'
 import TheCleaningLoop from './reports/TheCleaningLoop'
 import TheHidingSpots from './reports/TheHidingSpots'
+import PreventiveMaintenanceStatus from './reports/PreventiveMaintenanceStatus'
 
 const TOP_H      = 56
 const FILTER_H   = 44
@@ -467,6 +468,7 @@ export default function InsightHubDashboard({
         {activeReport === 'utilisation' && (
           <HowMuchGetsUsed
             clientId={clientId}
+            dashboardKey={dashboardKey}
             product={product}
             data={utilisation}
             peakData={peakData}
@@ -513,6 +515,8 @@ export default function InsightHubDashboard({
             configuredTypes={configuredTypes}
           />
         )}
+
+        {activeReport === 'preventive-maintenance' && <PreventiveMaintenanceStatus />}
 
         {activeReport === 'cleaning-loop' && (
           <TheCleaningLoop

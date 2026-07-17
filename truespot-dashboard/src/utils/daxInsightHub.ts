@@ -510,7 +510,9 @@ function lhBaseConds(filters: InsightHubFilters, days?: number): string[] {
   // When a specific day is selected, pin to that exact DateKey (computed inline — not a real column)
   const dateCond = filters.dateKey
     ? `DAY(${TL}[Last Seen-Local]) + MONTH(${TL}[Last Seen-Local]) * 100 + YEAR(${TL}[Last Seen-Local]) * 10000 = ${filters.dateKey}`
-    : `${TL}[Last Seen-Local] >= TODAY() - ${d}`
+    // d calendar days INCLUDING today needs TODAY() - (d-1), not TODAY() - d —
+    // the latter spans d+1 calendar dates (verified: TODAY()-7 covers 8 dates).
+    : `${TL}[Last Seen-Local] >= TODAY() - ${d - 1}`
   const conds: string[] = [`${dur} > 0`, dateCond]
   if (filters.assetType) {
     const vals = filters.assetType.split(',').map((s) => s.trim()).filter(Boolean)
@@ -817,10 +819,12 @@ ORDER BY [TotalMins] DESC`
 }
 
 // ── Floor readiness (AppendFinal — distinct assets per floor per day) ─────────
-// Returns one row per unique (Floor Level, Date, VIN) combination over last 7 days.
-// SUMMARIZE deduplicates so each asset counts once per floor per day regardless
-// of how many sessions it had. The API route groups by (floor, date) and counts
-// rows to get distinct-asset counts, then applies par thresholds from config.
+// Returns one row per (Floor Level, Date, VIN) combination over the last 7 days,
+// with total rush-window minutes on that floor that day. A VIN can legitimately
+// appear on more than one floor the same day if it physically moved during the
+// 8-10am window — the API route resolves each (Date, VIN) to a single dominant
+// floor (the one it spent the most time on) before counting distinct assets, so
+// a pump in transit isn't double-counted as "present" on every floor it touched.
 
 const FLOOR_COL = `${TL}[Floor Level]`
 
@@ -847,18 +851,21 @@ export function buildIHFloorReadinessQuery(filters: InsightHubFilters): string {
 
   return `EVALUATE
 SELECTCOLUMNS(
-  SUMMARIZE(
+  GROUPBY(
     ADDCOLUMNS(
       FILTER(${TL}, ${baseConds.join(' && ')}),
       "__Floor",   ${FLOOR_COL},
       "__VIN",     ${TL}[VIN],
-      "__DateKey", DATE(YEAR(${TL}[Last Seen-Local]), MONTH(${TL}[Last Seen-Local]), DAY(${TL}[Last Seen-Local]))
+      "__DateKey", DATE(YEAR(${TL}[Last Seen-Local]), MONTH(${TL}[Last Seen-Local]), DAY(${TL}[Last Seen-Local])),
+      "__Dur",     DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)
     ),
-    [__Floor], [__DateKey], [__VIN]
+    [__Floor], [__DateKey], [__VIN],
+    "__TotalMins", SUMX(CURRENTGROUP(), [__Dur])
   ),
-  "Floor", [__Floor],
-  "Date",  [__DateKey],
-  "VIN",   [__VIN]
+  "Floor",   [__Floor],
+  "Date",    [__DateKey],
+  "VIN",     [__VIN],
+  "DurMins", [__TotalMins]
 )`
 }
 
@@ -876,20 +883,23 @@ export function buildIHFloorReadinessByTypeQuery(): string {
 
   return `EVALUATE
 SELECTCOLUMNS(
-  SUMMARIZE(
+  GROUPBY(
     ADDCOLUMNS(
       FILTER(${TL}, ${durationOk} && ${recentCond} && ${floorValid} && ${typeValid} && ${rushHour}),
       "__AT",      ${TL}[AssetType],
       "__Floor",   ${FLOOR_COL},
       "__VIN",     ${TL}[VIN],
-      "__DateKey", DATE(YEAR(${TL}[Last Seen-Local]), MONTH(${TL}[Last Seen-Local]), DAY(${TL}[Last Seen-Local]))
+      "__DateKey", DATE(YEAR(${TL}[Last Seen-Local]), MONTH(${TL}[Last Seen-Local]), DAY(${TL}[Last Seen-Local])),
+      "__Dur",     DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)
     ),
-    [__AT], [__Floor], [__DateKey], [__VIN]
+    [__AT], [__Floor], [__DateKey], [__VIN],
+    "__TotalMins", SUMX(CURRENTGROUP(), [__Dur])
   ),
   "AssetType", [__AT],
   "Floor",     [__Floor],
   "Date",      [__DateKey],
-  "VIN",       [__VIN]
+  "VIN",       [__VIN],
+  "DurMins",   [__TotalMins]
 )`
 }
 
@@ -957,28 +967,71 @@ ORDER BY [value] ASC`
 export function buildIHFloorAssetsQuery(floor: string, assetType?: string): string {
   const floorSafe = sanitize(floor)
   const dur       = `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)`
-  const conds     = [
-    `${TL}[Floor Level] = "${floorSafe}"`,
-    `${TL}[Last Seen-Local] >= TODAY() - 7`,
+  // Base is NOT floor-restricted — a rolling 48h window across every floor, so
+  // each VIN's true most-recent session anywhere can be found for comparison.
+  const baseConds = [
+    `${TL}[Last Seen-Local] >= NOW() - 2`,
     `${dur} > 0`,
   ]
   if (assetType) {
     const vals = assetType.split(',').map((s) => s.trim()).filter(Boolean)
-    if (vals.length === 1)    conds.push(`${TL}[AssetType] = "${sanitize(vals[0])}"`)
-    else if (vals.length > 1) conds.push(`${TL}[AssetType] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
+    if (vals.length === 1)    baseConds.push(`${TL}[AssetType] = "${sanitize(vals[0])}"`)
+    else if (vals.length > 1) baseConds.push(`${TL}[AssetType] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
   }
   // LastSeen  = PreviousLastSeenNew_ — session END (most recent confirmation)
   // PrevSeen  = Last Seen-Local      — session START
-  // TOPN sorts DESC so the client-side deduplication (first row per VIN) keeps the most recent session.
-  // 5000 rows handles ~100 devices × ~7 days × ~7 sessions/day safely within the 100K Execute Queries limit.
+  //
+  // A device whose most recent session on THIS floor is still within the 48h
+  // window can nonetheless have moved to a different floor more recently — the
+  // floor filter alone can't see that, so it would silently show a device as
+  // "here" when it's actually elsewhere now. Fixed by computing each VIN's true
+  // global-latest session across ALL floors, and keeping only rows where this
+  // floor's session IS that global latest.
+  //
+  // Two things verified against real data that made the naive version of this
+  // check fail silently (returning zero rows for every floor):
+  // 1. Comparing session END times (PreviousLastSeenNew_) doesn't work — an
+  //    open/ongoing session's end time is computed as NOW() by the semantic
+  //    model, which is volatile and doesn't compare equal to itself when
+  //    re-evaluated elsewhere in the same query. Comparing session START
+  //    times (Last Seen-Local) instead is stable, since those are real
+  //    historical values, not a live placeholder.
+  // 2. Every device's trail naturally ends with a brief "Unknown" floor blip
+  //    (signal not yet resolved to a geofence) as an artifact of live
+  //    tracking — comparing against the absolute latest session (including
+  //    these blips) meant EVERY device's "global latest" was always
+  //    "Unknown", never a real floor, so nothing ever matched. Excluding
+  //    Unknown rows before computing the global-latest-per-VIN fixes this:
+  //    the comparison is against each VIN's latest *real* floor reading.
+  //
+  // The client-side dedup (first row per VIN) relies on rows actually arriving
+  // sorted DESC by LastSeen — TOPN's [LastSeen], DESC arguments only control
+  // WHICH 5000 rows get selected, not the order they're returned in. Without
+  // a top-level ORDER BY, rows came back in an arbitrary order and the dedup
+  // silently kept a near-random session per VIN instead of the latest one —
+  // verified against real data: a VIN's kept "last confirmed" was 15+ hours
+  // stale even though a much more recent session existed among the raw rows.
   return `EVALUATE
+VAR _base =
+  FILTER(
+    ${TL},
+    ${baseConds.join(' && ')}
+  )
+VAR _floorRows      = FILTER(_base, ${TL}[Floor Level] = "${floorSafe}")
+VAR _knownFloorRows = FILTER(_base, ${TL}[Floor Level] <> "Unknown")
+VAR _globalMaxByVin =
+  GROUPBY(
+    _knownFloorRows,
+    ${TL}[VIN],
+    "GlobalMaxStart", MAXX(CURRENTGROUP(), ${TL}[Last Seen-Local])
+  )
+VAR _withGlobalMax  = NATURALLEFTOUTERJOIN(_floorRows, _globalMaxByVin)
+VAR _currentlyHere  = FILTER(_withGlobalMax, ${TL}[Last Seen-Local] = [GlobalMaxStart])
+RETURN
 TOPN(
   5000,
   SELECTCOLUMNS(
-    FILTER(
-      ${TL},
-      ${conds.join(' && ')}
-    ),
+    _currentlyHere,
     "VIN",       ${TL}[VIN],
     "AssetName", ${TL}[Name],
     "AssetType", ${TL}[AssetType],
@@ -987,7 +1040,8 @@ TOPN(
     "PrevSeen",  ${TL}[Last Seen-Local]
   ),
   [LastSeen], DESC
-)`
+)
+ORDER BY [LastSeen] DESC`
 }
 
 // ── Location category daily breakdown ─────────────────────────────────────────
@@ -1079,7 +1133,8 @@ export function buildIHFloorHourlyQuery(floor: string, assetType?: string): stri
   const dur       = `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)`
   const conds     = [
     `${TL}[Floor Level] = "${floorSafe}"`,
-    `${TL}[Last Seen-Local] >= TODAY() - 7`,
+    // 7 calendar days including today = TODAY() - 6, not TODAY() - 7 (which spans 8 dates).
+    `${TL}[Last Seen-Local] >= TODAY() - 6`,
     `${dur} > 0`,
   ]
   if (assetType) {
@@ -1160,7 +1215,8 @@ export function buildIHAssetTypeUtilisationLHQuery(filters: InsightHubFilters = 
   const d = filters.days ?? 7
   const baseConds: string[] = [
     `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
-    `${TL}[Last Seen-Local] >= TODAY() - ${d}`,
+    // d calendar days including today needs TODAY() - (d-1), not TODAY() - d.
+    `${TL}[Last Seen-Local] >= TODAY() - ${d - 1}`,
   ]
   addLHFloorBuildingConds(baseConds, filters)
   const baseFilter = baseConds.join(' && ')
@@ -1276,15 +1332,19 @@ ROW(
 // Returns every session from yesterday for the given VIN, ordered chronologically.
 // Used by the 3rd-level "trail" drill-down in WhereDoTheySpend.
 
-export function buildIHAssetTrailQuery(filters: InsightHubFilters): string {
+export function buildIHAssetTrailQuery(filters: InsightHubFilters, isGeofenceBased = false): string {
   if (!filters.vin) return `EVALUATE ROW("Error", "No VIN provided")`
   const vin     = sanitize(filters.vin)
   const dur     = `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)`
-  const catExpr = categoryExprLH()
+  // Halifax (GF) uses the 5-zone patient definition used everywhere else on its
+  // dashboard; other LH clients use the 18-zone BSA-style definition. Getting
+  // this wrong would silently mislabel every trail stop's category.
+  const catExpr = isGeofenceBased ? categoryExprGFLH() : categoryExprLH()
   // When a specific day was selected in the bar chart, pin the trail to that day only
   const dateCond = filters.dateKey
     ? `DAY(${TL}[Last Seen-Local]) + MONTH(${TL}[Last Seen-Local]) * 100 + YEAR(${TL}[Last Seen-Local]) * 10000 = ${filters.dateKey}`
-    : `${TL}[Last Seen-Local] >= TODAY() - 7`
+    // 7 calendar days including today needs TODAY() - 6, not TODAY() - 7.
+    : `${TL}[Last Seen-Local] >= TODAY() - 6`
 
   return `EVALUATE
 SELECTCOLUMNS(
@@ -1361,6 +1421,32 @@ export function buildIHHardToFindVinsQuery(filters: InsightHubFilters): string {
 SELECTCOLUMNS(
   FILTER(${src}, ${h}),
   "VIN", ${T}[VIN]
+)`
+}
+
+// Distinct non-blank departments (Post-Aggregate[My Department]) for whichever
+// asset type is currently selected, with counts. Scoped by the same filters as
+// everything else on the page — "My Department" is populated for only a small
+// share of devices (verified: ~1% for Pumps), so this is real but sparse data,
+// not a complete per-device breakdown.
+export function buildIHDepartmentsQuery(filters: InsightHubFilters): string {
+  const src = buildSource(filters)
+  return `EVALUATE
+TOPN(
+  20,
+  SELECTCOLUMNS(
+    FILTER(
+      GROUPBY(
+        FILTER(${src}, NOT ISBLANK(${T}[My Department]) && ${T}[My Department] <> ""),
+        ${T}[My Department],
+        "Count", COUNTX(CURRENTGROUP(), ${T}[VIN])
+      ),
+      [Count] > 0
+    ),
+    "Department", ${T}[My Department],
+    "Count",      [Count]
+  ),
+  [Count], DESC
 )`
 }
 
@@ -1487,7 +1573,8 @@ export function buildIHUtilisationHoursGFQuery(filters: InsightHubFilters): stri
   const d = filters.days ?? 7
   const conds: string[] = [
     `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
-    `${TL}[Last Seen-Local] >= TODAY() - ${d}`,
+    // d calendar days including today needs TODAY() - (d-1), not TODAY() - d.
+    `${TL}[Last Seen-Local] >= TODAY() - ${d - 1}`,
   ]
 
   if (filters.assetType) {
@@ -1618,7 +1705,10 @@ SELECTCOLUMNS(
 function buildIHOccupancyGridGF(filters: InsightHubFilters): { baseFilterDecl: string; gridDecl: string } {
   const conds: string[] = [
     `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE) > 0`,
-    `${TL}[Last Seen-Local] >= TODAY() - 7`,
+    // The grid below only iterates day-offsets 0-6 (7 days, today + previous 6) via
+    // GENERATESERIES(0, 6), so the base filter is tightened to match — TODAY() - 7
+    // would fetch an 8th day of data that no bucket in the grid ever examines.
+    `${TL}[Last Seen-Local] >= TODAY() - 6`,
   ]
   if (filters.assetType) {
     const vals = filters.assetType.split(',').map((s) => s.trim()).filter(Boolean)
