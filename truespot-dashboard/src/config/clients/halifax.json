@@ -36,7 +36,7 @@
       "workspace_name": "Health - Missing Assets Portal",
       "dataset_name": "Halifax",
       "icon": "insights",
-      "description": "Narrative insights on equipment utilisation across your facility.",
+      "description": "Narrative insights on equipment utilization across your facility.",
       "category": "Insights",
       "classification": "geofence",
       "spare_buffer": 50,

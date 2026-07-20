@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import NextLink from 'next/link'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -36,27 +37,25 @@ type Level =
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TEAL       = '#0d9488'
-const RED        = '#FF6B6B'
-const AMBER      = '#d97706'
-const HOARD_GOLD = '#E7B93B'
+const TEAL  = '#0d9488'
+const RED   = '#dc2626'
+const AMBER = '#d97706'
 
 // Solid fills for every status, not just "stocked" — a short/tight floor should
 // read as urgent at a glance, not blend in as a pale tile among green ones.
 const TIER_STYLE = {
-  stocked:   { bg: TEAL,       text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
-  tight:     { bg: AMBER,      text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
-  shortfall: { bg: RED,        text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
-  // Distinct key from 'tight' (Level 2/3's day-based "ran tight some days"
-  // concept) — this is the Level-1 par-coverage grid's "sitting on way more
-  // than it needs" case, using the client-specified gold.
-  hoarding:  { bg: HOARD_GOLD, text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  stocked:   { bg: TEAL,  text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  tight:     { bg: AMBER, text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
+  shortfall: { bg: RED,   text: '#fff', subtext: 'rgba(255,255,255,0.85)', border: 'transparent', badge: 'rgba(255,255,255,0.22)', badgeText: '#fff', dot: '#fff' },
 }
 
 // Par-coverage bands for the Level-1 floor grid — how much is on hand, on
-// average, relative to what the floor needs at the rush.
-export const HOARD_PCT    = 100  // more than 100% of par, on average → sitting on more than needed
-export const NEAR_PAR_PCT = 90   // under 90% of par, on average → short at the rush
+// average, relative to what the floor needs at the rush. Three severity
+// levels of shortage only — no separate surplus/hoarding flag; a floor sitting
+// on well over 100% of par still just reads "stocked" (green), same as one
+// sitting right at par.
+export const GREEN_MIN_PCT = 70  // 70%+ of par, on average → fine
+export const RED_MAX_PCT   = 25  // under 25% of par, on average → critically short
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,8 +68,8 @@ export function getFloorParTier(row: IHFloorStatusRow): { label: string; tier: k
   const par    = row.par || 0
   const rawPct = par > 0 ? Math.round((row.avgCount / par) * 100) : 100
   const pct    = Math.min(100, rawPct)
-  if (rawPct > HOARD_PCT)     return { label: 'MORE THAN NEEDED',    tier: 'hoarding',  pct }
-  if (rawPct < NEAR_PAR_PCT)  return { label: 'SHORT AT THE RUSH',   tier: 'shortfall', pct }
+  if (rawPct < RED_MAX_PCT)   return { label: 'SHORT AT THE RUSH',   tier: 'shortfall', pct }
+  if (rawPct < GREEN_MIN_PCT) return { label: 'GETTING TIGHT',       tier: 'tight',     pct }
   return                             { label: 'COMFORTABLY STOCKED', tier: 'stocked',   pct }
 }
 
@@ -85,9 +84,8 @@ function floorParDescription(row: IHFloorStatusRow): string {
 // ('COMFORTABLY STOCKED') would read wrong next to a full sentence.
 const PAR_TIER_LABEL: Record<keyof typeof TIER_STYLE, string> = {
   stocked:   'At or near par',
-  hoarding:  'More than needed (hoarding risk)',
+  tight:     'Getting tight',
   shortfall: 'Short at the rush',
-  tight:     'Tight',
 }
 
 // One-sentence version for the Level-2 floor banner: names the actual counts
@@ -260,7 +258,7 @@ async function fetchIH(
 function Legend() {
   const items: [keyof typeof TIER_STYLE, string][] = [
     ['stocked',   PAR_TIER_LABEL.stocked],
-    ['hoarding',  PAR_TIER_LABEL.hoarding],
+    ['tight',     PAR_TIER_LABEL.tight],
     ['shortfall', PAR_TIER_LABEL.shortfall],
   ]
   return (
@@ -612,11 +610,12 @@ interface CheckItYourselfProps {
   rows:          IHFloorStatusRow[]
   clientId:      string
   dashboardKey:  string
+  product:       string
   assetType?:    string
   externalFloor?: string
 }
 
-export default function CheckItYourself({ rows, clientId, dashboardKey, assetType, externalFloor }: CheckItYourselfProps) {
+export default function CheckItYourself({ rows, clientId, dashboardKey, product, assetType, externalFloor }: CheckItYourselfProps) {
   const [level, setLevel]   = useState<Level>({ kind: 'floors' })
   const abortRef            = useRef<AbortController | null>(null)
 
@@ -774,7 +773,7 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
         >
           {[...rows]
             .sort((a, b) => {
-              const tierOrder = { shortfall: 0, hoarding: 1, stocked: 2, tight: 2 }
+              const tierOrder = { shortfall: 0, tight: 1, stocked: 2 }
               return tierOrder[getFloorParTier(a).tier] - tierOrder[getFloorParTier(b).tier]
                 || a.floor.localeCompare(b.floor)
             })
@@ -894,6 +893,27 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
                 onSeeTrail={() => void selectTrail(floorRow, asset)}
               />
             ))}
+          </Box>
+        )}
+
+        {!loadingAssets && assets.length > 0 && (
+          <Box sx={{ mt: 2.5 }}>
+            <NextLink
+              href={`/dashboard/${product}/locationhistory/${clientId}`}
+              style={{ textDecoration: 'none' }}
+            >
+              <Box
+                sx={{
+                  display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                  px: 2, py: 0.75, borderRadius: 2,
+                  border: '1.5px solid', borderColor: TEAL,
+                  cursor: 'pointer', fontSize: 13, fontWeight: 600, color: TEAL,
+                  transition: 'all 0.12s', '&:hover': { bgcolor: '#f0fdf9' },
+                }}
+              >
+                Advanced Location History →
+              </Box>
+            </NextLink>
           </Box>
         )}
 
@@ -1036,12 +1056,12 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, assetTyp
             {/* Left — Timeline */}
             <Box>
               <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary', mb: 1.5 }}>
-                Trail over the last 48 hours, hour by hour
+                Trail over the last 7 days, hour by hour
               </Typography>
 
               {trail.length === 0 ? (
                 <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>
-                  No sessions recorded for this asset in the last 48 hours.
+                  No sessions recorded for this asset in the last 7 days.
                 </Typography>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column' }}>

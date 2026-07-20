@@ -7,15 +7,13 @@ import { executeQuery } from '@/services/powerbi/queryService'
 import { resolveWorkspaceId } from '@/services/powerbi/workspaceService'
 import { CACHE_TTL_KPIS, CACHE_TTL_CHARTS } from '@/constants/cache'
 import {
-  buildIHUtilisationQuery,
+  buildIHUtilizationQuery,
   buildIHFloorDistributionQuery,
   buildIHCleaningLoopQuery,
   buildIHHidingSpotsQuery,
-  buildIHBuildingOptionsQuery,
   buildIHBuildingOptionsLHQuery,
-  buildIHAssetTypeOptionsQuery,
   buildIHAssetTypeOptionsLHQuery,
-  buildIHAssetTypeUtilisationQuery,
+  buildIHAssetTypeUtilizationQuery,
   buildIHWeeklyTrendQuery,
   buildIHWeeklyTrendGFQuery,
   buildIHLocationCategoryQuery,
@@ -30,30 +28,31 @@ import {
   buildIHAssetTrailQuery,
   buildIHHourlyQuery,
   buildIHRefreshTimeQuery,
-  buildIHUtilisationLHQuery,
-  buildIHAssetTypeUtilisationLHQuery,
+  buildIHUtilizationLHQuery,
+  buildIHAssetTypeUtilizationLHQuery,
   buildIHHourlyLHQuery,
   buildIHRefreshTimeLHQuery,
-  buildIHPeakUtilisationLHQuery,
-  buildIHUtilisationGFQuery,
+  buildIHPeakUtilizationLHQuery,
+  buildIHUtilizationGFQuery,
   buildIHDepartmentsQuery,
-  buildIHUtilisationHoursGFQuery,
+  buildIHUtilizationHoursGFQuery,
   buildIHHourlyByDayGFQuery,
-  buildIHAssetTypeUtilisationGFQuery,
+  buildIHAssetTypeUtilizationGFQuery,
   buildIHHidingSpotsGFQuery,
   buildIHRefreshTimeGFQuery,
-  buildIHPeakUtilisationGFQuery,
+  buildIHPeakUtilizationGFQuery,
   buildIHDailyPeakGFQuery,
   buildIHCategoryDailyQuery,
   buildIHCategoryDailyGFQuery,
+  buildIHCascadingOptionsQuery,
   type InsightHubFilters,
 } from '@/utils/daxInsightHub'
 import type { FloorParConfig } from '@/types/dashboard'
 
 type IHQueryType =
-  | 'utilisation'
-  | 'peak-utilisation'
-  | 'hourly-utilisation'
+  | 'utilization'
+  | 'peak-utilization'
+  | 'hourly-utilization'
   | 'daily-peak'
   | 'floor-distribution'
   | 'floor-readiness'
@@ -68,7 +67,7 @@ type IHQueryType =
   | 'floor-options'
   | 'department-options'
   | 'building-options'
-  | 'asset-type-utilisation'
+  | 'asset-type-utilization'
   | 'weekly-trend'
   | 'location-category-summary'
   | 'location-category-assets'
@@ -457,14 +456,14 @@ export async function POST(request: NextRequest) {
   let ttl: number
 
   switch (queryType) {
-    case 'utilisation': {
+    case 'utilization': {
       const lhDash = clientConfig.dashboards['locationhistory']
       if (isLHBased(dashboard, lhDash) && lhDash) {
         const lhWorkspaceId = lhDash.workspace_name
           ? await resolveWorkspaceId(lhDash.workspace_name)
           : (process.env.FABRIC_WORKSPACE_ID ?? '')
         try {
-          const rows = await executeQuery(lhDash.dataset_name, buildIHUtilisationLHQuery(filters), CACHE_TTL_KPIS, lhWorkspaceId)
+          const rows = await executeQuery(lhDash.dataset_name, buildIHUtilizationLHQuery(filters), CACHE_TTL_KPIS, lhWorkspaceId)
           return Response.json({ rows })
         } catch (err) {
           return Response.json({ error: String(err) }, { status: 500 })
@@ -473,14 +472,14 @@ export async function POST(request: NextRequest) {
       if (isGeofenceBased) {
         // Count-based snapshot from Post-Aggregate + hours-based % from AppendFinal
         try {
-          const rows = await executeQuery(dashboard.dataset_name, buildIHUtilisationGFQuery(filters), CACHE_TTL_KPIS, workspaceId)
+          const rows = await executeQuery(dashboard.dataset_name, buildIHUtilizationGFQuery(filters), CACHE_TTL_KPIS, workspaceId)
           const lhDash = clientConfig.dashboards['locationhistory']
           if (lhDash) {
             const lhWorkspaceId = lhDash.workspace_name
               ? await resolveWorkspaceId(lhDash.workspace_name)
               : (process.env.FABRIC_WORKSPACE_ID ?? '')
             try {
-              const hoursRows = await executeQuery(lhDash.dataset_name, buildIHUtilisationHoursGFQuery(filters), CACHE_TTL_KPIS, lhWorkspaceId)
+              const hoursRows = await executeQuery(lhDash.dataset_name, buildIHUtilizationHoursGFQuery(filters), CACHE_TTL_KPIS, lhWorkspaceId)
               if (rows.length > 0 && hoursRows.length > 0) {
                 rows[0]['[HoursBasedPct]'] = hoursRows[0]['[HoursBasedPct]']
               }
@@ -491,11 +490,11 @@ export async function POST(request: NextRequest) {
           return Response.json({ error: String(err) }, { status: 500 })
         }
       }
-      daxQuery = buildIHUtilisationQuery(filters)
+      daxQuery = buildIHUtilizationQuery(filters)
       ttl = CACHE_TTL_KPIS
       break
     }
-    case 'peak-utilisation': {
+    case 'peak-utilization': {
       // GF clients (Halifax): use 5-zone patient definition — consistent with all other GF queries.
       // Non-GF LH clients: use 18-zone patientCondLH() definition.
       // Pure Post-Aggregate clients with no locationhistory dashboard return empty (hook falls back to withPatient).
@@ -505,8 +504,8 @@ export async function POST(request: NextRequest) {
           ? await resolveWorkspaceId(lhDash.workspace_name)
           : (process.env.FABRIC_WORKSPACE_ID ?? '')
         const peakQuery = isGeofenceBased
-          ? buildIHPeakUtilisationGFQuery(filters)
-          : buildIHPeakUtilisationLHQuery(filters)
+          ? buildIHPeakUtilizationGFQuery(filters)
+          : buildIHPeakUtilizationLHQuery(filters)
         try {
           const rows = await executeQuery(lhDash.dataset_name, peakQuery, CACHE_TTL_CHARTS, lhWorkspaceId)
           return Response.json({ rows })
@@ -517,7 +516,7 @@ export async function POST(request: NextRequest) {
       // No location history at all — return empty so hook falls back to withPatient count
       return Response.json({ rows: [] })
     }
-    case 'hourly-utilisation': {
+    case 'hourly-utilization': {
       const lhDash = clientConfig.dashboards['locationhistory']
       // GF clients (Halifax): "typical day" average across the last 7 days
       // (offsets 0-6, including today), matching the client's original 7-day spec.
@@ -612,21 +611,25 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      daxQuery = buildIHAssetTypeOptionsQuery()
+      // Cascading: scoped by whichever other filters (floor/department/building)
+      // are currently active, so this dropdown narrows the way it would in Power BI.
+      daxQuery = buildIHCascadingOptionsQuery('AssetType', filters, 'assetType')
       ttl = CACHE_TTL_CHARTS
       break
     }
     case 'floor-options': {
       // Return distinct floor values.
       // Strategy:
-      //   1. GF clients (Halifax): Post-Aggregate[Floor] in insighthub workspace (same table as utilisation).
+      //   1. GF clients (Halifax): Post-Aggregate[Floor] in insighthub workspace (same table as utilization).
       //      Fall back to AppendFinal[Floor Level] in locationhistory workspace if that fails.
       //   2. LH-based non-GF clients (same workspace as locationhistory): AppendFinal[Floor Level].
       //   3. Post-Aggregate-only clients: Post-Aggregate[Floor] in insighthub workspace.
       const lhDash = clientConfig.dashboards['locationhistory']
       if (isGeofenceBased) {
-        // Try Post-Aggregate[Floor] first (same table as utilisation query)
-        const paDax = `EVALUATE\nSELECTCOLUMNS(\n  FILTER(\n    DISTINCT(SELECTCOLUMNS('Post-Aggregate', "value", 'Post-Aggregate'[Floor])),\n    NOT ISBLANK([value]) && [value] <> ""\n  ),\n  "value", [value]\n)\nORDER BY [value] ASC`
+        // Try Post-Aggregate[Floor] first (same table as utilization query).
+        // Cascading: scoped by whichever other filters (assetType/department/
+        // building) are currently active.
+        const paDax = buildIHCascadingOptionsQuery('Floor', filters, 'floor')
         try {
           const rows = await executeQuery(dashboard.dataset_name, paDax, CACHE_TTL_CHARTS, workspaceId)
           if (rows.length > 0) return Response.json({ rows })
@@ -658,15 +661,17 @@ export async function POST(request: NextRequest) {
           return Response.json({ error: String(err) }, { status: 500 })
         }
       }
-      // Post-Aggregate-only clients
-      daxQuery = `EVALUATE\nSELECTCOLUMNS(\n  FILTER(\n    DISTINCT(SELECTCOLUMNS('Post-Aggregate', "value", 'Post-Aggregate'[Floor])),\n    NOT ISBLANK([value]) && [value] <> ""\n  ),\n  "value", [value]\n)\nORDER BY [value] ASC`
+      // Post-Aggregate-only clients — cascading, same as the GF path above.
+      daxQuery = buildIHCascadingOptionsQuery('Floor', filters, 'floor')
       ttl = CACHE_TTL_CHARTS
       break
     }
     case 'department-options': {
       // Distinct values of Post-Aggregate[My Department] from the insighthub workspace.
       // Applies to all client types — always queries the insighthub dataset directly.
-      daxQuery = `EVALUATE\nSELECTCOLUMNS(\n  FILTER(\n    DISTINCT(SELECTCOLUMNS('Post-Aggregate', "value", 'Post-Aggregate'[My Department])),\n    NOT ISBLANK([value]) && [value] <> ""\n  ),\n  "value", [value]\n)\nORDER BY [value] ASC`
+      // Cascading: scoped by whichever other filters (assetType/floor/building)
+      // are currently active.
+      daxQuery = buildIHCascadingOptionsQuery('My Department', filters, 'department')
       ttl = CACHE_TTL_CHARTS
       break
     }
@@ -676,8 +681,10 @@ export async function POST(request: NextRequest) {
       // LH-based non-GF clients: use AppendFinal[Building] directly.
       const lhDash = clientConfig.dashboards['locationhistory']
       if (isGeofenceBased) {
+        // Cascading: scoped by whichever other filters (assetType/floor/department)
+        // are currently active.
         try {
-          const rows = await executeQuery(dashboard.dataset_name, buildIHBuildingOptionsQuery(), CACHE_TTL_CHARTS, workspaceId)
+          const rows = await executeQuery(dashboard.dataset_name, buildIHCascadingOptionsQuery('Building', filters, 'building'), CACHE_TTL_CHARTS, workspaceId)
           if (rows.length > 0) return Response.json({ rows })
         } catch { /* fall through to AppendFinal */ }
         if (lhDash) {
@@ -704,24 +711,25 @@ export async function POST(request: NextRequest) {
           return Response.json({ error: String(err) }, { status: 500 })
         }
       }
-      daxQuery = buildIHBuildingOptionsQuery()
+      // Post-Aggregate-only clients — cascading, same as the GF path above.
+      daxQuery = buildIHCascadingOptionsQuery('Building', filters, 'building')
       ttl = CACHE_TTL_CHARTS
       break
     }
-    case 'asset-type-utilisation': {
+    case 'asset-type-utilization': {
       const lhDash = clientConfig.dashboards['locationhistory']
       if (isLHBased(dashboard, lhDash) && lhDash) {
         const lhWorkspaceId = lhDash.workspace_name
           ? await resolveWorkspaceId(lhDash.workspace_name)
           : (process.env.FABRIC_WORKSPACE_ID ?? '')
         try {
-          const rows = await executeQuery(lhDash.dataset_name, buildIHAssetTypeUtilisationLHQuery(filters), CACHE_TTL_CHARTS, lhWorkspaceId)
+          const rows = await executeQuery(lhDash.dataset_name, buildIHAssetTypeUtilizationLHQuery(filters), CACHE_TTL_CHARTS, lhWorkspaceId)
           return Response.json({ rows })
         } catch (err) {
           return Response.json({ error: String(err) }, { status: 500 })
         }
       }
-      daxQuery = isGeofenceBased ? buildIHAssetTypeUtilisationGFQuery(filters) : buildIHAssetTypeUtilisationQuery(filters)
+      daxQuery = isGeofenceBased ? buildIHAssetTypeUtilizationGFQuery(filters) : buildIHAssetTypeUtilizationQuery(filters)
       ttl = CACHE_TTL_CHARTS
       break
     }
@@ -754,7 +762,7 @@ export async function POST(request: NextRequest) {
       // Falls back to the 7-day-total version if no peak hour is found yet.
       if (isGeofenceBased) {
         try {
-          const peakRows = await executeQuery(lhDash.dataset_name, buildIHPeakUtilisationGFQuery(filters), CACHE_TTL_CHARTS, lhWorkspaceId)
+          const peakRows = await executeQuery(lhDash.dataset_name, buildIHPeakUtilizationGFQuery(filters), CACHE_TTL_CHARTS, lhWorkspaceId)
           const peak = peakRows[0]
           const peakCount = Number(peak?.['[PeakCount]'] ?? 0)
           if (peak && peakCount > 0) {
@@ -766,7 +774,7 @@ export async function POST(request: NextRequest) {
 
             const [catRows, utilRows] = await Promise.all([
               executeQuery(lhDash.dataset_name, buildIHLocationCategoryPeakGFQuery(filters, peakDateKey, peakHour), CACHE_TTL_CHARTS, lhWorkspaceId),
-              executeQuery(dashboard.dataset_name, buildIHUtilisationGFQuery(filters), CACHE_TTL_KPIS, workspaceId),
+              executeQuery(dashboard.dataset_name, buildIHUtilizationGFQuery(filters), CACHE_TTL_KPIS, workspaceId),
             ])
 
             const total = Number(utilRows[0]?.['[Total]'] ?? 0)

@@ -84,7 +84,7 @@ const IconRental = (
 // ── Nav data ──────────────────────────────────────────────────────────────────
 
 const LIVE_ITEMS: NavItem[] = [
-  { id: 'utilisation',            label: 'How much gets used?',           icon: IconUsage       },
+  { id: 'utilization',            label: 'How much gets used?',           icon: IconUsage       },
   { id: 'floor-distribution',     label: 'Enough on every floor?',        icon: IconFloors      },
   { id: 'preventive-maintenance', label: 'Preventive Maintenance Status', icon: IconMaintenance },
   { id: 'cleaning-loop',          label: 'The cleaning loop',             icon: IconLoop        },
@@ -99,7 +99,7 @@ const SOON_ITEMS: NavItem[] = [
 // ── Public exports ────────────────────────────────────────────────────────────
 
 export const REPORT_LABELS: Record<InsightHubReport, string> = {
-  'utilisation':            'How much gets used?',
+  'utilization':            'How much gets used?',
   'floor-distribution':     'Enough on every floor?',
   'preventive-maintenance': 'Preventive Maintenance Status',
   'cleaning-loop':          'The cleaning loop',
@@ -189,18 +189,18 @@ function NavRow({ item, isActive, collapsed, onClick }: NavRowProps) {
         {item.icon}
       </Box>
 
-      {/* Label */}
+      {/* Label — wraps to a second line instead of truncating, so longer
+          labels (e.g. "Preventive Maintenance Status") still show in full. */}
       <Typography
         sx={{
-          fontSize:     13,
-          fontWeight:   isActive ? 600 : 450,
-          color:        'inherit',
-          lineHeight:   1.3,
-          flex:         1,
-          minWidth:     0,
-          whiteSpace:   'nowrap',
-          overflow:     'hidden',
-          textOverflow: 'ellipsis',
+          fontSize:   13,
+          fontWeight: isActive ? 600 : 450,
+          color:      'inherit',
+          lineHeight: 1.3,
+          flex:       1,
+          minWidth:   0,
+          whiteSpace: 'normal',
+          wordBreak:  'break-word',
         }}
       >
         {item.label}

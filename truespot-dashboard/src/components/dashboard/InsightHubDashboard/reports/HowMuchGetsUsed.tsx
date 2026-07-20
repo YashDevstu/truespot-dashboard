@@ -8,7 +8,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
   LineChart, Line, ReferenceLine, ReferenceArea,
 } from 'recharts'
-import type { IHUtilisationData, IHPeakData, IHDailyPeakRow, IHAssetTypeRow, IHHourlyRow, IHWeeklyRow, IHLocationCategoryRow, IHCategoryAssetRow, IHCategoryDailyRow } from '@/hooks/useInsightHubData'
+import type { IHUtilizationData, IHPeakData, IHDailyPeakRow, IHAssetTypeRow, IHHourlyRow, IHWeeklyRow, IHLocationCategoryRow, IHCategoryAssetRow, IHCategoryDailyRow } from '@/hooks/useInsightHubData'
 import PerTenIconGrid from '../shared/PerTenIconGrid'
 import FlipStatCards from '../shared/FlipStatCards'
 import type { StatFace } from '../shared/FlipStatCards'
@@ -124,7 +124,7 @@ function getNarrativeJSX(pct: number, assetLabel: string, nPatient10: number, TE
         <Box component="span" sx={{ fontWeight: 700, color: TEAL }}>
           {nPatient10} of every 10 {label}
         </Box>{' '}
-        are in use right now. Utilisation is healthy, with some buffer to absorb demand spikes.
+        are in use right now. Utilization is healthy, with some buffer to absorb demand spikes.
       </>
     )
   }
@@ -165,7 +165,7 @@ function formatPeakDateTime(d: IHPeakData): string {
 
 // ── Usage by equipment type ────────────────────────────────────────────────────
 
-const GOAL_PCT = 70  // target utilisation — shown as a tick on every bar
+const GOAL_PCT = 70  // target utilization — shown as a tick on every bar
 
 // Today's peak-so-far is naturally lower than a completed day's peak (fewer
 // hours observed), which can make the "Is it getting better?" trend look like
@@ -370,29 +370,46 @@ function HourByHourChart({ rows, assetLabel, total }: { rows: IHHourlyRow[]; ass
   const yMin     = Math.max(0, Math.floor(minCount * 0.85))
   const yMax     = Math.ceil(maxCount * 1.05)
 
-  // Find the rush window — a fixed 2-hour span around the peak hour.
-  // True occupancy is a gentle all-day plateau (overnight low is still ~80%
-  // of the peak), so any percentage-of-peak threshold is fragile: it has to be
-  // re-tuned every time the live data's peak-to-plateau shape shifts (80% of
-  // peak once matched literally every hour of the day; 99% once produced
-  // exactly a 2-hour window against one day's data, then widened to ~5 hours
-  // against a flatter day). Client asked specifically for a tight ~2-hour rush
-  // window, so pick it deterministically instead: the peak hour plus whichever
-  // adjacent hour (before or after) has the higher count — always exactly 2
-  // hours, regardless of how flat or peaky the underlying data is.
+  // Find the rush window — always exactly a 2-hour span (client asked for this
+  // specifically). Primary score is min(hour, hour+1) across every adjacent
+  // pair in the day — a window is only as good as its weaker hour, so this
+  // correctly rejects a lone spike paired with a mediocre neighbor and finds
+  // the true tightest 2-hour stretch regardless of where in the day it falls.
+  //
+  // On a real (gently plateaued) day, several windows often tie on that score
+  // — verified against live data: hours 9-13 all scored identically, and the
+  // day's single busiest hour (noon) ended up excluded from the picked window
+  // purely because an earlier-starting tied window was scanned first. Ties
+  // are broken by: (1) prefer the window containing the day's single busiest
+  // hour, so "the rush" always includes the actual peak moment, not just any
+  // equally-strong plateau neighbor; (2) prefer the higher combined total if
+  // still tied; (3) earliest window wins as the final, rarely-reached fallback.
   const byHour   = new Map(rows.map((r) => [r.hour, r.withPatient]))
   const peakHour = peakRow?.hour ?? 0
-  const prevCount = byHour.get(peakHour - 1) ?? -1
-  const nextCount = byHour.get(peakHour + 1) ?? -1
-  let rushStart = peakHour
-  let rushEnd   = peakHour
-  if (prevCount >= 0 || nextCount >= 0) {
-    if (nextCount >= prevCount) rushEnd   = peakHour + 1
-    else                        rushStart = peakHour - 1
+  type Candidate = { h: number; score: number; sum: number; hasPeak: boolean }
+  let best: Candidate | null = null
+  for (let h = 0; h <= 22; h++) {
+    const a = byHour.get(h)
+    const b = byHour.get(h + 1)
+    if (a === undefined || b === undefined) continue
+    const candidate: Candidate = {
+      h,
+      score:   Math.min(a, b),
+      sum:     a + b,
+      hasPeak: h === peakHour || h + 1 === peakHour,
+    }
+    if (
+      !best ||
+      candidate.score > best.score ||
+      (candidate.score === best.score && candidate.hasPeak && !best.hasPeak) ||
+      (candidate.score === best.score && candidate.hasPeak === best.hasPeak && candidate.sum > best.sum)
+    ) {
+      best = candidate
+    }
   }
-  const rushLabel = rushStart === rushEnd
-    ? hourLabelLong(rushStart)
-    : `${hourLabelLong(rushStart)}–${hourLabelLong(rushEnd)}`
+  const rushStart = best?.h ?? 0
+  const rushEnd    = rushStart + 1
+  const rushLabel = `${hourLabelLong(rushStart)}–${hourLabelLong(rushEnd)}`
 
   const chartData = rows.map((r) => ({
     hour:        r.hour,
@@ -491,6 +508,32 @@ function HourByHourChart({ rows, assetLabel, total }: { rows: IHHourlyRow[]; ass
   )
 }
 
+// ── End-of-line label pill ─────────────────────────────────────────────────────
+// Placed above the last point, this got sliced by the line itself on a steep
+// drop (the point sits low, so "above" lands mid-chart, right where the
+// descending line still is) and read as floating, disconnected from the dot
+// it's meant to label. Docking it to the right of the dot instead — vertically
+// centered on it, connected by a short leader — is slope-independent: it
+// reads the same whether the last value is high, low, rising, or falling.
+// Needs real right-margin room on the chart (see callers) since it now grows
+// rightward off the plot area instead of sitting inside it.
+function EndLabelPill({ x, y, text, color }: { x: number; y: number; text: string; color: string }) {
+  const width  = text.length * 6.6 + 18
+  const height = 22
+  const gap    = 10
+  const left   = x + gap
+  const top    = y - height / 2
+  return (
+    <g>
+      <line x1={x} y1={y} x2={left} y2={y} stroke={color} strokeWidth={1.5} />
+      <rect x={left} y={top} width={width} height={height} rx={height / 2} fill="#fff" stroke={color} strokeWidth={1.5} />
+      <text x={left + width / 2} y={top + height / 2 + 4} textAnchor="middle" fill={color} fontSize={12} fontWeight="bold">
+        {text}
+      </text>
+    </g>
+  )
+}
+
 // ── Week label helper ──────────────────────────────────────────────────────────
 
 function weekStartLabel(year: number, weekNum: number): string {
@@ -527,9 +570,9 @@ function WeeklyTrendChart({ rows }: { rows: IHWeeklyRow[] }) {
         : `Holding steady around ${last}% over ${rows.length} weeks.`
 
   return (
-    <Box>
+    <Box sx={{ '& svg': { overflow: 'visible' } }}>
       <ResponsiveContainer width="100%" height={150}>
-        <LineChart data={chartData} margin={{ top: 20, right: 16, left: -8, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 20, right: 100, left: -8, bottom: 0 }}>
           <ReferenceArea y1={60} y2={80} fill="#ccfbf1" fillOpacity={0.5} label={{ value: 'Healthy zone: 60–80%', position: 'insideTopLeft', fontSize: 9.5, fill: '#0d9488', dy: 4, dx: 4 }} />
           <ReferenceLine y={60} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
           <ReferenceLine y={80} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
@@ -544,7 +587,7 @@ function WeeklyTrendChart({ rows }: { rows: IHWeeklyRow[] }) {
           <Tooltip
             cursor={{ stroke: '#e2e8f0', strokeWidth: 1 }}
             contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
-            formatter={(v: unknown) => [`${v}%`, 'Utilisation']}
+            formatter={(v: unknown) => [`${v}%`, 'Utilization']}
           />
           <Line
             type="monotone"
@@ -556,11 +599,7 @@ function WeeklyTrendChart({ rows }: { rows: IHWeeklyRow[] }) {
             label={(props: unknown) => {
               const p = props as { x: number; y: number; value: number; index: number }
               if (p.index !== chartData.length - 1) return <g key={p.index} />
-              return (
-                <text key={p.index} x={p.x - 6} y={p.y} dy={-8} textAnchor="end" fill={TEAL} fontSize={12} fontWeight="bold">
-                  {p.value}% this week
-                </text>
-              )
+              return <EndLabelPill key={p.index} x={p.x} y={p.y} text={`${p.value}% this week`} color={TEAL} />
             }}
           />
         </LineChart>
@@ -615,9 +654,9 @@ function DailyLineChart({
         : `Holding steady around ${last}% over ${rows.length} days.`
 
   return (
-    <Box>
+    <Box sx={{ '& svg': { overflow: 'visible' } }}>
       <ResponsiveContainer width="100%" height={150}>
-        <LineChart data={chartData} margin={{ top: 20, right: 16, left: -8, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 20, right: 100, left: -8, bottom: 0 }}>
           <ReferenceArea y1={60} y2={80} fill="#ccfbf1" fillOpacity={0.5} label={{ value: 'Healthy zone: 60–80%', position: 'insideTopLeft', fontSize: 9.5, fill: '#0d9488', dy: 4, dx: 4 }} />
           <ReferenceLine y={60} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
           <ReferenceLine y={80} stroke="#5eead4" strokeDasharray="4 3" strokeWidth={1} />
@@ -626,7 +665,7 @@ function DailyLineChart({
           <Tooltip
             cursor={{ stroke: '#e2e8f0', strokeWidth: 1 }}
             contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
-            formatter={(v: unknown) => [`${v}%`, 'Peak utilisation']}
+            formatter={(v: unknown) => [`${v}%`, 'Peak utilization']}
           />
           <Line
             type="monotone"
@@ -654,11 +693,8 @@ function DailyLineChart({
             label={(props: unknown) => {
               const p = props as { x: number; y: number; value: number; index: number }
               if (p.index !== chartData.length - 1) return <g key={p.index} />
-              return (
-                <text key={p.index} x={p.x - 6} y={p.y} dy={-8} textAnchor="end" fill={TEAL} fontSize={12} fontWeight="bold">
-                  {p.value}% {lastItem?.label === 'Today' ? 'today' : 'yesterday'}
-                </text>
-              )
+              const text = `${p.value}% ${lastItem?.label === 'Today' ? 'today' : 'yesterday'}`
+              return <EndLabelPill key={p.index} x={p.x} y={p.y} text={text} color={TEAL} />
             }}
           />
         </LineChart>
@@ -758,7 +794,7 @@ function WhatCanYouDoAboutIt({
   assetLabel,
   days,
 }: {
-  data:        IHUtilisationData
+  data:        IHUtilizationData
   peakData:    IHPeakData | null
   spareBuffer?: number
   unitValue?:  number
@@ -862,7 +898,7 @@ interface HowMuchGetsUsedProps {
   clientId:              string
   dashboardKey:          string
   product:               string
-  data:                  IHUtilisationData | null
+  data:                  IHUtilizationData | null
   peakData:              IHPeakData | null
   spareBuffer?:          number
   unitValue?:            number
@@ -874,7 +910,7 @@ interface HowMuchGetsUsedProps {
   days?:                 number
   displayName:           string
   loading:               boolean
-  assetTypeUtilisation:  IHAssetTypeRow[]
+  assetTypeUtilization:  IHAssetTypeRow[]
   hourlyRows:            IHHourlyRow[]
   weeklyTrend:           IHWeeklyRow[]
   locationCategories:    IHLocationCategoryRow[]
@@ -909,7 +945,7 @@ export default function HowMuchGetsUsed({
   days = 7,
   displayName,
   loading,
-  assetTypeUtilisation,
+  assetTypeUtilization,
   hourlyRows,
   weeklyTrend,
   locationCategories,
@@ -941,11 +977,11 @@ export default function HowMuchGetsUsed({
   const { total, withPatient, cleaning, hardToFind, sittingUnused, exit } = data
   // For GF clients (Halifax), hoursBasedPct reflects average session-hours in patient zones per day.
   // Count-based (withPatient/total) is used only when no hours data is available (BSA fallback).
-  const utilisationPct = data.hoursBasedPct ?? (total > 0 ? (withPatient / total) * 100 : 0)
+  const utilizationPct = data.hoursBasedPct ?? (total > 0 ? (withPatient / total) * 100 : 0)
   const assetLabel     = assetType ?? 'equipment'
-  // nPatient is derived from utilisationPct so the icon grid and the % stat are always consistent
-  const nPatient       = Math.round(utilisationPct / 10)
-  const narrativeJSX   = getNarrativeJSX(utilisationPct, assetLabel, nPatient, TEAL)
+  // nPatient is derived from utilizationPct so the icon grid and the % stat are always consistent
+  const nPatient       = Math.round(utilizationPct / 10)
+  const narrativeJSX   = getNarrativeJSX(utilizationPct, assetLabel, nPatient, TEAL)
 
   // Compute actual date range label — abbreviated months to prevent wrapping
   const dateRangeLabel = (() => {
@@ -1125,7 +1161,7 @@ export default function HowMuchGetsUsed({
                   letterSpacing: '-0.04em',
                 }}
               >
-                {utilisationPct.toFixed(0)}
+                {utilizationPct.toFixed(0)}
               </Typography>
               {/* pb lifts "% in use" off the baseline — sits at ~40% height of the number */}
               <Typography
@@ -1322,7 +1358,7 @@ export default function HowMuchGetsUsed({
       })()}
 
       {/* ── Usage by equipment type + right panels ────────────────────────────── */}
-      {assetTypeUtilisation.length > 0 && (
+      {assetTypeUtilization.length > 0 && (
         <Box sx={{ display: 'flex', gap: 2.5, alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
           {/* LEFT — Equipment type selector */}
@@ -1343,7 +1379,7 @@ export default function HowMuchGetsUsed({
             </Typography>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {assetTypeUtilisation.map((row, idx) => (
+              {assetTypeUtilization.map((row, idx) => (
                 <EquipmentRow
                   key={row.assetType}
                   row={row}
@@ -1422,7 +1458,7 @@ export default function HowMuchGetsUsed({
               <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.65, mt: 0.5, mb: 2 }}>
                 {weeklyTrend.length >= 4
                   ? `Weekly share of ${assetLabel.toLowerCase()} in use, last ${weeklyTrend.length} weeks`
-                  : `Daily peak utilisation, last 7 days`}
+                  : `Daily peak utilization, last 7 days`}
               </Typography>
               {loading ? (
                 <Skeleton variant="rectangular" height={150} sx={{ borderRadius: 2 }} />
@@ -1701,7 +1737,7 @@ export default function HowMuchGetsUsed({
             <Typography sx={{ fontSize: 13, color: '#64748b', lineHeight: 1.75 }}>
               This data comes directly from{' '}
               <Box component="span" sx={{ fontWeight: 700, color: TEAL }}>{data.total.toLocaleString()} tagged {assetLabel.toLowerCase()}s</Box>
-              {' '}tracked in real time by TrueSpot. Utilisation figures reflect session time in each zone type over the selected period. Dollar figures use the unit value you configured — they are directional, not accounting.{' '}
+              {' '}tracked in real time by TrueSpot. Utilization figures reflect session time in each zone type over the selected period. Dollar figures use the unit value you configured — they are directional, not accounting.{' '}
               <Box component="span" sx={{ fontWeight: 700, color: TEAL }}>Your live data replaces every one of these with your own measured numbers.</Box>
             </Typography>
           </Box>

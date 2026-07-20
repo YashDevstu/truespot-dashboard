@@ -6,11 +6,11 @@ import Typography from '@mui/material/Typography'
 import Skeleton from '@mui/material/Skeleton'
 import { BarChart, Bar, XAxis, YAxis, ReferenceLine, ResponsiveContainer, Cell, Tooltip, LabelList, LineChart, Line, ReferenceArea } from 'recharts'
 import type { IHFloorStatusRow, IHFloorReadinessByTypeRow } from '@/hooks/useInsightHubData'
-import CheckItYourself, { getFloorParTier, NEAR_PAR_PCT } from './CheckItYourself'
+import CheckItYourself, { getFloorParTier, RED_MAX_PCT } from './CheckItYourself'
 import WhatYouCanDoAboutIt from './WhatYouCanDoAboutIt'
 import FlipStatCards from '../shared/FlipStatCards'
 import { PinIcon } from '../shared/PerTenIconGrid'
-import { parseFacilityLocalParts } from '@/utils/formatters'
+import { parseFacilityLocalParts, getFacilityParts } from '@/utils/formatters'
 
 const TEAL   = '#0d9488'
 const AMBER  = '#d97706'
@@ -430,9 +430,14 @@ function TypicalDayChart({
               }}
             />
             <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
-              {chartData.map((entry, i) => (
-                <Cell key={i} fill={entry.belowPar ? RED : '#ccfbf1'} />
-              ))}
+              {chartData.map((entry, i) => {
+                // Only the tightest hour gets the full-strength red — every other
+                // below-par hour is a much lighter tint, so the worst moment of
+                // the day actually stands out instead of the chart reading as a
+                // wall of red with no visual hierarchy.
+                const fill = i === lowestIdx ? RED : entry.belowPar ? '#fecaca' : '#ccfbf1'
+                return <Cell key={i} fill={fill} />
+              })}
               <LabelList
                 dataKey="pct"
                 content={(props) => {
@@ -585,28 +590,50 @@ function TrendChart({
   }
 
   const HEALTHY_ZONE = 85
+  const WINDOW_DAYS  = 7
 
-  // Format date string from Fabric (could be ISO or locale string) → short label
-  function fmtDate(d: string): string {
-    try {
-      const dt = new Date(d)
-      if (isNaN(dt.getTime())) return d
-      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    } catch { return d }
+  // Build chart data for a fixed 7-day window (facility-local calendar days),
+  // backfilling any day with zero qualifying sessions as an explicit gap
+  // (pctMet: null) rather than letting it silently vanish. Without this, a day
+  // with a total data outage just doesn't appear at all — the line quietly
+  // connects the remaining days as if nothing happened, and "last 7 days"
+  // mislabels itself "last 6 days" instead of showing that a day is missing.
+  const pointByDateKey = new Map<string, TrendPoint>()
+  for (const p of points) {
+    const parts = parseFacilityLocalParts(p.date)
+    if (!parts.year) continue
+    pointByDateKey.set(`${parts.year}-${parts.month}-${parts.day}`, p)
   }
 
-  // Build chart data — use currentPctMet as a single point if no points returned yet
-  const chartData: Array<{ label: string; date: string; pctMet: number }> =
+  const chartData: Array<{ label: string; date: string; pctMet: number | null }> =
     points.length > 0
-      ? points.map((p) => ({ label: fmtDate(p.date), date: p.date, pctMet: p.pctMet }))
+      ? (() => {
+          const today   = getFacilityParts(new Date())
+          const todayMs = Date.UTC(today.year, today.month - 1, today.day)
+          const rows: Array<{ label: string; date: string; pctMet: number | null }> = []
+          for (let i = WINDOW_DAYS - 1; i >= 0; i--) {
+            const dt    = new Date(todayMs - i * 86400000)
+            const key   = `${dt.getUTCFullYear()}-${dt.getUTCMonth() + 1}-${dt.getUTCDate()}`
+            const match = pointByDateKey.get(key)
+            rows.push({
+              label:  dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+              date:   match?.date ?? '',
+              pctMet: match ? match.pctMet : null,
+            })
+          }
+          return rows
+        })()
       : [{ label: 'Today', date: '', pctMet: currentPctMet }]
 
-  const first = chartData[0]?.pctMet ?? currentPctMet
-  const last  = chartData[chartData.length - 1]?.pctMet ?? currentPctMet
+  const validValues = chartData.map((d) => d.pctMet).filter((v): v is number => v !== null)
+  const lastValidIdx = chartData.reduce((acc, d, i) => d.pctMet !== null ? i : acc, -1)
+
+  const first = validValues[0] ?? currentPctMet
+  const last  = validValues[validValues.length - 1] ?? currentPctMet
   const trend = last - first
 
   // Dynamic Y domain: pad 12 points below the minimum value so the line fills the chart
-  const minVal   = Math.min(...chartData.map((d) => d.pctMet))
+  const minVal   = validValues.length > 0 ? Math.min(...validValues) : 0
   const yMin     = Math.max(0, Math.floor((minVal - 12) / 10) * 10)
   const yMax     = 108  // a little above 100 so the healthy zone top isn't clipped
 
@@ -639,7 +666,14 @@ function TrendChart({
       </Typography>
 
       {/* Line chart — overflow visible so the "X% this week" label doesn't clip */}
-      <Box sx={{ flex: 1, '& svg': { overflow: 'visible' } }}>
+      <Box sx={{ flex: 1, position: 'relative', '& svg': { overflow: 'visible' } }}>
+        {/* Healthy zone label — fixed position so it stays legible even when the
+            shaded band itself shrinks to a thin sliver (trend far below target),
+            but plain text with no pill/border so it reads as part of the band
+            rather than a separate floating chip. */}
+        <Typography sx={{ position: 'absolute', top: 4, left: 4, zIndex: 1, fontSize: 10, fontWeight: 600, color: TEAL }}>
+          Healthy zone: {HEALTHY_ZONE}–100% of mornings meeting par
+        </Typography>
         <ResponsiveContainer width="100%" height={160}>
           <LineChart
             data={chartData}
@@ -652,21 +686,12 @@ function TrendChart({
               fill="rgba(13,148,136,0.08)"
               fillOpacity={1}
             />
-            {/* Healthy zone lower border + label */}
+            {/* Healthy zone lower border (label lives in the chip above instead) */}
             <ReferenceLine
               y={HEALTHY_ZONE}
               stroke="rgba(13,148,136,0.4)"
               strokeDasharray="4 3"
               strokeWidth={1}
-              label={{
-                value: `Healthy zone: ${HEALTHY_ZONE}–100%`,
-                position: 'insideTopLeft',
-                fontSize: 9,
-                fill: 'rgba(13,148,136,0.6)',
-                fontWeight: 600,
-                dy: -6,
-                dx: 4,
-              }}
             />
 
             <XAxis dataKey="label" tick={false} axisLine={false} tickLine={false} />
@@ -675,7 +700,20 @@ function TrendChart({
             <Tooltip
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null
-                const row = payload[0]?.payload as { label: string; pctMet: number }
+                const row = payload[0]?.payload as { label: string; pctMet: number | null }
+                if (row.pctMet === null) {
+                  return (
+                    <Box
+                      sx={{
+                        bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
+                        borderRadius: 1.5, px: 1.5, py: 1, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary' }}>{row.label}</Typography>
+                      <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>No data this day</Typography>
+                    </Box>
+                  )
+                }
                 return (
                   <Box
                     sx={{
@@ -708,11 +746,14 @@ function TrendChart({
               stroke={TEAL}
               strokeWidth={2}
               isAnimationActive={false}
+              connectNulls={false}
               dot={(dotProps: Record<string, unknown>) => {
-                const cx     = Number(dotProps.cx ?? 0)
-                const cy     = Number(dotProps.cy ?? 0)
-                const index  = Number(dotProps.index ?? 0)
-                const isLast = index === chartData.length - 1
+                const cx      = Number(dotProps.cx ?? 0)
+                const cy      = Number(dotProps.cy ?? 0)
+                const index   = Number(dotProps.index ?? 0)
+                const payload = dotProps.payload as { pctMet: number | null }
+                if (payload.pctMet === null) return <g key={index} />
+                const isLast = index === lastValidIdx
                 if (isLast) {
                   return (
                     <g key={index}>
@@ -817,10 +858,11 @@ interface EnoughOnEveryFloorProps {
   onSelectAssetType: (type: string | undefined) => void
   clientId:          string
   dashboardKey:      string
+  product:           string
   unitValue?:        number
 }
 
-export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loading, onSelectAssetType, clientId, dashboardKey, unitValue, configuredTypes }: EnoughOnEveryFloorProps) {
+export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loading, onSelectAssetType, clientId, dashboardKey, product, unitValue, configuredTypes }: EnoughOnEveryFloorProps) {
   const assetLabel = assetType ?? 'equipment'
 
   // jumpToFloor: set by WhatYouCanDoAboutIt CTA → consumed by CheckItYourself
@@ -1150,15 +1192,15 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
         // "tightest moment ... 117% on hand" headline.)
         const parTiers   = rows.map((r) => ({ row: r, ...getFloorParTier(r) }))
         const shortByPar = parTiers.filter((t) => t.tier === 'shortfall').sort((a, b) => a.pct - b.pct)
-        const hoardByPar = parTiers.filter((t) => t.tier === 'hoarding').sort((a, b) => b.pct - a.pct)
         const stockedCount = parTiers.filter((t) => t.tier === 'stocked').length
 
         const worstFloor = shortByPar[0]?.row
         const worstPct   = shortByPar[0]?.pct ?? 0
 
-        // Prefer an actual hoarding-flagged floor as the donor candidate (30%+ over
-        // par); fall back to the largest raw surplus if none crossed that line.
-        const surplusFloor = hoardByPar[0]?.row ?? [...rows].sort((a, b) => (b.avgCount - b.par) - (a.avgCount - a.par))[0]
+        // Donor candidate — the floor with the largest raw surplus above its own
+        // par. No separate "hoarding" tier feeds into this; it's a plain surplus
+        // ranking independent of the shortage-severity bands above.
+        const surplusFloor = [...rows].sort((a, b) => (b.avgCount - b.par) - (a.avgCount - a.par))[0]
         const surplus = surplusFloor ? Math.round(surplusFloor.avgCount - surplusFloor.par) : 0
         const savings = surplus > 0 && unitValue ? surplus * unitValue : 0
 
@@ -1198,7 +1240,7 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
                 {
                   metric: `${shortByPar.length}`,
                   suffix: shortByPar.length === 1 ? 'floor' : 'floors',
-                  why:    `A floor is counted as 'short' when it has, on average, less than ${NEAR_PAR_PCT}% of its required minimum on hand.`,
+                  why:    `A floor is counted as 'short' when it has, on average, less than ${RED_MAX_PCT}% of its required minimum on hand.`,
                 },
                 {
                   metric: `${stockedCount} of ${rows.length}`,
@@ -1453,6 +1495,7 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
             rows={rows}
             clientId={clientId}
             dashboardKey={dashboardKey}
+            product={product}
             assetType={assetType}
             externalFloor={jumpToFloor}
           />

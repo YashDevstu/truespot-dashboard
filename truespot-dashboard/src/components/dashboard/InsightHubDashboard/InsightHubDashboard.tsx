@@ -13,6 +13,7 @@ import EnoughOnEveryFloor from './reports/EnoughOnEveryFloor'
 import TheCleaningLoop from './reports/TheCleaningLoop'
 import TheHidingSpots from './reports/TheHidingSpots'
 import PreventiveMaintenanceStatus from './reports/PreventiveMaintenanceStatus'
+import ComingSoonPlaceholder from './shared/ComingSoonPlaceholder'
 
 const TOP_H      = 56
 const FILTER_H   = 44
@@ -20,6 +21,11 @@ const HEADER_H   = TOP_H + FILTER_H
 const NAV_W_OPEN = 240
 const NAV_W_SHUT = 60
 const TEAL       = '#0d9488'
+
+// Both reports are fully built but held back from clients for now — flip to
+// true to re-enable once ready.
+const CLEANING_LOOP_ENABLED = false
+const HIDING_SPOTS_ENABLED  = false
 
 interface InsightHubDashboardProps {
   clientId:        string
@@ -56,10 +62,10 @@ export default function InsightHubDashboard({
     refresh,
     dayOffset,
     setDayOffset,
-    utilisation,
+    utilization,
     peakData,
     dailyPeakRows,
-    assetTypeUtilisation,
+    assetTypeUtilization,
     hourlyRows,
     weeklyTrend,
     locationCategories,
@@ -465,12 +471,12 @@ export default function InsightHubDashboard({
           </Alert>
         )}
 
-        {activeReport === 'utilisation' && (
+        {activeReport === 'utilization' && (
           <HowMuchGetsUsed
             clientId={clientId}
             dashboardKey={dashboardKey}
             product={product}
-            data={utilisation}
+            data={utilization}
             peakData={peakData}
             spareBuffer={spareBuffer}
             unitValue={unitValue}
@@ -482,7 +488,7 @@ export default function InsightHubDashboard({
             days={filters.days ?? 7}
             displayName={displayName}
             loading={loading}
-            assetTypeUtilisation={assetTypeUtilisation}
+            assetTypeUtilization={assetTypeUtilization}
             hourlyRows={hourlyRows}
             weeklyTrend={weeklyTrend}
             locationCategories={locationCategories}
@@ -511,6 +517,7 @@ export default function InsightHubDashboard({
             onSelectAssetType={(t) => { setFloorAssetType(t ?? 'Pumps') }}
             clientId={clientId}
             dashboardKey={dashboardKey}
+            product={product}
             unitValue={unitValue}
             configuredTypes={configuredTypes}
           />
@@ -518,20 +525,37 @@ export default function InsightHubDashboard({
 
         {activeReport === 'preventive-maintenance' && <PreventiveMaintenanceStatus />}
 
+        {/* Both reports below are fully built (see TheCleaningLoop.tsx /
+            TheHidingSpots.tsx) but intentionally held back from clients for now —
+            flip the flag to re-enable once ready, no need to touch the render logic. */}
         {activeReport === 'cleaning-loop' && (
-          <TheCleaningLoop
-            rows={cleaningRows}
-            assetType={filters.assetType}
-            loading={loading}
-          />
+          CLEANING_LOOP_ENABLED ? (
+            <TheCleaningLoop
+              rows={cleaningRows}
+              assetType={filters.assetType}
+              loading={loading}
+            />
+          ) : (
+            <ComingSoonPlaceholder
+              eyebrow="The Cleaning Loop"
+              description="This report will show how long assets sit in cleaning zones before returning to service. Check back soon."
+            />
+          )
         )}
 
         {activeReport === 'hiding-spots' && (
-          <TheHidingSpots
-            rows={hidingSpotRows}
-            assetType={filters.assetType}
-            loading={loading}
-          />
+          HIDING_SPOTS_ENABLED ? (
+            <TheHidingSpots
+              rows={hidingSpotRows}
+              assetType={filters.assetType}
+              loading={loading}
+            />
+          ) : (
+            <ComingSoonPlaceholder
+              eyebrow="The Hiding Spots"
+              description="This report will rank the locations where idle assets pile up most often. Check back soon."
+            />
+          )
         )}
       </Box>
     </Box>

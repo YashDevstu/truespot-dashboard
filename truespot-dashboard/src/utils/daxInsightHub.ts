@@ -61,10 +61,13 @@ function sanitize(v: string): string {
   return v.replace(/["\\]/g, '')
 }
 
-function buildIHFilterConditions(filters: InsightHubFilters): string[] {
+// excludeKey lets a filter-options query build "what would this dropdown show
+// given every OTHER active filter" — the same cascading pattern used by the
+// Location History dashboard's buildHealthLocationConditions.
+function buildIHFilterConditions(filters: InsightHubFilters, excludeKey?: keyof InsightHubFilters): string[] {
   const conds: string[] = []
 
-  if (filters.assetType) {
+  if (filters.assetType && excludeKey !== 'assetType') {
     const vals = filters.assetType.split(',').map((s) => s.trim()).filter(Boolean)
     if (vals.length === 1) {
       conds.push(`${T}[AssetType] = "${sanitize(vals[0])}"`)
@@ -73,19 +76,19 @@ function buildIHFilterConditions(filters: InsightHubFilters): string[] {
     }
   }
 
-  if (filters.floor) {
+  if (filters.floor && excludeKey !== 'floor') {
     const vals = filters.floor.split(',').map((s) => s.trim()).filter(Boolean)
     if (vals.length === 1)    conds.push(`${T}[Floor] = "${sanitize(vals[0])}"`)
     else if (vals.length > 1) conds.push(`${T}[Floor] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
   }
 
-  if (filters.department) {
+  if (filters.department && excludeKey !== 'department') {
     const vals = filters.department.split(',').map((s) => s.trim()).filter(Boolean)
     if (vals.length === 1)    conds.push(`${T}[My Department] = "${sanitize(vals[0])}"`)
     else if (vals.length > 1) conds.push(`${T}[My Department] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
   }
 
-  if (filters.building) {
+  if (filters.building && excludeKey !== 'building') {
     const vals = filters.building.split(',').map((s) => s.trim()).filter(Boolean)
     if (vals.length === 1)    conds.push(`${T}[Building] = "${sanitize(vals[0])}"`)
     else if (vals.length > 1) conds.push(`${T}[Building] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
@@ -94,16 +97,40 @@ function buildIHFilterConditions(filters: InsightHubFilters): string[] {
   return conds
 }
 
+// Distinct values of a Post-Aggregate column (columnName is the bare column
+// name, e.g. "AssetType" or "My Department" — this prefixes it with the table
+// itself), scoped by every OTHER active filter (excludeKey omits the
+// dropdown's own filter so it doesn't just re-show whatever the user already
+// picked for it).
+export function buildIHCascadingOptionsQuery(
+  columnName: string,
+  filters:    InsightHubFilters,
+  excludeKey: keyof InsightHubFilters,
+): string {
+  const column = `${T}[${columnName}]`
+  const conds  = buildIHFilterConditions(filters, excludeKey)
+  const src    = conds.length > 0 ? `FILTER(${T}, ${conds.join(' && ')})` : T
+  return `EVALUATE
+SELECTCOLUMNS(
+  FILTER(
+    DISTINCT(SELECTCOLUMNS(${src}, "value", ${column})),
+    NOT ISBLANK([value]) && [value] <> "" && [value] <> "None"
+  ),
+  "value", [value]
+)
+ORDER BY [value] ASC`
+}
+
 function buildSource(filters: InsightHubFilters): string {
   const conds = buildIHFilterConditions(filters)
   return conds.length > 0 ? `FILTER(${T}, ${conds.join(' && ')})` : T
 }
 
-// ── Report 1 — Utilisation bucketed counts ────────────────────────────────────
+// ── Report 1 — Utilization bucketed counts ────────────────────────────────────
 // Returns ONE row: Total, WithPatient, Cleaning, HardToFind.
 // SittingUnused = Total - WithPatient - Cleaning - HardToFind (computed client-side).
 
-export function buildIHUtilisationQuery(filters: InsightHubFilters): string {
+export function buildIHUtilizationQuery(filters: InsightHubFilters): string {
   const src = buildSource(filters)
   const h = hardToFindCond()
   const c = cleaningCond()
@@ -212,11 +239,11 @@ TOPN(
 ORDER BY [Count] DESC`
 }
 
-// ── Asset type utilisation breakdown ──────────────────────────────────────────
+// ── Asset type utilization breakdown ──────────────────────────────────────────
 // One row per AssetType with bucket counts. Intentionally IGNORES the assetType
 // filter so the chart always shows all types side-by-side (floor filter is kept).
 
-export function buildIHAssetTypeUtilisationQuery(filters: InsightHubFilters): string {
+export function buildIHAssetTypeUtilizationQuery(filters: InsightHubFilters): string {
   // Intentionally ignores assetType so every type appears side-by-side.
   // Respects floor, department, and building so the breakdown reflects active scope.
   const conds: string[] = []
@@ -451,12 +478,12 @@ ORDER BY [Year] ASC, [WeekNum] ASC`
 // ── Location category helpers (AppendFinal) ───────────────────────────────────
 
 // SPD 2 = the only decontamination zone in this facility.
-// Used both as the "soiled" location category and the "cleaning" utilisation bucket.
+// Used both as the "soiled" location category and the "cleaning" utilization bucket.
 function soiledCondLH(): string {
   return `${TL}[Geofence] = "SPD 2"`
 }
 
-// Alias kept so utilisation/asset-type queries read naturally
+// Alias kept so utilization/asset-type queries read naturally
 const cleaningCondLH = soiledCondLH
 
 // Clean storage = Ground Floor General (Bed Storage, Infusion Therapy, Service Desk)
@@ -647,12 +674,12 @@ ORDER BY [TotalMins] DESC`
 
 // GF variant: 5-category location-status breakdown restricted to ONE specific
 // (date, hour) — the facility's busiest hour, identified separately via
-// buildIHPeakUtilisationGFQuery. Unlike buildIHLocationCategoryGFQuery (which
+// buildIHPeakUtilizationGFQuery. Unlike buildIHLocationCategoryGFQuery (which
 // sums minutes across a 7-day window), this answers "at the single busiest
 // moment, where was everything?" — so it counts distinct assets active during
 // that exact hour, not accumulated session-minutes.
 //
-// Uses the same true-occupancy method as buildIHPeakUtilisationGFQuery: exact
+// Uses the same true-occupancy method as buildIHPeakUtilizationGFQuery: exact
 // DAY/MONTH/YEAR/HOUR match on the session's start timestamp only credits a
 // VIN to the one hour its (sub-zone-granularity) session happened to start —
 // verified to undercount "With Patient" at the peak hour by nearly half versus
@@ -903,20 +930,6 @@ SELECTCOLUMNS(
 )`
 }
 
-// ── Building options (Post-Aggregate — for GF clients like Halifax) ───────────
-
-export function buildIHBuildingOptionsQuery(): string {
-  return `EVALUATE
-SELECTCOLUMNS(
-  FILTER(
-    DISTINCT(SELECTCOLUMNS(${T}, "value", ${T}[Building])),
-    NOT ISBLANK([value]) && [value] <> ""
-  ),
-  "value", [value]
-)
-ORDER BY [value] ASC`
-}
-
 // ── Building options (AppendFinal — for LH-based clients) ─────────────────────
 
 export function buildIHBuildingOptionsLHQuery(): string {
@@ -931,19 +944,6 @@ SELECTCOLUMNS(
 ORDER BY [value] ASC`
 }
 
-// ── Asset type options (Post-Aggregate — for clients with Missing Assets Portal) ──
-
-export function buildIHAssetTypeOptionsQuery(): string {
-  return `EVALUATE
-SELECTCOLUMNS(
-  FILTER(
-    DISTINCT(SELECTCOLUMNS(${T}, "value", ${T}[AssetType])),
-    NOT ISBLANK([value]) && [value] <> "None"
-  ),
-  "value", [value]
-)
-ORDER BY [value] ASC`
-}
 
 // ── Asset type options (AppendFinal — for Location History Portal clients) ─────
 // Used when the Insight Hub dataset lives in the LH workspace (e.g. Halifax).
@@ -1160,17 +1160,17 @@ export function buildIHRefreshTimeQuery(): string {
   return `EVALUATE ROW("RefreshTime", MAX(${T}[Last Refresh]))`
 }
 
-// ── LH-based utilisation (for clients without Post-Aggregate table) ───────────
+// ── LH-based utilization (for clients without Post-Aggregate table) ───────────
 // Counts DISTINCT VINs per category from AppendFinal session data (last 7 days).
 // Priority: HardToFind > Cleaning > WithPatient > SittingUnused.
 // A VIN can appear in multiple sessions across categories; we count it in all
 // matching ones — sittingUnused is derived client-side as total - others.
 
-// Exclusive-bucket LH utilisation: assigns each VIN to the category where it spent
+// Exclusive-bucket LH utilization: assigns each VIN to the category where it spent
 // the most minutes over the last 7 days (priority: HardToFind > Cleaning > WithPatient > SittingUnused).
 // Uses GROUPBY + SUMX(CURRENTGROUP()) to compute per-VIN minutes per category, then
 // COUNTROWS(FILTER()) to tally exclusive buckets. SittingUnused derived client-side.
-export function buildIHUtilisationLHQuery(filters: InsightHubFilters): string {
+export function buildIHUtilizationLHQuery(filters: InsightHubFilters): string {
   const baseConds  = lhBaseConds(filters)
   const baseFilter = baseConds.join(' && ')
   const dur        = `DATEDIFF(${TL}[Last Seen-Local], ${TL}[PreviousLastSeenNew_], MINUTE)`
@@ -1206,10 +1206,10 @@ RETURN ROW(
 )`
 }
 
-// ── LH-based asset-type utilisation breakdown ─────────────────────────────────
+// ── LH-based asset-type utilization breakdown ─────────────────────────────────
 // One row per AssetType with distinct-VIN counts per category.
 
-export function buildIHAssetTypeUtilisationLHQuery(filters: InsightHubFilters = {}): string {
+export function buildIHAssetTypeUtilizationLHQuery(filters: InsightHubFilters = {}): string {
   // Intentionally ignores assetType filter — all asset types must appear side by side.
   // Respects floor and building so the breakdown reflects the active scope.
   const d = filters.days ?? 7
@@ -1246,7 +1246,7 @@ FILTER(
 ORDER BY [Total] DESC`
 }
 
-// ── LH-based hourly utilisation ───────────────────────────────────────────────
+// ── LH-based hourly utilization ───────────────────────────────────────────────
 // For each hour 0-23, count distinct VINs whose sessions (last 7 days) included
 // that hour AND whose SubGeoZone classifies as "With Patient".
 
@@ -1285,7 +1285,7 @@ export function buildIHRefreshTimeLHQuery(): string {
   return `EVALUATE ROW("RefreshTime", MAX(${TL}[PreviousLastSeenNew_]))`
 }
 
-// ── LH-based peak utilisation ─────────────────────────────────────────────────
+// ── LH-based peak utilization ─────────────────────────────────────────────────
 // Finds the maximum number of distinct VINs simultaneously in patient-area
 // sessions within any single (date, hour) bucket over the last 7 days.
 // Strategy:
@@ -1295,7 +1295,7 @@ export function buildIHRefreshTimeLHQuery(): string {
 //   4. MAXX picks the peak bucket
 // Not available for Post-Aggregate clients — they have no session history.
 
-export function buildIHPeakUtilisationLHQuery(filters: InsightHubFilters): string {
+export function buildIHPeakUtilizationLHQuery(filters: InsightHubFilters): string {
   const baseConds  = lhBaseConds(filters)
   const baseFilter = baseConds.join(' && ')
   const p          = patientCondLH()
@@ -1431,13 +1431,38 @@ SELECTCOLUMNS(
 // not a complete per-device breakdown.
 export function buildIHDepartmentsQuery(filters: InsightHubFilters): string {
   const src = buildSource(filters)
+
+  // Scope by the currently-selected location-status category (Patient Area /
+  // Moving-Cleaning / Exit / Hard to Find / Sitting Unused) so this reflects
+  // which departments own the assets in THAT category — not the same
+  // company-wide breakdown regardless of which tile the user drilled into.
+  // Same priority order as buildIHUtilizationGFQuery: HardToFind → Exit →
+  // Cleaning → WithPatient → SittingUnused (else).
+  let catCond = ''
+  if (filters.category) {
+    const h = hardToFindCondGF()
+    const c = cleaningCondGF()
+    const p = patientCondGF()
+    const e = exitCondGF()
+    switch (filters.category) {
+      case 'patient':         catCond = `NOT ${h} && NOT ${e} && NOT ${c} && ${p}`; break
+      case 'moving_cleaning': catCond = `NOT ${h} && NOT ${e} && ${c}`; break
+      case 'exit':            catCond = `NOT ${h} && ${e}`; break
+      case 'unknown':         catCond = h; break
+      default: /* sitting_unused */ catCond = `NOT ${h} && NOT ${e} && NOT ${c} && NOT ${p}`
+    }
+  }
+
+  const deptCond  = `NOT ISBLANK(${T}[My Department]) && ${T}[My Department] <> ""`
+  const allConds  = catCond ? `${deptCond} && (${catCond})` : deptCond
+
   return `EVALUATE
 TOPN(
   20,
   SELECTCOLUMNS(
     FILTER(
       GROUPBY(
-        FILTER(${src}, NOT ISBLANK(${T}[My Department]) && ${T}[My Department] <> ""),
+        FILTER(${src}, ${allConds}),
         ${T}[My Department],
         "Count", COUNTX(CURRENTGROUP(), ${T}[VIN])
       ),
@@ -1451,7 +1476,7 @@ TOPN(
 }
 
 // Priority (matches categoryExprGFLH): HardToFind → Exit → Cleaning → WithPatient → SittingUnused (else)
-export function buildIHUtilisationGFQuery(filters: InsightHubFilters): string {
+export function buildIHUtilizationGFQuery(filters: InsightHubFilters): string {
   const src = buildSource(filters)
   const h   = hardToFindCondGF()
   const c   = cleaningCondGF()
@@ -1493,7 +1518,7 @@ SELECTCOLUMNS(
 )`
 }
 
-export function buildIHAssetTypeUtilisationGFQuery(filters: InsightHubFilters = {}): string {
+export function buildIHAssetTypeUtilizationGFQuery(filters: InsightHubFilters = {}): string {
   // Intentionally ignores assetType so every type appears side-by-side.
   // Respects floor and building so the breakdown reflects the active scope.
   const conds: string[] = []
@@ -1560,13 +1585,13 @@ TOPN(
 ORDER BY [Count] DESC`
 }
 
-// ── GF Hours-based utilisation (AppendFinal) ─────────────────────────────────
+// ── GF Hours-based utilization (AppendFinal) ─────────────────────────────────
 // Uses session history instead of the Post-Aggregate snapshot to compute the
 // % of time equipment spends in patient zones on an average day:
 //   PatientMins / (totalVINs × days × 24 × 60) × 100
-// Returned as [HoursBasedPct] and merged into the utilisation response by route.ts.
+// Returned as [HoursBasedPct] and merged into the utilization response by route.ts.
 
-export function buildIHUtilisationHoursGFQuery(filters: InsightHubFilters): string {
+export function buildIHUtilizationHoursGFQuery(filters: InsightHubFilters): string {
   // Respect the selected "When" window (7/30/90 days) instead of a fixed 7-day lookback —
   // otherwise the % figure silently reflects only the last 7 days even when the UI
   // label (and pump count) show a longer selected range, e.g. "Last 90 days".
@@ -1613,7 +1638,7 @@ function patientCondGFLH(): string {
   return `${TL}[Geofence] IN {"1st Floor", "2nd Floor", "3rd Floor", "ED", "Radiology"}`
 }
 
-// ── GF hourly utilisation for a specific day (AppendFinal) ───────────────────
+// ── GF hourly utilization for a specific day (AppendFinal) ───────────────────
 // Returns 24 rows (one per hour) with distinct VINs in patient zones for the
 // selected calendar day (TODAY() - dayOffset). dayOffset=1 = yesterday (full day).
 //
@@ -1690,8 +1715,8 @@ SELECTCOLUMNS(
 // ── GF daily peak — max concurrent VINs per day over last 7 days (AppendFinal) ─
 // Returns up to 7 rows. Each row: DateKey = DAY + MONTH×100 + YEAR×10000, PeakCount.
 // Client decodes: day=MOD(DateKey,100), month=MOD(INT(DateKey/100),100), year=INT(DateKey/10000).
-// ── GF peak utilisation — max concurrent VINs in patient zones (last 7 days) ─────
-// Same logic as buildIHPeakUtilisationLHQuery but uses the 5-zone GF patient
+// ── GF peak utilization — max concurrent VINs in patient zones (last 7 days) ─────
+// Same logic as buildIHPeakUtilizationLHQuery but uses the 5-zone GF patient
 // definition instead of the 18-zone BSA definition.
 //
 // Both queries below use the same true-occupancy method as buildIHHourlyByDayGFQuery:
@@ -1753,7 +1778,7 @@ VAR _withCounts =
   return { baseFilterDecl, gridDecl }
 }
 
-export function buildIHPeakUtilisationGFQuery(filters: InsightHubFilters): string {
+export function buildIHPeakUtilizationGFQuery(filters: InsightHubFilters): string {
   const { baseFilterDecl, gridDecl } = buildIHOccupancyGridGF(filters)
 
   return `EVALUATE

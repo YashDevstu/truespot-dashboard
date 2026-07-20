@@ -42,19 +42,21 @@ function DepartmentBlocks({
   clientId,
   dashboardKey,
   assetType,
+  category,
 }: {
   clientId:     string
   dashboardKey: string
   assetType:    string | undefined
+  category:     string | undefined
 }) {
   const [depts, setDepts]     = useState<{ name: string; count: number }[]>([])
   const [loading, setLoading] = useState(true)
 
   React.useEffect(() => {
     let cancelled = false
-    // Resets the loading flag for this new fetch (re-triggered by assetType
-    // changes) — a legitimate effect (syncing external data to a fetch), not a
-    // plain state mirror.
+    // Resets the loading flag for this new fetch (re-triggered by assetType/
+    // category changes) — a legitimate effect (syncing external data to a
+    // fetch), not a plain state mirror.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     fetch('/api/v1/insight-hub/query', {
@@ -64,7 +66,7 @@ function DepartmentBlocks({
         clientId,
         dashboardKey,
         queryType: 'departments',
-        filters:   assetType ? { assetType } : {},
+        filters:   { ...(assetType ? { assetType } : {}), ...(category ? { category } : {}) },
       }),
     })
       .then((r) => r.json() as Promise<{ rows?: Record<string, unknown>[] }>)
@@ -81,7 +83,7 @@ function DepartmentBlocks({
       .catch(() => { if (!cancelled) setDepts([]) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [clientId, dashboardKey, assetType])
+  }, [clientId, dashboardKey, assetType, category])
 
   if (loading || depts.length === 0) return null
 
@@ -95,17 +97,23 @@ function DepartmentBlocks({
           <Box
             key={dept.name}
             sx={{
+              minWidth:     88,
               px:           1.5,
-              py:           0.75,
+              py:           1,
               borderRadius: 2,
-              bgcolor:      '#f1f5f9',
-              border:       '1px solid #e2e8f0',
-              fontSize:     13,
-              fontWeight:   600,
-              color:        '#334155',
+              bgcolor:      '#f0fdfb',
+              border:       '1px solid rgba(13,148,136,0.25)',
             }}
           >
-            {dept.name}
+            <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.primary', mb: 0.25, lineHeight: 1.25 }}>
+              {dept.name}
+            </Typography>
+            <Typography sx={{ fontSize: 20, fontWeight: 900, color: TEAL, lineHeight: 1 }}>
+              {dept.count}
+              <Box component="span" sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', ml: 0.5 }}>
+                {dept.count === 1 ? 'asset' : 'assets'}
+              </Box>
+            </Typography>
           </Box>
         ))}
       </Box>
@@ -1164,7 +1172,9 @@ export default function WhereDoTheySpend({
                   <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{l.label}</Typography>
                 </Box>
               ))}
-              <Typography sx={{ fontSize: 11, color: 'text.disabled', ml: 'auto' }}>Total 100%</Typography>
+              <Typography sx={{ fontSize: 11, color: 'text.disabled', ml: 'auto' }}>
+                Total {locationCategories.reduce((s, r) => s + Math.round(r.pct), 0)}%
+              </Typography>
             </Box>
           )}
         </>
@@ -1335,7 +1345,7 @@ export default function WhereDoTheySpend({
             </Box>
           </Box>
 
-          <DepartmentBlocks clientId={clientId} dashboardKey={dashboardKey} assetType={assetType} />
+          <DepartmentBlocks clientId={clientId} dashboardKey={dashboardKey} assetType={assetType} category={selectedCategory ?? undefined} />
 
           {/* Bottom actions */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>

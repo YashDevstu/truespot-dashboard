@@ -6,7 +6,7 @@ import type { InsightHubFilters } from '@/utils/daxInsightHub'
 // ── Report IDs ─────────────────────────────────────────────────────────────────
 
 export type InsightHubReport =
-  | 'utilisation'
+  | 'utilization'
   | 'floor-distribution'
   | 'preventive-maintenance'
   | 'cleaning-loop'
@@ -14,14 +14,14 @@ export type InsightHubReport =
 
 // ── Response types ─────────────────────────────────────────────────────────────
 
-export interface IHUtilisationData {
+export interface IHUtilizationData {
   total:          number
   withPatient:    number
   cleaning:       number
   hardToFind:     number
   exit?:          number  // GF clients only — folds into sittingUnused when absent
   sittingUnused:  number
-  hoursBasedPct?: number  // hours-based avg-day utilisation % (GF clients only)
+  hoursBasedPct?: number  // hours-based avg-day utilization % (GF clients only)
 }
 
 export interface IHPeakData {
@@ -138,7 +138,7 @@ export interface IHAssetTypeRow {
 
 // ── Row parsers ────────────────────────────────────────────────────────────────
 
-function parseUtilisation(rows: Record<string, unknown>[]): IHUtilisationData | null {
+function parseUtilization(rows: Record<string, unknown>[]): IHUtilizationData | null {
   if (rows.length === 0) return null
   const r = rows[0]
   const total         = Number(r['[Total]']       ?? 0)
@@ -207,6 +207,25 @@ function parseWeeklyRows(rows: Record<string, unknown>[]): IHWeeklyRow[] {
   }).filter((r) => r.weekNum > 0 && r.year > 0)
 }
 
+// Largest-remainder rounding: rounding each share independently (Math.round on
+// each one) can drift the displayed total to 99% or 101% depending on which
+// way each value happened to round — verified in production (37+50+1+3+10
+// summed to 101 against a "Total 100%" label). Rounding every value down first,
+// then handing the leftover points to whichever values had the largest
+// fractional remainder, guarantees the set always sums to exactly 100.
+function roundPercentagesTo100(values: number[]): number[] {
+  const floors    = values.map((v) => Math.floor(v))
+  const remainder = values.map((v, i) => ({ i, r: v - floors[i] }))
+  let deficit     = 100 - floors.reduce((s, v) => s + v, 0)
+  remainder.sort((a, b) => b.r - a.r)
+  const result = [...floors]
+  for (let k = 0; k < remainder.length && deficit > 0; k++) {
+    result[remainder[k].i] += 1
+    deficit--
+  }
+  return result
+}
+
 // TotalMins is only present for the 7-day-total query; the busiest-hour query
 // (buildIHLocationCategoryPeakGFQuery) returns AssetCount only. Percentage falls
 // back to an asset-count share when no minutes data is present.
@@ -219,12 +238,13 @@ function parseLocationCategoryRows(rows: Record<string, unknown>[]): IHLocationC
   })).filter((r) => r.totalMins > 0 || r.assetCount > 0)
   const totalMinsAll  = parsed.reduce((s, r) => s + r.totalMins,  0)
   const totalCountAll = parsed.reduce((s, r) => s + r.assetCount, 0)
-  return parsed.map((r) => ({
-    ...r,
-    pct: totalMinsAll > 0
+  const rawPcts = parsed.map((r) =>
+    totalMinsAll > 0
       ? (r.totalMins / totalMinsAll) * 100
-      : totalCountAll > 0 ? (r.assetCount / totalCountAll) * 100 : 0,
-  }))
+      : totalCountAll > 0 ? (r.assetCount / totalCountAll) * 100 : 0
+  )
+  const rounded = rawPcts.length > 0 ? roundPercentagesTo100(rawPcts) : []
+  return parsed.map((r, i) => ({ ...r, pct: rounded[i] ?? 0 }))
 }
 
 function parseCategoryAssetRows(rows: Record<string, unknown>[]): IHCategoryAssetRow[] {
@@ -354,14 +374,14 @@ async function postIHQuery(
 const DEBOUNCE_MS = 300
 
 export function useInsightHubData(clientId: string, dashboardKey: string) {
-  const [activeReport, setActiveReport] = useState<InsightHubReport>('utilisation')
+  const [activeReport, setActiveReport] = useState<InsightHubReport>('utilization')
   const [filters, setFilters]           = useState<InsightHubFilters>({ assetType: 'Pumps' })
   const [dayOffset, setDayOffset]       = useState(1)
 
-  const [utilisation,          setUtilisation]          = useState<IHUtilisationData | null>(null)
+  const [utilization,          setUtilization]          = useState<IHUtilizationData | null>(null)
   const [peakData,             setPeakData]             = useState<IHPeakData | null>(null)
   const [dailyPeakRows,        setDailyPeakRows]        = useState<IHDailyPeakRow[]>([])
-  const [assetTypeUtilisation, setAssetTypeUtilisation] = useState<IHAssetTypeRow[]>([])
+  const [assetTypeUtilization, setAssetTypeUtilization] = useState<IHAssetTypeRow[]>([])
   const [hourlyRows,           setHourlyRows]           = useState<IHHourlyRow[]>([])
   const [weeklyTrend,          setWeeklyTrend]          = useState<IHWeeklyRow[]>([])
   const [locationCategories,   setLocationCategories]   = useState<IHLocationCategoryRow[]>([])
@@ -380,7 +400,11 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
   const [cleaningRows,         setCleaningRows]         = useState<IHCleaningRow[]>([])
   const [hidingSpotRows,       setHidingSpotRows]       = useState<IHHidingSpotRow[]>([])
 
-  const [assetTypeOptions,  setAssetTypeOptions]  = useState<string[]>([])
+  // Seeded with the initial filter default ('Pumps') so the Asset Type <Select>
+  // always has a matching option on the very first render — otherwise MUI logs
+  // an out-of-range warning for the gap between mount and the options fetch
+  // resolving (a real network round-trip, not just a debounce delay).
+  const [assetTypeOptions,  setAssetTypeOptions]  = useState<string[]>(['Pumps'])
   const [floorOptions,      setFloorOptions]      = useState<string[]>([])
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([])
   const [buildingOptions,   setBuildingOptions]   = useState<string[]>([])
@@ -393,66 +417,116 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
   const abortRef           = useRef<AbortController | null>(null)
   const debounceRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Refresh time doesn't depend on any filter — fetched once on mount.
   useEffect(() => {
     const controller = new AbortController()
     const { signal } = controller
-
-    Promise.allSettled([
-      postIHQuery(clientId, dashboardKey, 'asset-type-options',  {}, signal),
-      postIHQuery(clientId, dashboardKey, 'floor-options',       {}, signal),
-      postIHQuery(clientId, dashboardKey, 'department-options',  {}, signal),
-      postIHQuery(clientId, dashboardKey, 'building-options',    {}, signal),
-      postIHQuery(clientId, dashboardKey, 'refresh-time',        {}, signal),
-    ]).then(([atResult, foResult, doResult, boResult, rtResult]) => {
-      if (signal.aborted) return
-      if (atResult.status === 'fulfilled') {
-        setAssetTypeOptions(
-          atResult.value
-            .map((r) => String(r['[value]'] ?? ''))
-            .filter(Boolean)
-            .sort()
-        )
-      } else {
-        console.error('[InsightHub] asset-type-options failed:', atResult.reason)
-      }
-      if (foResult.status === 'fulfilled') {
-        setFloorOptions(
-          foResult.value
-            .map((r) => String(r['[value]'] ?? ''))
-            .filter(Boolean)
-            .sort()
-        )
-      } else {
-        console.error('[InsightHub] floor-options failed:', foResult.reason)
-      }
-      if (doResult.status === 'fulfilled') {
-        setDepartmentOptions(
-          doResult.value
-            .map((r) => String(r['[value]'] ?? ''))
-            .filter(Boolean)
-            .sort()
-        )
-      } else {
-        console.error('[InsightHub] department-options failed:', doResult.reason)
-      }
-      if (boResult.status === 'fulfilled') {
-        setBuildingOptions(
-          boResult.value
-            .map((r) => String(r['[value]'] ?? ''))
-            .filter(Boolean)
-            .sort()
-        )
-      } else {
-        console.error('[InsightHub] building-options failed:', boResult.reason)
-      }
-      if (rtResult.status === 'fulfilled' && rtResult.value.length > 0) {
-        setRefreshTime(String(rtResult.value[0]['[RefreshTime]'] ?? ''))
-      }
-      setOptionsLoading(false)
-    })
-
+    postIHQuery(clientId, dashboardKey, 'refresh-time', {}, signal)
+      .then((rows) => {
+        if (signal.aborted || rows.length === 0) return
+        setRefreshTime(String(rows[0]['[RefreshTime]'] ?? ''))
+      })
+      .catch(() => {})
     return () => controller.abort()
   }, [clientId, dashboardKey])
+
+  // Filter dropdown options — cascading, like Power BI: each dropdown is
+  // scoped by every OTHER currently-active filter (the server excludes the
+  // dropdown's own filter key so picking a floor narrows the asset-type list,
+  // picking an asset type narrows the floor list, etc., instead of every
+  // dropdown always showing the full unfiltered list regardless of what else
+  // is selected). Debounced on re-fetches (filter changes), but NOT on the very
+  // first fetch on mount — debouncing the initial load just adds pure delay
+  // before the pre-selected default becomes a valid option, with nothing to
+  // coalesce yet.
+  const optionsDebounceRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const didInitialOptionsFetch   = useRef(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    const { signal } = controller
+    if (optionsDebounceRef.current) clearTimeout(optionsDebounceRef.current)
+
+    const run = () => {
+      Promise.allSettled([
+        postIHQuery(clientId, dashboardKey, 'asset-type-options', filters, signal),
+        postIHQuery(clientId, dashboardKey, 'floor-options',      filters, signal),
+        postIHQuery(clientId, dashboardKey, 'department-options', filters, signal),
+        postIHQuery(clientId, dashboardKey, 'building-options',   filters, signal),
+      ]).then(([atResult, foResult, doResult, boResult]) => {
+        if (signal.aborted) return
+
+        let newAssetTypeOptions:  string[] | null = null
+        let newFloorOptions:      string[] | null = null
+        let newDepartmentOptions: string[] | null = null
+        let newBuildingOptions:   string[] | null = null
+
+        if (atResult.status === 'fulfilled') {
+          newAssetTypeOptions = atResult.value.map((r) => String(r['[value]'] ?? '')).filter(Boolean).sort()
+          setAssetTypeOptions(newAssetTypeOptions)
+        } else {
+          console.error('[InsightHub] asset-type-options failed:', atResult.reason)
+        }
+        if (foResult.status === 'fulfilled') {
+          newFloorOptions = foResult.value.map((r) => String(r['[value]'] ?? '')).filter(Boolean).sort()
+          setFloorOptions(newFloorOptions)
+        } else {
+          console.error('[InsightHub] floor-options failed:', foResult.reason)
+        }
+        if (doResult.status === 'fulfilled') {
+          newDepartmentOptions = doResult.value.map((r) => String(r['[value]'] ?? '')).filter(Boolean).sort()
+          setDepartmentOptions(newDepartmentOptions)
+        } else {
+          console.error('[InsightHub] department-options failed:', doResult.reason)
+        }
+        if (boResult.status === 'fulfilled') {
+          newBuildingOptions = boResult.value.map((r) => String(r['[value]'] ?? '')).filter(Boolean).sort()
+          setBuildingOptions(newBuildingOptions)
+        } else {
+          console.error('[InsightHub] building-options failed:', boResult.reason)
+        }
+
+        // Auto-clear: if a cascading update makes the currently-selected value(s)
+        // for a filter no longer valid, drop just those values instead of leaving
+        // an impossible selection in place (which is what triggers MUI's
+        // out-of-range warning for a real reason, not just a timing gap).
+        const pruneInvalid = (current: string | undefined, validOptions: string[] | null): string | undefined => {
+          if (!current || !validOptions) return current
+          const kept = current.split(',').map((v) => v.trim()).filter((v) => v && validOptions.includes(v))
+          return kept.length > 0 ? kept.join(',') : undefined
+        }
+        setFilters((prev) => {
+          const assetType  = pruneInvalid(prev.assetType,  newAssetTypeOptions)
+          const floor      = pruneInvalid(prev.floor,      newFloorOptions)
+          const department = pruneInvalid(prev.department, newDepartmentOptions)
+          const building    = pruneInvalid(prev.building,   newBuildingOptions)
+          // Bail out with the SAME object reference when nothing was actually
+          // pruned — this effect depends on `filters`, so returning a new object
+          // unconditionally here would retrigger it every time and loop forever.
+          if (
+            assetType === prev.assetType && floor === prev.floor &&
+            department === prev.department && building === prev.building
+          ) {
+            return prev
+          }
+          return { ...prev, assetType, floor, department, building }
+        })
+
+        setOptionsLoading(false)
+      })
+    }
+
+    if (!didInitialOptionsFetch.current) {
+      didInitialOptionsFetch.current = true
+      run()
+    } else {
+      optionsDebounceRef.current = setTimeout(run, 300)
+    }
+
+    return () => {
+      controller.abort()
+      if (optionsDebounceRef.current) clearTimeout(optionsDebounceRef.current)
+    }
+  }, [clientId, dashboardKey, filters])
 
   const fetchReport = useCallback(
     (report: InsightHubReport, currentFilters: InsightHubFilters) => {
@@ -475,21 +549,21 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
         }
 
         try {
-          if (report === 'utilisation') {
+          if (report === 'utilization') {
             const { assetType: _assetType, ...filtersWithoutType } = currentFilters
             void _assetType
-            const [utilisationResult, peakResult, atResult, weeklyResult, catResult, hourlyResult, dailyPeakResult] = await Promise.allSettled([
-              postIHQuery(clientId, dashboardKey, 'utilisation',               currentFilters,     signal),
-              postIHQuery(clientId, dashboardKey, 'peak-utilisation',          currentFilters,     signal),
-              postIHQuery(clientId, dashboardKey, 'asset-type-utilisation',    filtersWithoutType, signal),
+            const [utilizationResult, peakResult, atResult, weeklyResult, catResult, hourlyResult, dailyPeakResult] = await Promise.allSettled([
+              postIHQuery(clientId, dashboardKey, 'utilization',               currentFilters,     signal),
+              postIHQuery(clientId, dashboardKey, 'peak-utilization',          currentFilters,     signal),
+              postIHQuery(clientId, dashboardKey, 'asset-type-utilization',    filtersWithoutType, signal),
               postIHQuery(clientId, dashboardKey, 'weekly-trend',              currentFilters,     signal),
               postIHQuery(clientId, dashboardKey, 'location-category-summary', currentFilters,     signal),
-              postIHQuery(clientId, dashboardKey, 'hourly-utilisation',        currentFilters,     signal),
+              postIHQuery(clientId, dashboardKey, 'hourly-utilization',        currentFilters,     signal),
               postIHQuery(clientId, dashboardKey, 'daily-peak',                currentFilters,     signal),
             ])
             if (signal.aborted) return
-            if (utilisationResult.status === 'fulfilled')
-              setUtilisation(parseUtilisation(utilisationResult.value))
+            if (utilizationResult.status === 'fulfilled')
+              setUtilization(parseUtilization(utilizationResult.value))
             if (peakResult.status === 'fulfilled' && peakResult.value.length > 0) {
               const r     = peakResult.value[0]
               const count = Number(r['[PeakCount]'] ?? 0)
@@ -508,7 +582,7 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
               setPeakData(null)
             }
             if (atResult.status === 'fulfilled')
-              setAssetTypeUtilisation(parseAssetTypeRows(atResult.value))
+              setAssetTypeUtilization(parseAssetTypeRows(atResult.value))
             if (weeklyResult.status === 'fulfilled')
               setWeeklyTrend(parseWeeklyRows(weeklyResult.value))
             if (catResult.status === 'fulfilled')
@@ -517,8 +591,8 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
               setHourlyRows(parseHourlyRows(hourlyResult.value))
             if (dailyPeakResult.status === 'fulfilled')
               setDailyPeakRows(parseDailyPeakRows(dailyPeakResult.value))
-            if (utilisationResult.status === 'rejected')
-              throw utilisationResult.reason
+            if (utilizationResult.status === 'rejected')
+              throw utilizationResult.reason
           } else {
             if (report === 'floor-distribution') {
               const [readinessResult, byTypeResult] = await Promise.allSettled([
@@ -704,10 +778,10 @@ export function useInsightHubData(clientId: string, dashboardKey: string) {
     refresh,
     dayOffset,
     setDayOffset,
-    utilisation,
+    utilization,
     peakData,
     dailyPeakRows,
-    assetTypeUtilisation,
+    assetTypeUtilization,
     hourlyRows,
     weeklyTrend,
     locationCategories,
