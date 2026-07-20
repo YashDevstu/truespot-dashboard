@@ -105,15 +105,11 @@ function DepartmentBlocks({
               border:       '1px solid rgba(13,148,136,0.25)',
             }}
           >
-            <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.primary', mb: 0.25, lineHeight: 1.25 }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary', lineHeight: 1.25 }}>
               {dept.name}
             </Typography>
-            <Typography sx={{ fontSize: 20, fontWeight: 900, color: TEAL, lineHeight: 1 }}>
-              {dept.count}
-              <Box component="span" sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', ml: 0.5 }}>
-                {dept.count === 1 ? 'asset' : 'assets'}
-              </Box>
-            </Typography>
+            {/* Asset count hidden for now — re-enable dept.count display once
+                the client confirms it's ready to show. */}
           </Box>
         ))}
       </Box>
