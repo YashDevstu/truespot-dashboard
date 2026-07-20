@@ -1218,7 +1218,7 @@ export default function EnoughOnEveryFloor({ rows, byTypeRows, assetType, loadin
           : <>{<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{shortDesc}</Box>}{' '}regularly {shortNames.length === 1 ? "doesn't" : "don't"} have enough {assetLabel.toLowerCase()} when the morning rush hits.</>
 
         const card2Desc = worstFloor
-          ? <>Weekday mornings, 8–10 am — the medication pass window. <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstFloor.floor}</Box>{' '}meets par only{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstPct}%</Box>{' '}of the time.</>
+          ? <>Weekday mornings, 8–10 am — the medication pass window. <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstFloor.floor}</Box>{' '}averages only{' '}<Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{worstPct}%</Box>{' '}of its required par.</>
           : 'Every floor met par throughout the last 7 days.'
 
         const card3Desc = surplusFloor && surplus > 0

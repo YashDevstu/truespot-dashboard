@@ -804,8 +804,10 @@ function WhatCanYouDoAboutIt({
   const label      = assetLabel.toLowerCase()
   const offRadar   = data.hardToFind
   const peakCount  = peakData?.count ?? data.withPatient
-  const buffer     = spareBuffer ?? Math.round(peakCount * 1.2)
-  const retire     = Math.max(0, data.total - buffer)
+  // spare_buffer (config) is spare units to keep ABOVE peak demand — the safe
+  // fleet size to retain is peakCount + buffer, not buffer alone.
+  const buffer     = spareBuffer ?? Math.round(peakCount * 0.2)
+  const retire     = Math.max(0, data.total - peakCount - buffer)
   const freeValue  = retire > 0 && unitValue ? retire * unitValue : 0
   const monthlySave = offRadar > 0 && unitValue ? Math.round(offRadar * unitValue * 0.025) : 0
 
@@ -822,18 +824,18 @@ function WhatCanYouDoAboutIt({
         {/* Card 1 — THIS WEEK */}
         <ActionCard
           timeframe="This week"
-          title={offRadar > 0 ? `Recover ${offRadar} off-radar ${label}s` : `Locate your off-radar ${label}s`}
+          title={offRadar > 0 ? `Recover ${offRadar} off-radar ${label}` : `Locate your off-radar ${label}`}
           description={
             offRadar > 0 ? (
               <>
-                {offRadar} {label}s haven&apos;t been reliably tracked in {days}+ days.{' '}
+                {offRadar} {label} haven&apos;t been reliably tracked in {days}+ days.{' '}
                 <Box component="span" sx={{ color: TEAL, fontWeight: 500 }}>
                   Find them before assuming you need more — they may be in a storeroom, closet, or a sister unit.
                 </Box>
               </>
             ) : (
               <>
-                All {label}s are being tracked reliably.{' '}
+                All {label} are being tracked reliably.{' '}
                 <Box component="span" sx={{ color: TEAL, fontWeight: 500 }}>
                   Keep that up — every gap in coverage means a {label.slice(0, -1)} that could quietly go missing.
                 </Box>
@@ -851,9 +853,9 @@ function WhatCanYouDoAboutIt({
           title={`Rebalance floors before buying`}
           description={
             <>
-              Some floors hold more idle {label}s than they use, while others run short every morning.{' '}
+              Some floors hold more idle {label} than they use, while others run short every morning.{' '}
               <Box component="span" sx={{ color: TEAL, fontWeight: 500 }}>
-                Move {label}s between floors before anyone orders new ones.
+                Move {label} between floors before anyone orders new ones.
               </Box>
             </>
           }
@@ -869,14 +871,14 @@ function WhatCanYouDoAboutIt({
           description={
             retire > 0 ? (
               <>
-                The busiest moment in {days} days needed {peakCount} {label}s. With a spare cushion, {buffer} covers you.{' '}
+                The busiest moment in {days} days needed {peakCount} {label}. Keeping {peakCount + buffer} — peak plus a {buffer}-unit spare cushion — covers you.{' '}
                 <Box component="span" sx={{ color: '#f97316', fontWeight: 500 }}>
                   The other {retire} can retire as they age out — not be replaced.
                 </Box>
               </>
             ) : (
               <>
-                Peak demand over {days} days reached {peakCount} {label}s — close to your total fleet of {data.total}.{' '}
+                Peak demand over {days} days reached {peakCount} {label} — close to your total fleet of {data.total}.{' '}
                 <Box component="span" sx={{ color: '#f97316', fontWeight: 500 }}>
                   Hold off on new purchases until you&apos;ve recovered the off-radar ones first.
                 </Box>
@@ -1664,7 +1666,7 @@ export default function HowMuchGetsUsed({
           <Typography sx={{ fontSize: 14.5, color: '#1e293b', lineHeight: 1.65, flex: '1 1 280px' }}>
             Know what to move?{' '}
             <Box component="span" sx={{ fontWeight: 700, color: TEAL }}>MedSpot 360</Box>
-            {' '}shows you exactly where every idle and rented {assetLabel.toLowerCase()} is sitting right now —{' '}
+            {' '}shows you exactly where every idle and rented {assetLabel.toLowerCase().replace(/s$/, '')} is sitting right now —{' '}
             <Box component="span" sx={{ fontWeight: 700, color: '#0f172a' }}>round them up in minutes, not shifts.</Box>
           </Typography>
 
@@ -1736,7 +1738,7 @@ export default function HowMuchGetsUsed({
             </Box>
             <Typography sx={{ fontSize: 13, color: '#64748b', lineHeight: 1.75 }}>
               This data comes directly from{' '}
-              <Box component="span" sx={{ fontWeight: 700, color: TEAL }}>{data.total.toLocaleString()} tagged {assetLabel.toLowerCase()}s</Box>
+              <Box component="span" sx={{ fontWeight: 700, color: TEAL }}>{data.total.toLocaleString()} tagged {assetLabel.toLowerCase().endsWith('s') ? assetLabel.toLowerCase() : `${assetLabel.toLowerCase()}s`}</Box>
               {' '}tracked in real time by TrueSpot. Utilization figures reflect session time in each zone type over the selected period. Dollar figures use the unit value you configured — they are directional, not accounting.{' '}
               <Box component="span" sx={{ fontWeight: 700, color: TEAL }}>Your live data replaces every one of these with your own measured numbers.</Box>
             </Typography>

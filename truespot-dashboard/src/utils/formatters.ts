@@ -82,12 +82,25 @@ export function parseFacilityLocalParts(iso: string): FacilityDateParts {
 // instant it represents (DST-aware) — needed only when diffing against
 // Date.now() for "time ago" style displays. Not needed for plain display of
 // the date/time itself — use parseFacilityLocalParts for that.
+const FACILITY_OFFSET_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone:  FACILITY_TIME_ZONE,
+  hourCycle: 'h23',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+})
+
 export function facilityLocalToUtcInstant(iso: string): Date {
   const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):?(\d{2})?/)
   if (!m) return new Date(NaN)
   const [, y, mo, d, h, mi, s] = m
-  const guess      = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), s ? Number(s) : 0))
-  const asFacility = new Date(guess.toLocaleString('en-US', { timeZone: FACILITY_TIME_ZONE }))
-  const offset     = guess.getTime() - asFacility.getTime()
-  return new Date(guess.getTime() + offset)
+  const guess = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), s ? Number(s) : 0)
+  // Find the facility's UTC offset at this instant (DST-aware) by reading its
+  // wall-clock components via Intl — NOT `new Date(localeString)`, which parses
+  // in the RUNTIME's own local timezone and silently corrupts the result on
+  // any machine/browser not itself set to UTC.
+  const parts = FACILITY_OFFSET_FMT.formatToParts(new Date(guess))
+  const get   = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const asFacilityUTCMillis = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+  const offset = guess - asFacilityUTCMillis
+  return new Date(guess + offset)
 }

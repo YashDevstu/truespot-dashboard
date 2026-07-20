@@ -109,7 +109,12 @@ export const REPORT_LABELS: Record<InsightHubReport, string> = {
 export function formatRefreshAgo(raw: string): string {
   if (!raw) return ''
   try {
-    const d = new Date(raw)
+    // The Fabric refresh timestamp has no timezone designator but is UTC —
+    // without a trailing "Z", the browser's Date constructor parses it in
+    // the VIEWER's local timezone instead, so "ago" would depend on where
+    // the person viewing the dashboard happens to be.
+    const isoUtc = /[zZ]|[+-]\d\d:\d\d$/.test(raw) ? raw : `${raw}Z`
+    const d = new Date(isoUtc)
     if (isNaN(d.getTime())) return ''
     const diffMin = Math.floor((Date.now() - d.getTime()) / 60000)
     if (diffMin < 1)  return 'just now'

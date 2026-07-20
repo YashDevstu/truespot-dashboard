@@ -786,7 +786,7 @@ export default function CheckItYourself({ rows, clientId, dashboardKey, product,
         <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
           <Legend />
           <Typography sx={{ fontSize: 11, color: 'text.disabled', maxWidth: 340, textAlign: 'right' }}>
-            Deeper colour = further from par. Tiles are floors, not shares — they don&apos;t add up to anything.
+            Deeper color = further from par. Tiles are floors, not shares — they don&apos;t add up to anything.
           </Typography>
         </Box>
       </Box>
