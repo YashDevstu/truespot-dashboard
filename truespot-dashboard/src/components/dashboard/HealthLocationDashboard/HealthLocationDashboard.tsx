@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import NextLink from 'next/link'
 import Box from '@mui/material/Box'
@@ -58,6 +59,17 @@ export default function HealthLocationDashboard({
     refreshing,
     error,
   } = useHealthLocationData(clientId, dashboardKey)
+
+  // Deep-link support: a row clicked elsewhere in the app (e.g. Exit Location
+  // Portal) can link here with ?vin=... to jump straight to that asset's trail.
+  const searchParams = useSearchParams()
+  const didApplyDeepLink = useRef(false)
+  useEffect(() => {
+    if (didApplyDeepLink.current) return
+    didApplyDeepLink.current = true
+    const vin = searchParams.get('vin')
+    if (vin) updateFilter('vin', vin)
+  }, [searchParams, updateFilter])
 
   const sidebarWidth = sidebarOpen ? 236 : 48
 

@@ -10,6 +10,7 @@ import LocationHistoryDashboard from '@/components/dashboard/LocationHistoryDash
 import MissingAssetsDashboard from '@/components/dashboard/MissingAssetsDashboard/MissingAssetsDashboard'
 import HealthLocationDashboard from '@/components/dashboard/HealthLocationDashboard/HealthLocationDashboard'
 import InsightHubDashboard from '@/components/dashboard/InsightHubDashboard/InsightHubDashboard'
+import ExitLocationDashboard from '@/components/dashboard/ExitLocationDashboard/ExitLocationDashboard'
 
 interface PageProps {
   params: Promise<{ product: string; dashboardKey: string; clientId: string }>
@@ -127,6 +128,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
           unitValue={dashboard.unit_value}
           configuredTypes={configuredTypes}
         />
+      </Suspense>
+    )
+  }
+
+  if (dashboard.dashboard_type === 'health_exit_location') {
+    return (
+      <Suspense fallback={fallback}>
+        <ExitLocationDashboard {...sharedProps} />
       </Suspense>
     )
   }

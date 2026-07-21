@@ -43,11 +43,13 @@ function DepartmentBlocks({
   dashboardKey,
   assetType,
   category,
+  meta,
 }: {
   clientId:     string
   dashboardKey: string
   assetType:    string | undefined
   category:     string | undefined
+  meta:         CatMeta
 }) {
   const [depts, setDepts]     = useState<{ name: string; count: number }[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,31 +89,51 @@ function DepartmentBlocks({
 
   if (loading || depts.length === 0) return null
 
+  const total  = depts.reduce((s, d) => s + d.count, 0)
+  const sorted = [...depts].sort((a, b) => b.count - a.count)
+
   return (
     <Box sx={{ mb: 2.5 }}>
       <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'text.disabled', textTransform: 'uppercase', mb: 1 }}>
         Departments at this location
       </Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-        {depts.map((dept) => (
-          <Box
-            key={dept.name}
-            sx={{
-              minWidth:     88,
-              px:           1.5,
-              py:           1,
-              borderRadius: 2,
-              bgcolor:      '#f0fdfb',
-              border:       '1px solid rgba(13,148,136,0.25)',
-            }}
-          >
-            <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary', lineHeight: 1.25 }}>
-              {dept.name}
-            </Typography>
-            {/* Asset count hidden for now — re-enable dept.count display once
-                the client confirms it's ready to show. */}
-          </Box>
-        ))}
+        {sorted.map((dept) => {
+          const pct = total > 0 ? Math.round((dept.count / total) * 100) : 0
+          const fg  = meta.fg
+          return (
+            <Box
+              key={dept.name}
+              sx={{
+                minWidth:      120,
+                flex:          '0 1 140px',
+                px:            1.75,
+                py:            1.5,
+                borderRadius:  2.5,
+                bgcolor:       meta.bg,
+                border:        meta.bg === '#f1f5f9' || meta.bg === '#f8fafc' ? '1px solid #e2e8f0' : 'none',
+                display:       'flex',
+                flexDirection: 'column',
+                gap:           0.5,
+              }}
+            >
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: fg, lineHeight: 1.3 }}>
+                {dept.name}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: '2px', lineHeight: 1 }}>
+                <Typography component="span" sx={{ fontSize: 26, fontWeight: 900, color: fg, lineHeight: 1 }}>
+                  {pct}
+                </Typography>
+                <Typography component="span" sx={{ fontSize: 14, fontWeight: 900, color: fg, lineHeight: 1, mb: '2px', opacity: 0.85 }}>
+                  %
+                </Typography>
+              </Box>
+              <Typography sx={{ fontSize: 11, color: fg, opacity: 0.7 }}>
+                ≈{dept.count.toLocaleString()} {dept.count === 1 ? 'asset' : 'assets'}
+              </Typography>
+            </Box>
+          )
+        })}
       </Box>
     </Box>
   )
@@ -1341,7 +1363,7 @@ export default function WhereDoTheySpend({
             </Box>
           </Box>
 
-          <DepartmentBlocks clientId={clientId} dashboardKey={dashboardKey} assetType={assetType} category={selectedCategory ?? undefined} />
+          <DepartmentBlocks clientId={clientId} dashboardKey={dashboardKey} assetType={assetType} category={selectedCategory ?? undefined} meta={meta} />
 
           {/* Bottom actions */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>

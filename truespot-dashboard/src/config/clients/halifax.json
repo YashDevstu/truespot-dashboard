@@ -4,6 +4,15 @@
   "display_name": "Halifax",
   "locations": [],
   "dashboards": {
+    "exitlocation": {
+      "label": "Exit Location Portal",
+      "dashboard_type": "health_exit_location",
+      "workspace_name": "Health - Exit Location Portal",
+      "dataset_name": "Halifax",
+      "icon": "logout",
+      "description": "Assets currently detected at exit points across your facility.",
+      "category": "Asset Tracking"
+    },
     "locationhistory": {
       "label": "Location History",
       "dashboard_type": "health_location_history",
