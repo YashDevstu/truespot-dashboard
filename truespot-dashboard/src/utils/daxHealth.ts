@@ -12,9 +12,15 @@ function buildInCondition(column: string, values: string[]): string {
   return `${column} IN {${values.map((v) => `"${sanitize(v)}"`).join(', ')}}`
 }
 
+// Values are joined with a bare "," by the filter sidebar from exact distinct-value
+// selections (never free-typed), so no whitespace-trimming is needed on the split —
+// trimming here used to silently corrupt real data values that carry meaningful
+// leading/trailing whitespace (e.g. a Post-Aggregate[Name] of " Sigma Spectrum IV
+// 3003690" with a leading space), making the filter compare against a value that
+// no row actually has and always return zero rows.
 export function parseHealthMultiValue(value: string | undefined): string[] {
   if (!value) return []
-  return value.split(',').map((s) => s.trim()).filter(Boolean)
+  return value.split(',').filter(Boolean)
 }
 
 // ── Filter types ───────────────────────────────────────────────────────────────
@@ -120,12 +126,19 @@ ROW(
 export function buildTimeSinceChartQuery(filters: ActiveHealthFilters): string {
   const source = buildSourceTable(buildHealthFilterConditions(filters, 'hourGroup'))
 
+  // Counts RefreshDate, not VIN — VIN can be blank for some rows (Halifax has
+  // 525 blank-VIN rows total, 152 in "Less than 2hr" alone), and COUNTX skips
+  // blank evaluations, silently undercounting. RefreshDate is confirmed never
+  // blank for any row in the table (unlike the group-by column itself, which
+  // can be blank for its own "unknown" bucket — e.g. 7 rows with blank
+  // Geofence, 525 with blank Name — so counting the group key isn't safe
+  // either), so it's a reliable universal row-counter.
   return `EVALUATE
 GROUPBY(
   ${source},
   'Post-Aggregate'[HourGrp],
   'Post-Aggregate'[HourGrpSort],
-  "Count", COUNTX(CURRENTGROUP(), 'Post-Aggregate'[VIN])
+  "Count", COUNTX(CURRENTGROUP(), 'Post-Aggregate'[RefreshDate])
 )
 ORDER BY 'Post-Aggregate'[HourGrpSort] ASC`
 }
@@ -139,13 +152,14 @@ export function buildTopLocationsChartQuery(
 ): string {
   const source = buildSourceTable(buildHealthFilterConditions(filters, 'geofence'))
 
+  // Counts RefreshDate, not Geofence/VIN — see buildTimeSinceChartQuery for why.
   return `EVALUATE
 TOPN(
   ${topN},
   GROUPBY(
     ${source},
     'Post-Aggregate'[Geofence],
-    "Count", COUNTX(CURRENTGROUP(), 'Post-Aggregate'[VIN])
+    "Count", COUNTX(CURRENTGROUP(), 'Post-Aggregate'[RefreshDate])
   ),
   [Count], 0
 )
@@ -157,17 +171,21 @@ ORDER BY [Count] DESC`
 // Response columns: Post-Aggregate[Name], [Count]
 export function buildAssetCountChartQuery(
   filters: ActiveHealthFilters,
-  topN = 12
+  topN = 500
 ): string {
   const source = buildSourceTable(buildHealthFilterConditions(filters, 'assetName'))
 
+  // Counts RefreshDate, not Name/VIN — see buildTimeSinceChartQuery for why.
+  // Halifax has 525 blank-Name rows; Power BI surfaces these as a "(Blank)"
+  // bucket rather than dropping them, so this needs to appear too, not
+  // silently vanish from the chart.
   return `EVALUATE
 TOPN(
   ${topN},
   GROUPBY(
     ${source},
     'Post-Aggregate'[Name],
-    "Count", COUNTX(CURRENTGROUP(), 'Post-Aggregate'[VIN])
+    "Count", COUNTX(CURRENTGROUP(), 'Post-Aggregate'[RefreshDate])
   ),
   [Count], 0
 )

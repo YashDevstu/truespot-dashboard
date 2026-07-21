@@ -31,9 +31,12 @@ function buildInCondition(column: string, values: string[]): string {
   return `${column} IN {${values.map((v) => `"${sanitize(v)}"`).join(', ')}}`
 }
 
+// No trim on the split — see parseHealthMultiValue in daxHealth.ts for why:
+// values come from exact distinct-value selections joined with a bare ",", and
+// trimming can silently corrupt a real value that has meaningful whitespace.
 export function parseHLMultiValue(val: string | undefined): string[] {
   if (!val) return []
-  return val.split(',').map((s) => s.trim()).filter(Boolean)
+  return val.split(',').filter(Boolean)
 }
 
 // ── Filter types ───────────────────────────────────────────────────────────────

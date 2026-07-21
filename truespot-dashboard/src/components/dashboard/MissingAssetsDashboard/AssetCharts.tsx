@@ -93,6 +93,10 @@ function HorizontalBarChart({
   const hasSelection  = selectedSet.size > 0
   const isClickable   = !!onBarClick
   const chartHeight   = Math.max(80, data.length * (barThickness + 16) + 24)
+  // Cap visible height and let the panel scroll instead of hiding rows off the bottom
+  // or hardcoding a max item count (a fixed slice(0, N) silently hid real data before).
+  const MAX_VISIBLE_HEIGHT = 360
+  const isScrollable = chartHeight > MAX_VISIBLE_HEIGHT
 
   const bgColors = data.map((d) => {
     const hex        = colorMap?.[d.label] ?? BAR_HEX
@@ -218,12 +222,25 @@ function HorizontalBarChart({
           <Typography variant="body2" color="text.disabled">No data</Typography>
         </Box>
       ) : (
-        <Box sx={{ height: chartHeight }}>
-          <Bar
-            data={chartData}
-            options={options}
-            plugins={[endLabelsPlugin]}
-          />
+        <Box
+          sx={
+            isScrollable
+              ? {
+                  maxHeight: MAX_VISIBLE_HEIGHT,
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
+                  pr: 0.5,
+                }
+              : undefined
+          }
+        >
+          <Box sx={{ height: chartHeight }}>
+            <Bar
+              data={chartData}
+              options={options}
+              plugins={[endLabelsPlugin]}
+            />
+          </Box>
         </Box>
       )}
     </Paper>
@@ -277,7 +294,7 @@ export default function AssetCharts({
       />
       <HorizontalBarChart
         title="Top Locations"
-        data={topLocationsData.slice(0, 12)}
+        data={topLocationsData}
         loading={loading}
         barThickness={20}
         activeValue={activeGeofence}

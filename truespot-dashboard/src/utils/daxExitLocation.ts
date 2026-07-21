@@ -30,13 +30,13 @@ function buildConditions(filters: ExitLocationFilters): string[] {
   const conditions = [`${T}[IsExit] = 1`, `${T}[MaxExit] = 1`]
 
   if (filters.assetType) {
-    const vals = filters.assetType.split(',').map((s) => s.trim()).filter(Boolean)
+    const vals = filters.assetType.split(',').filter(Boolean)
     if (vals.length === 1) conditions.push(`${T}[AssetType] = "${sanitize(vals[0])}"`)
     else if (vals.length > 1) conditions.push(`${T}[AssetType] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
   }
 
   if (filters.geofence) {
-    const vals = filters.geofence.split(',').map((s) => s.trim()).filter(Boolean)
+    const vals = filters.geofence.split(',').filter(Boolean)
     if (vals.length === 1) conditions.push(`${T}[Geofence] = "${sanitize(vals[0])}"`)
     else if (vals.length > 1) conditions.push(`${T}[Geofence] IN {${vals.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
   }

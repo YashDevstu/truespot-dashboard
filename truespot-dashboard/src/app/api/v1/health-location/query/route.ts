@@ -6,6 +6,8 @@ import { getClientConfig } from '@/services/config/clientConfigService'
 import { executeQuery } from '@/services/powerbi/queryService'
 import { resolveWorkspaceId } from '@/services/powerbi/workspaceService'
 import { CACHE_TTL_KPIS, CACHE_TTL_CHARTS, CACHE_TTL_LOCATION_HISTORY } from '@/constants/cache'
+import { CLIENT_FACILITY_TIME_ZONE, DEFAULT_FACILITY_TIME_ZONE } from '@/constants/timezones'
+import { getUtcOffsetHours } from '@/utils/formatters'
 import {
   buildHLKpiQuery,
   buildHLGeofenceSummaryQuery,
@@ -18,15 +20,19 @@ import {
   type ActiveHealthLocationFilters,
 } from '@/utils/daxHealthLocation'
 
-// BSA Location History refresh time is stored in UTC-5 (CDT) with no timezone indicator.
-// Attach explicit offset so browsers compute "X ago" correctly regardless of viewer timezone.
-function attachUTCOffset(raw: string, offsetHours: number): string {
+// Location History's refresh time is stored per-facility as a bare local-time string
+// with no timezone indicator. Attach the correct, DST-aware offset for that facility's
+// own timezone so browsers compute "X ago" correctly regardless of viewer timezone —
+// a single hardcoded offset (BSA's Central Time) mislabeled and mistimed Halifax's
+// Eastern-time refresh, which also shifts relative to Central across DST transitions.
+function attachUTCOffset(raw: string, timeZone: string): string {
   const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)$/i)
   if (!match) return raw
   const [, month, day, year, hourStr, min, sec, ampm] = match
   let h = parseInt(hourStr, 10)
   if (ampm.toUpperCase() === 'PM' && h !== 12) h += 12
   if (ampm.toUpperCase() === 'AM' && h === 12) h = 0
+  const offsetHours = getUtcOffsetHours(timeZone, Number(year), Number(month), Number(day), h, Number(min), Number(sec))
   const sign = offsetHours >= 0 ? '+' : '-'
   const abs = Math.abs(offsetHours)
   const offset = `${sign}${String(abs).padStart(2, '0')}:00`
@@ -136,7 +142,8 @@ export async function POST(request: NextRequest) {
 
     if (queryType === 'refresh-time' && rows.length > 0) {
       const raw = String((rows[0] as Record<string, unknown>)['[RefreshTime]'] ?? '')
-      if (raw) rows = [{ '[RefreshTime]': attachUTCOffset(raw, -5) }]
+      const tz  = CLIENT_FACILITY_TIME_ZONE[clientId] ?? DEFAULT_FACILITY_TIME_ZONE
+      if (raw) rows = [{ '[RefreshTime]': attachUTCOffset(raw, tz) }]
     }
 
     return Response.json({ rows })

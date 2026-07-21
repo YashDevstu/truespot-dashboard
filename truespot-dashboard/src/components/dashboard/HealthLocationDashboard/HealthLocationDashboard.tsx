@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography'
 import Breadcrumbs from '@mui/material/Breadcrumbs'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { useHealthLocationData } from '@/hooks/useHealthLocationData'
+import { CLIENT_FACILITY_TIME_ZONE, DEFAULT_FACILITY_TIME_ZONE } from '@/constants/timezones'
 import DashboardHeader from '@/components/dashboard/DashboardHeader/DashboardHeader'
 import DateQuickFilter from '@/components/dashboard/DateQuickFilter'
 import HealthLocationFilterSidebar from './HealthLocationFilterSidebar'
@@ -243,7 +244,7 @@ export default function HealthLocationDashboard({
           clientName={displayName}
           dashboardLabel={dashboardLabel}
           lastRefresh={refreshTime || undefined}
-          displayTimezone="America/Chicago"
+          displayTimezone={CLIENT_FACILITY_TIME_ZONE[clientId] ?? DEFAULT_FACILITY_TIME_ZONE}
           onRefresh={refresh}
           exportDisabled={totalRows === 0}
           onExportExcel={async () => {

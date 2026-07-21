@@ -71,16 +71,19 @@ function parseTimeSinceRow(row: Record<string, unknown>): ChartDataPoint {
   }
 }
 
+// Blank Geofence/Name rows are real data (Halifax has 7 blank-Geofence and
+// 525 blank-Name rows) — labeled "(Blank)" to match how Power BI surfaces
+// them, rather than silently dropping them from the chart.
 function parseLocationsRow(row: Record<string, unknown>): ChartDataPoint {
   return {
-    label: String(row['Post-Aggregate[Geofence]'] ?? ''),
+    label: String(row['Post-Aggregate[Geofence]'] ?? '(Blank)'),
     count: Number(row['[Count]']                  ?? 0),
   }
 }
 
 function parseAssetCountRow(row: Record<string, unknown>): ChartDataPoint {
   return {
-    label: String(row['Post-Aggregate[Name]'] ?? ''),
+    label: String(row['Post-Aggregate[Name]'] ?? '(Blank)'),
     count: Number(row['[Count]']              ?? 0),
   }
 }
@@ -184,16 +187,13 @@ export function useMissingAssetsData(clientId: string, dashboardKey: string) {
         setError(null)
 
         try {
-          // Table never filters by assetId — row selection is visual-only so other rows stay visible
-          const tableFilters = { ...currentFilters, assetId: undefined }
-
           const results = await Promise.allSettled([
             postHealthQuery(clientId, dashboardKey, 'kpis',               currentFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'time-chart',         currentFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'locations-chart',    currentFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'asset-count-chart',  currentFilters, signal),
-            postHealthQuery(clientId, dashboardKey, 'assets-table',       tableFilters,   signal),
-            fetchHealthFilterOptions(clientId, dashboardKey, 'assets-table', tableFilters, signal),
+            postHealthQuery(clientId, dashboardKey, 'assets-table',       currentFilters, signal),
+            fetchHealthFilterOptions(clientId, dashboardKey, 'assets-table', currentFilters, signal),
             postHealthQuery(clientId, dashboardKey, 'refresh-time',       currentFilters, signal),
           ])
 
@@ -209,10 +209,10 @@ export function useMissingAssetsData(clientId: string, dashboardKey: string) {
             setTimeSinceData(timeResult.value.map(parseTimeSinceRow))
 
           if (locResult.status === 'fulfilled')
-            setTopLocationsData(locResult.value.map(parseLocationsRow).filter((d) => d.label))
+            setTopLocationsData(locResult.value.map(parseLocationsRow))
 
           if (assetResult.status === 'fulfilled')
-            setAssetCountData(assetResult.value.map(parseAssetCountRow).filter((d) => d.label))
+            setAssetCountData(assetResult.value.map(parseAssetCountRow))
 
           if (tableResult.status === 'fulfilled')
             setTableRows(tableResult.value.map(parseTableRow))

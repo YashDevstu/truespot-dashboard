@@ -16,11 +16,14 @@ const BASE_CONDITIONS = [
   'AppendFinal[Make] <> "zz_manualentry"',
 ]
 
-// Parse a comma-separated filter value (e.g. "VIN1,VIN2") into a trimmed array.
+// Parse a comma-separated filter value (e.g. "VIN1,VIN2") into an array.
 // Single values work too: "VIN1" → ["VIN1"]. Empty / undefined → [].
+// No trim on the split — values come from exact distinct-value selections joined
+// with a bare ",", and trimming can silently corrupt a real value that has
+// meaningful leading/trailing whitespace (breaking exact-match filtering for it).
 export function parseMultiValue(val: string | undefined): string[] {
   if (!val) return []
-  return val.split(',').map((s) => s.trim()).filter(Boolean)
+  return val.split(',').filter(Boolean)
 }
 
 // DAX equality condition for 1 value, IN condition for 2+.

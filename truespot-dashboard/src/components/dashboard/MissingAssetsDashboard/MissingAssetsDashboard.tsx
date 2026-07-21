@@ -9,6 +9,7 @@ import Typography from '@mui/material/Typography'
 import Breadcrumbs from '@mui/material/Breadcrumbs'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { useMissingAssetsData } from '@/hooks/useMissingAssetsData'
+import { CLIENT_FACILITY_TIME_ZONE, DEFAULT_FACILITY_TIME_ZONE } from '@/constants/timezones'
 import DashboardHeader from '@/components/dashboard/DashboardHeader/DashboardHeader'
 import HealthFilterSidebar from './HealthFilterSidebar'
 import AssetKpiCards from './AssetKpiCards'
@@ -36,6 +37,10 @@ export default function MissingAssetsDashboard({
   dashboardLabel,
 }: MissingAssetsDashboardProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Row-click "compare" highlight — deliberately separate from filters.assetId (the
+  // sidebar's real Asset ID filter narrows the table; this only highlights rows so
+  // several assets can still be visually compared while the full table stays visible).
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
 
   const {
     filters,
@@ -189,7 +194,7 @@ export default function MissingAssetsDashboard({
             clientName={displayName}
             dashboardLabel={dashboardLabel}
             lastRefresh={refreshTime || undefined}
-            displayTimezone="America/Chicago"
+            displayTimezone={CLIENT_FACILITY_TIME_ZONE[clientId] ?? DEFAULT_FACILITY_TIME_ZONE}
             onRefresh={refresh}
             exportDisabled={loading || tableRows.length === 0}
             onExportExcel={async () => {
@@ -270,17 +275,19 @@ export default function MissingAssetsDashboard({
             />
           )}
 
-          {/* Asset table — row click cross-filters entire dashboard */}
+          {/* Asset table — row click just highlights for visual comparison, doesn't filter */}
           <AssetsTable
             rows={tableRows}
             loading={loading}
-            selectedAssetId={filters.assetId}
+            selectedAssetId={Array.from(selectedAssetIds).join(',')}
             onRowClick={(row) => {
-              const s = new Set(filters.assetId ? filters.assetId.split(',').map(x => x.trim()).filter(Boolean) : [])
-              if (s.has(row.assetId)) s.delete(row.assetId); else s.add(row.assetId)
-              updateFilter('assetId', s.size === 0 ? undefined : Array.from(s).join(','))
+              setSelectedAssetIds((prev) => {
+                const next = new Set(prev)
+                if (next.has(row.assetId)) next.delete(row.assetId); else next.add(row.assetId)
+                return next
+              })
             }}
-            onClearSelection={() => updateFilter('assetId', undefined)}
+            onClearSelection={() => setSelectedAssetIds(new Set())}
           />
       </Box>
     </Box>

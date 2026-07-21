@@ -89,6 +89,33 @@ const FACILITY_OFFSET_FMT = new Intl.DateTimeFormat('en-US', {
   hour: '2-digit', minute: '2-digit', second: '2-digit',
 })
 
+// Returns the DST-aware UTC offset (in whole hours, e.g. -4 for EDT, -5 for EST/CDT)
+// that `timeZone` observes at the given naive wall-clock instant. Used to attach a
+// correct offset to timestamps that arrive as bare "local time, no zone" strings
+// (e.g. RefreshTimeLocal) — a fixed offset would silently drift by an hour across
+// DST transitions, or be wrong entirely for a facility outside the zone it was
+// hardcoded for.
+export function getUtcOffsetHours(
+  timeZone: string,
+  year: number, month: number, day: number,
+  hour: number, minute: number, second = 0
+): number {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, second)
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  const parts = fmt.formatToParts(new Date(guess))
+  const get   = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const asZoneUTCMillis = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+  // ISO offset sign convention: UTC = local - offset. A zone behind UTC (e.g. Eastern)
+  // reads an earlier wall-clock at the same instant, so asZoneUTCMillis < guess and the
+  // offset must come out negative — hence (asZone - guess), not (guess - asZone).
+  return Math.round((asZoneUTCMillis - guess) / 3_600_000)
+}
+
 export function facilityLocalToUtcInstant(iso: string): Date {
   const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):?(\d{2})?/)
   if (!m) return new Date(NaN)
