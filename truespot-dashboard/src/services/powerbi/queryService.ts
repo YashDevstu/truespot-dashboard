@@ -10,17 +10,18 @@ import { withRetry } from '@/utils/retry'
 
 async function callPowerBI(
   datasetName: string,
-  daxQuery: string
+  daxQuery: string,
+  workspaceId?: string
 ): Promise<Record<string, unknown>[][]> {
-  const workspaceId = process.env.FABRIC_WORKSPACE_ID
-  if (!workspaceId) throw new Error('FABRIC_WORKSPACE_ID is not set')
+  const resolvedWorkspaceId = workspaceId ?? process.env.FABRIC_WORKSPACE_ID
+  if (!resolvedWorkspaceId) throw new Error('FABRIC_WORKSPACE_ID is not set')
 
   const [token, datasetId] = await Promise.all([
     getAccessToken(),
-    resolveDatasetId(datasetName),
+    resolveDatasetId(datasetName, resolvedWorkspaceId),
   ])
 
-  const url = `${POWERBI_API_BASE}/groups/${workspaceId}/datasets/${datasetId}/executeQueries`
+  const url = `${POWERBI_API_BASE}/groups/${resolvedWorkspaceId}/datasets/${datasetId}/executeQueries`
   const body = {
     queries: [{ query: daxQuery }],
     serializerSettings: { includeNulls: true },
@@ -51,10 +52,14 @@ async function callPowerBI(
 export async function executeQuery(
   datasetName: string,
   daxQuery: string,
-  ttlSeconds: number
+  ttlSeconds: number,
+  workspaceId?: string
 ): Promise<Record<string, unknown>[]> {
-  return getOrSet(`query:${datasetName}:${daxQuery}`, ttlSeconds, async () => {
-    const tables = await callPowerBI(datasetName, daxQuery)
+  const cacheKey = workspaceId
+    ? `query:${workspaceId}:${datasetName}:${daxQuery}`
+    : `query:${datasetName}:${daxQuery}`
+  return getOrSet(cacheKey, ttlSeconds, async () => {
+    const tables = await callPowerBI(datasetName, daxQuery, workspaceId)
     return tables[0] ?? []
   }, CACHE_TTL_EMPTY_ROWS)
 }
@@ -64,9 +69,13 @@ export async function executeQuery(
 export async function executeBatchQuery(
   datasetName: string,
   daxQuery: string,
-  ttlSeconds: number
+  ttlSeconds: number,
+  workspaceId?: string
 ): Promise<Record<string, unknown>[][]> {
-  return getOrSet(`batchq:${datasetName}:${daxQuery}`, ttlSeconds, async () => {
-    return callPowerBI(datasetName, daxQuery)
+  const cacheKey = workspaceId
+    ? `batchq:${workspaceId}:${datasetName}:${daxQuery}`
+    : `batchq:${datasetName}:${daxQuery}`
+  return getOrSet(cacheKey, ttlSeconds, async () => {
+    return callPowerBI(datasetName, daxQuery, workspaceId)
   })
 }

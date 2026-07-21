@@ -1,1 +1,10 @@
-{}
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "crons": [
+    {
+      "path": "/api/v1/warmup",
+      "schedule": "*/30 * * * *"
+    }
+  ]
+}

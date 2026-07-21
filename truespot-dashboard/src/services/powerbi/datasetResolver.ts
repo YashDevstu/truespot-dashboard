@@ -20,20 +20,20 @@ async function fetchDatasets(workspaceId: string) {
   return DatasetsResponseSchema.parse(response.data).value
 }
 
-export async function resolveDatasetId(datasetName: string): Promise<string> {
-  const workspaceId = process.env.FABRIC_WORKSPACE_ID
-  if (!workspaceId) throw new Error('FABRIC_WORKSPACE_ID is not set')
+export async function resolveDatasetId(datasetName: string, workspaceId?: string): Promise<string> {
+  const resolvedWorkspaceId = workspaceId ?? process.env.FABRIC_WORKSPACE_ID
+  if (!resolvedWorkspaceId) throw new Error('FABRIC_WORKSPACE_ID is not set')
 
   const datasets = await getOrSet(
-    `datasets:${workspaceId}`,
+    `datasets:${resolvedWorkspaceId}`,
     CACHE_TTL_DATASETS,
-    () => fetchDatasets(workspaceId)
+    () => fetchDatasets(resolvedWorkspaceId)
   )
 
   const match = datasets.find((d) => d.name === datasetName)
   if (!match) {
     throw new Error(
-      `Dataset "${datasetName}" not found in workspace ${workspaceId}. Check dataset_name in client config matches the exact name in Fabric.`
+      `Dataset "${datasetName}" not found in workspace ${resolvedWorkspaceId}. Check dataset_name in client config matches the exact name in Fabric.`
     )
   }
 

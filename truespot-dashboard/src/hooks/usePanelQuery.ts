@@ -33,6 +33,7 @@ export function usePanelQuery({
     // never receive the previous large dataset while a new query is in-flight.
     // Without this, AG Grid holds the old 100K rows until the new 50 rows arrive
     // and must process a 100K→50 row transition — that is the primary freeze cause.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     setError(null)
     setData(null)

@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch the Last Refresh KPI measure
     let lastRefresh: string | null = null
-    const kpiPanel = dashboard.panels.find((p) => p.measure === '[Last Refresh]')
+    const kpiPanel = dashboard.panels?.find((p) => p.measure === '[Last Refresh]')
     if (kpiPanel?.measure) {
       try {
         const kpiRows = await executeQuery(

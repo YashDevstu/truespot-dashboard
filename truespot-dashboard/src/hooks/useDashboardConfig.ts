@@ -8,6 +8,7 @@ export function useDashboardConfig(clientId: string) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     fetch(`/api/v1/config?clientId=${encodeURIComponent(clientId)}`)
       .then((r) => r.json())

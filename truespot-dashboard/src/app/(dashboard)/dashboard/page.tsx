@@ -1,5 +1,6 @@
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
 
 export default function DashboardIndexPage() {
-  redirect('/dashboard/carvision/locationhistory')
+  if (process.env.NODE_ENV === 'production') notFound()
+  redirect('/dashboard/automotive/carvision')
 }

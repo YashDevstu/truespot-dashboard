@@ -1,0 +1,69 @@
+{
+  "client_id": "bsa",
+  "product": "health",
+  "display_name": "BSA",
+  "locations": [],
+  "dashboards": {
+    "locationhistory": {
+      "label": "Location History",
+      "dashboard_type": "health_location_history",
+      "workspace_name": "Health - Location History Portal",
+      "dataset_name": "BSA",
+      "icon": "history",
+      "description": "Track medical equipment movement and time spent across your facility.",
+      "category": "Asset Tracking",
+      "panels": [
+        {
+          "id": "location-points",
+          "title": "Location Points",
+          "type": "data_table",
+          "filter_columns": {
+            "dateSeen":   "AppendFinal[LastSeenDateDefault]",
+            "geofence":   "AppendFinal[Geofence]",
+            "subGeoZone": "AppendFinal[SubGeoZone]",
+            "floorLevel": "AppendFinal[Floor Level]",
+            "beaconId":   "AppendFinal[BeaconId]",
+            "assetType":  "AppendFinal[AssetType]",
+            "vin":        "AppendFinal[VIN]",
+            "assetName":  "AppendFinal[Name]"
+          }
+        }
+      ]
+    },
+    "missingassets": {
+      "label": "Missing Assets",
+      "dashboard_type": "missing_assets",
+      "workspace_name": "Health - Missing Assets Portal",
+      "dataset_name": "BSA",
+      "icon": "search",
+      "description": "Track missing medical assets across your facility in real time.",
+      "category": "Asset Management",
+      "panels": [
+        {
+          "id": "assets-table",
+          "title": "Selected Assets",
+          "type": "data_table",
+          "filter_columns": {
+            "lastSeenDate":      "FORMAT('Post-Aggregate'[LastSeenDateDefault], \"MM/DD/YYYY\")",
+            "department":        "'Post-Aggregate'[My Department]",
+            "excludeDepartment": "'Post-Aggregate'[My Department]",
+            "assetName":         "'Post-Aggregate'[Name]",
+            "floor":             "'Post-Aggregate'[Floor]",
+            "geofence":          "'Post-Aggregate'[Geofence]",
+            "tagId":             "'Post-Aggregate'[Beaconid]",
+            "assetId":           "'Post-Aggregate'[VIN]"
+          }
+        }
+      ]
+    },
+    "insighthub": {
+      "label": "Insight Hub",
+      "dashboard_type": "health_insight_hub",
+      "workspace_name": "Health - Missing Assets Portal",
+      "dataset_name": "BSA",
+      "icon": "insights",
+      "description": "Narrative insights on equipment utilization across your facility.",
+      "category": "Insights"
+    }
+  }
+}

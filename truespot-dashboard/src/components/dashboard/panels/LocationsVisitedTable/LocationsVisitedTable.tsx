@@ -141,7 +141,7 @@ function SortPill({
 }
 
 const COLUMNS = ['#', 'VEHICLE', 'GEOFENCE', 'SUBZONE', 'TIME RANGE', 'DURATION'] as const
-const GRID = '40px minmax(170px, 200px) minmax(140px, 1fr) minmax(160px, 1fr) 195px 95px'
+const GRID = '32px minmax(110px, 180px) minmax(100px, 1fr) minmax(100px, 1fr) 160px 80px'
 const PAGE_SIZE = 5
 
 // ── LocationsVisitedTable ─────────────────────────────────────────────────────
@@ -281,8 +281,8 @@ export default function LocationsVisitedTable({
 
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2 }}>
-      {/* ── Sticky header ──────────────────────────────────────────────── */}
-      <Box sx={{ position: 'sticky', top: 0, zIndex: 10, bgcolor: 'background.paper', borderRadius: '8px 8px 0 0' }}>
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <Box sx={{ bgcolor: 'background.paper', borderRadius: '8px 8px 0 0' }}>
 
         {/* Title row — always visible */}
         <Box
@@ -292,33 +292,37 @@ export default function LocationsVisitedTable({
             display: 'flex',
             alignItems: 'center',
             gap: 1,
+            flexWrap: 'wrap',
+            rowGap: 0.75,
             borderBottom: collapsed ? 'none' : '1px solid',
             borderColor: 'divider',
           }}
         >
-          {/* Left: title + count */}
-          <Typography variant="subtitle1" sx={{ fontWeight: 700, mr: 0.5 }}>
-            Locations Visited
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 600, mr: 'auto' }}>
-            {stops.length} stops
-          </Typography>
+          {/* Left: title + count — never shrinks */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: '1 1 auto', minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+              Locations Visited
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              {stops.length} stops
+            </Typography>
+          </Box>
 
-          {/* Sort pills */}
-          {showLive && (
-            <SortPill label="Live" active={sortMode === 'live'} onClick={() => handleSortChange('live')} />
-          )}
-          <SortPill label="Oldest first" active={sortMode === 'oldest'} onClick={() => handleSortChange('oldest')} />
-          <SortPill label="By duration"  active={sortMode === 'duration'} onClick={() => handleSortChange('duration')} />
-
-          {/* Collapse toggle */}
-          <IconButton
-            size="small"
-            onClick={() => setCollapsed((v) => !v)}
-            sx={{ ml: 0.5 }}
-          >
-            {collapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
-          </IconButton>
+          {/* Right: sort pills + collapse — wraps onto next line if needed */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+            {showLive && (
+              <SortPill label="Live" active={sortMode === 'live'} onClick={() => handleSortChange('live')} />
+            )}
+            <SortPill label="Oldest first" active={sortMode === 'oldest'} onClick={() => handleSortChange('oldest')} />
+            <SortPill label="By duration"  active={sortMode === 'duration'} onClick={() => handleSortChange('duration')} />
+            <IconButton
+              size="small"
+              onClick={() => setCollapsed((v) => !v)}
+              sx={{ ml: 0.25 }}
+            >
+              {collapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
+            </IconButton>
+          </Box>
         </Box>
 
         {/* Collapsible: Live banner + column labels */}

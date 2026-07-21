@@ -71,7 +71,7 @@ function MultiFilter({
       value={value}
       onChange={(_, vals) => onChange(vals)}
       filterOptions={(opts, { inputValue }) =>
-        opts.filter((o) => o.toLowerCase().includes(inputValue.toLowerCase())).slice(0, 100)
+        opts.filter((o) => o.toLowerCase().includes(inputValue.toLowerCase()))
       }
       clearOnEscape
       autoHighlight
@@ -95,7 +95,7 @@ function MultiFilter({
     <Box
       sx={{
         '& .MuiAutocomplete-tag': { maxWidth: 'none' },
-        '& .MuiChip-label': { overflow: 'visible', whiteSpace: 'nowrap', textOverflow: 'clip', fontSize: '11px' },
+        '& .MuiChip-label': { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', fontSize: '11px' },
       }}
     >
       {autocomplete}

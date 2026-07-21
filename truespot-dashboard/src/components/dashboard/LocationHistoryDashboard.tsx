@@ -1,12 +1,15 @@
 'use client'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
+import MuiBreadcrumbs from '@mui/material/Breadcrumbs'
 import LinearProgress from '@mui/material/LinearProgress'
 import Alert from '@mui/material/Alert'
 import Paper from '@mui/material/Paper'
+import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import TimelineIcon from '@mui/icons-material/Timeline'
 import { useFilters } from '@/hooks/useFilters'
 import { usePanelQuery } from '@/hooks/usePanelQuery'
@@ -33,6 +36,7 @@ const MapPanel = dynamic(() => import('./panels/MapPanel/MapPanel'), { ssr: fals
 interface Props {
   clientId: string
   dashboardKey: string
+  product: string
   displayName: string
   dashboardLabel: string
   azureMapsKey?: string
@@ -44,13 +48,15 @@ const DOT_COLORS = ['#4285F4', '#9C27B0', '#4CAF50', '#FF5722', '#00BCD4', '#FF9
 export default function LocationHistoryDashboard({
   clientId,
   dashboardKey,
+  product,
   displayName,
   dashboardLabel,
   azureMapsKey,
 }: Props) {
   const { filters, setFilter, resetFilters } = useFilters()
   const [refreshToken, setRefreshToken] = useState(0)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [mapExpanded, setMapExpanded] = useState(false)
   const [selectedStopIndex, setSelectedStopIndex] = useState<number | null>(null)
   // Holds the raw timelineRows ref so callbacks declared early can read the latest value
   const timelineRowsRef = useRef<Record<string, unknown>[]>([])
@@ -227,8 +233,10 @@ export default function LocationHistoryDashboard({
     return tableRows
   }, [selectedAsset, tableLoading, tableRows])
 
-  // Keep ref in sync so handleTableRowSelect always reads the latest rows
-  timelineRowsRef.current = timelineRows
+  // Keep ref in sync so handleTableRowSelect always reads the latest rows without a stale closure
+  useEffect(() => {
+    timelineRowsRef.current = timelineRows
+  }, [timelineRows])
 
   const timelineTooLarge = !!(selectedAsset && !tableLoading && tableRows.length > TIMELINE_MAX_ROWS)
 
@@ -314,7 +322,9 @@ export default function LocationHistoryDashboard({
     // A position is "live" only when viewing Today's data AND the session's
     // EndTime falls on today. Using EndTime (not StartTime) because overnight
     // records start yesterday but end today — LastSeenDateDefault also uses EndTime.
-    const isTodayFilter = isAllDates || !filters.dateSeen || filters.dateSeen === 'Today' || (selectedDates?.includes('Today') ?? false)
+    const rawDateSeen = filters.dateSeen?.trim()
+    const isTodayFilter = !rawDateSeen || rawDateSeen === 'all' || rawDateSeen === 'Today' ||
+      rawDateSeen.split(',').some((s) => s.trim() === 'Today')
     const isLiveRow = (r: Record<string, unknown>) => {
       if (!isTodayFilter) return false
       const v = r['[EndTime]'] ?? r['[StartTime]']
@@ -393,7 +403,7 @@ export default function LocationHistoryDashboard({
       isLive:      isLiveRow(bestRow),
       assetType:   resolveAssetType(bestRow),
     }]
-  }, [selectedAsset, timelineRows, vehicleLanes, azureMapsKey])
+  }, [selectedAsset, timelineRows, vehicleLanes, filters.dateSeen])
 
   // Route trail: geofence-colored contiguous segments so trail colors match Journey Timeline bar
   const routeLines = useMemo((): RouteSegment[] => {
@@ -538,7 +548,7 @@ export default function LocationHistoryDashboard({
       })
       return acc
     }, [])
-  }, [selectedAsset, timelineRows, vehicleLanes, sharedColorMap])
+  }, [selectedAsset, timelineRows, sharedColorMap])
 
   // Caption text for AssetStatCards
   const datePeriod = isAllDates
@@ -550,11 +560,6 @@ export default function LocationHistoryDashboard({
     : `over ${selectedDates!.length} dates`
 
   const singleDayPeriod = datePeriod
-
-  const handleExportPdf = async () => {
-    const { exportPdf } = await import('@/utils/exportReport')
-    await exportPdf({ clientName: displayName, dashboardLabel, dateLabel, filters, tableRows, selectedAsset: selectedAsset || undefined, datePeriod })
-  }
 
   const handleExportExcel = async () => {
     const { exportExcel } = await import('@/utils/exportReport')
@@ -575,16 +580,17 @@ export default function LocationHistoryDashboard({
 
   const TOP_BAR_H = 60
 
+  const sidebarWidth = sidebarOpen ? 236 : 48
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* ── Top bar: Logo — sticky, full width, never collapses ────────────── */}
+    <Box>
+      {/* ── Top bar — fixed ───────────────────────────────────────────────────── */}
       <Box
         sx={{
-          position: 'sticky',
-          top: 0,
+          position: 'fixed',
+          top: 0, left: 0, right: 0,
           zIndex: 20,
           height: TOP_BAR_H,
-          flexShrink: 0,
           bgcolor: 'background.paper',
           borderBottom: '1px solid',
           borderColor: 'divider',
@@ -603,47 +609,67 @@ export default function LocationHistoryDashboard({
         />
       </Box>
 
-      {/* ── Content row ────────────────────────────────────────────────────── */}
-      <Box sx={{ display: 'flex', flex: 1, alignItems: 'flex-start' }}>
-        {/* Filter sidebar */}
-        <Box
-          sx={{
-            position: 'sticky',
-            top: TOP_BAR_H,
-            height: `calc(100vh - ${TOP_BAR_H}px)`,
-            width: sidebarOpen ? 236 : 48,
-            transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-            flexShrink: 0,
-            overflow: 'hidden',
-            borderRight: '1px solid',
-            borderColor: 'divider',
-          }}
-        >
-          <FilterSidebar
-            filters={filters}
-            onFilterChange={setFilter}
-            onReset={resetFilters}
-            filterOptions={filterOptions}
-            open={sidebarOpen}
-            onToggle={() => setSidebarOpen((o) => !o)}
-          />
-        </Box>
+      {/* ── Sidebar — fixed below top bar ─────────────────────────────────────── */}
+      <Box
+        sx={{
+          position: 'fixed',
+          top: TOP_BAR_H, left: 0,
+          width: sidebarWidth,
+          height: `calc(100vh - ${TOP_BAR_H}px)`,
+          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          zIndex: 10,
+          overflow: 'hidden',
+          borderRight: '1px solid',
+          borderColor: 'divider',
+          bgcolor: '#f8fafc',
+        }}
+      >
+        <FilterSidebar
+          filters={filters}
+          onFilterChange={setFilter}
+          onReset={resetFilters}
+          filterOptions={filterOptions}
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen((o) => !o)}
+        />
+      </Box>
 
-        {/* ── Main content ─────────────────────────────────────────────────── */}
-        <Box
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            bgcolor: '#f8fafc',
-            p: 3,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2.5,
-          }}
-        >
+      {/* ── Main content — offset by fixed top bar + sidebar ─────────────────── */}
+      <Box
+        sx={{
+          mt: `${TOP_BAR_H}px`,
+          ml: `${sidebarWidth}px`,
+          transition: 'margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          bgcolor: '#f8fafc',
+          p: 3,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2.5,
+        }}
+      >
           {/* Alerts */}
           {tableError && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
           {kpiQuery.error && <Alert severity="error">Unable to load data. Please refresh and try again.</Alert>}
+
+          {/* Breadcrumb — dev only; clients access via direct token URL, not the portal */}
+          {process.env.NODE_ENV !== 'production' && (
+            <MuiBreadcrumbs
+              separator={<NavigateNextIcon sx={{ fontSize: 14 }} />}
+              sx={{ fontSize: 13, color: 'text.secondary' }}
+            >
+              <Link
+                href={`/dashboard/${product}/${clientId}`}
+                style={{ color: 'inherit', textDecoration: 'none', fontWeight: 500 }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#1976d2')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'inherit')}
+              >
+                {displayName}
+              </Link>
+              <Typography sx={{ fontSize: 13, color: 'text.primary', fontWeight: 600 }}>
+                {dashboardLabel}
+              </Typography>
+            </MuiBreadcrumbs>
+          )}
 
           {/* Page heading */}
           <DashboardHeader
@@ -702,10 +728,24 @@ export default function LocationHistoryDashboard({
 
               {/* Map + Locations Visited — side by side */}
               {!timelineTooLarge && (
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'stretch' }}>
-                  {/* Map — left, narrower */}
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'stretch', flexDirection: { xs: 'column', lg: 'row' } }}>
+                  {/* Map — left on lg+, full-width stacked below lg; fixed overlay when expanded */}
                   {azureMapsKey && (
-                    <Box sx={{ width: '38%', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+                    <Box
+                      sx={mapExpanded ? {
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 1300,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        bgcolor: '#000',
+                      } : {
+                        width: { xs: '100%', lg: '38%' },
+                        flexShrink: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                    >
                       <MapPanel
                         markers={mapMarkers}
                         subscriptionKey={azureMapsKey}
@@ -714,12 +754,14 @@ export default function LocationHistoryDashboard({
                         stops={mapStops}
                         onStopClick={setSelectedStopIndex}
                         loading={tableLoading}
+                        expanded={mapExpanded}
+                        onExpandToggle={() => setMapExpanded((v) => !v)}
                       />
                     </Box>
                   )}
 
                   {/* Locations visited — right, wider */}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ flex: 1, minWidth: 0, overflowX: 'auto' }}>
                     <LocationsVisitedTable
                       rows={singleDayRows}
                       colorMap={sharedColorMap}
@@ -853,7 +895,6 @@ export default function LocationHistoryDashboard({
             </>
           )}
         </Box>
-      </Box>
     </Box>
   )
 }

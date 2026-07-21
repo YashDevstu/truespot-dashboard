@@ -13,6 +13,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import GpsOffIcon from '@mui/icons-material/GpsOff'
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap'
+import FullscreenIcon from '@mui/icons-material/Fullscreen'
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
 import Tooltip from '@mui/material/Tooltip'
 
 export interface MapMarker {
@@ -65,6 +67,8 @@ interface MapPanelProps {
   stops?: MapStop[]
   onStopClick?: (index: number) => void
   loading?: boolean
+  expanded?: boolean
+  onExpandToggle?: () => void
 }
 
 const LIVE_GREEN = '#22c55e'
@@ -359,7 +363,7 @@ function stopFocusHtml(sf: StopFocus): string {
 </div>`
 }
 
-export default function MapPanel({ markers, subscriptionKey, routeLines, stopFocus, stops, onStopClick, loading }: MapPanelProps) {
+export default function MapPanel({ markers, subscriptionKey, routeLines, stopFocus, stops, onStopClick, loading, expanded = false, onExpandToggle }: MapPanelProps) {
   const containerRef   = useRef<HTMLDivElement>(null)
   const mapRef         = useRef<mapboxgl.Map | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -372,6 +376,14 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
   // Keep onStopClick in a ref so the map effect closure never goes stale
   const onStopClickRef = useRef(onStopClick)
   useEffect(() => { onStopClickRef.current = onStopClick }, [onStopClick])
+
+  // When fullscreen state changes, wait for the CSS layout to settle then resize the map
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const id = setTimeout(() => map.resize(), 50)
+    return () => clearTimeout(id)
+  }, [expanded])
 
   const [collapsed, setCollapsed] = useState(false)
 
@@ -723,6 +735,20 @@ export default function MapPanel({ markers, subscriptionKey, routeLines, stopFoc
               sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
             >
               <ZoomOutMapIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onExpandToggle && (
+          <Tooltip title={expanded ? 'Exit fullscreen' : 'Expand map'} placement="top">
+            <IconButton
+              size="small"
+              onClick={(e) => { e.stopPropagation(); onExpandToggle() }}
+              sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+            >
+              {expanded
+                ? <FullscreenExitIcon sx={{ fontSize: 16 }} />
+                : <FullscreenIcon sx={{ fontSize: 16 }} />
+              }
             </IconButton>
           </Tooltip>
         )}

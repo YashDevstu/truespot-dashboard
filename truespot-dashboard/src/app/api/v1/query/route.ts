@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const panel = dashboard.panels.find((p) => p.id === panelId)
+  const panel = dashboard.panels?.find((p) => p.id === panelId)
   if (!panel) {
     return Response.json(
       { error: `Panel "${panelId}" not found in dashboard "${dashboardKey}"` },

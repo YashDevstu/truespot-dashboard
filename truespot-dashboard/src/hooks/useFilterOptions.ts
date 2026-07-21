@@ -70,9 +70,9 @@ export function useFilterOptions({ clientId, dashboardKey, panelId, filters }: U
       cancelled = true
       clearTimeout(timer)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- filters object intentionally split into primitives to avoid reference-equality re-renders
   }, [
     clientId, dashboardKey, panelId,
-    // Each filter field is a primitive — safe to list individually
     filters?.dateSeen, filters?.geofence, filters?.subGeoZone, filters?.floorLevel,
     filters?.beaconId, filters?.assetType, filters?.vin, filters?.stockNumber,
   ])
