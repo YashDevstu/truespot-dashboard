@@ -48,6 +48,14 @@ export const DashboardConfigSchema = z.object({
   // Insight Hub — freeable value card
   spare_buffer: z.number().optional(),  // spare units to keep above peak demand
   unit_value:   z.number().optional(),  // per-unit replacement value in USD
+  // Email Alert Portal — the mail-log table name varies per client
+  // (e.g. "Halifax Mail", "BSA Mail") and so does the "no assets found"
+  // flag column name (e.g. "HasNoAssets" vs "HasNoAssetsFlag").
+  mail_table:             z.string().optional(),
+  mail_no_assets_column:  z.string().optional(),
+  // True once this client's Mail table has the corrected Power Query columns
+  // (DateTimeReceivedUTC, RecurrenceIntervalMinutes, folder-aware IsUndeliverable).
+  mail_has_utc_columns:   z.boolean().optional(),
 })
 
 export type DashboardConfig = z.infer<typeof DashboardConfigSchema>

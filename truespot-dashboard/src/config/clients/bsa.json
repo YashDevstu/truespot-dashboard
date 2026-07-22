@@ -50,8 +50,9 @@
             "assetName":         "'Post-Aggregate'[Name]",
             "floor":             "'Post-Aggregate'[Floor]",
             "geofence":          "'Post-Aggregate'[Geofence]",
+            "subGeoZone":        "'Post-Aggregate'[SubGeo]",
             "tagId":             "'Post-Aggregate'[Beaconid]",
-            "assetId":           "'Post-Aggregate'[VIN]"
+            "assetId":           "'Post-Aggregate'[VIN Display]"
           }
         }
       ]

@@ -1,5 +1,5 @@
 {
   "product": "health",
   "label": "TrueSpot Health",
-  "clients": ["bsa", "halifax"]
+  "clients": ["bsa", "halifax", "stpaul"]
 }

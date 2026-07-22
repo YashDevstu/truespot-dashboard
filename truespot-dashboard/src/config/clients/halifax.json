@@ -4,6 +4,17 @@
   "display_name": "Halifax",
   "locations": [],
   "dashboards": {
+    "emailalerts": {
+      "label": "Email Alert Portal",
+      "dashboard_type": "email_alerts",
+      "workspace_name": "Health - Launch Portals",
+      "dataset_name": "Halifax",
+      "icon": "mail",
+      "description": "Review subscribed email alerts, recipients, and recent send activity.",
+      "category": "Notifications",
+      "mail_table": "Halifax Mail",
+      "mail_no_assets_column": "HasNoAssets"
+    },
     "missingassets": {
       "label": "Missing Assets",
       "dashboard_type": "missing_assets",
@@ -24,8 +35,9 @@
             "assetName": "'Post-Aggregate'[Name]",
             "floor": "'Post-Aggregate'[Floor]",
             "geofence": "'Post-Aggregate'[Geofence]",
+            "subGeoZone": "'Post-Aggregate'[SubGeo]",
             "tagId": "'Post-Aggregate'[Beaconid]",
-            "assetId": "'Post-Aggregate'[VIN]"
+            "assetId": "'Post-Aggregate'[VIN Display]"
           }
         }
       ]

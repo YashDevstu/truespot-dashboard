@@ -124,6 +124,7 @@ async function fetchHealthFilterOptions(
   if (filters.assetName)    params.set('assetName',    filters.assetName)
   if (filters.floor)        params.set('floor',        filters.floor)
   if (filters.geofence)     params.set('geofence',     filters.geofence)
+  if (filters.subGeoZone)   params.set('subGeoZone',   filters.subGeoZone)
   if (filters.tagId)        params.set('tagId',        filters.tagId)
   if (filters.assetId)      params.set('assetId',      filters.assetId)
   if (filters.exitsFilter)        params.set('exitsFilter',        filters.exitsFilter)

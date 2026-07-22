@@ -116,6 +116,15 @@ export function getUtcOffsetHours(
   return Math.round((asZoneUTCMillis - guess) / 3_600_000)
 }
 
+// Returns the short zone abbreviation (e.g. "EDT", "EST", "CDT", "CST") that
+// `timeZone` observes at `date` (defaults to now) — DST-aware, so a schedule
+// description like "Daily at 2:00 PM ET" can show the correct current label
+// instead of a hardcoded one that's only right for half the year.
+export function getTimeZoneAbbreviation(timeZone: string, date: Date = new Date()): string {
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
+  return fmt.formatToParts(date).find((p) => p.type === 'timeZoneName')?.value ?? timeZone
+}
+
 export function facilityLocalToUtcInstant(iso: string): Date {
   const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):?(\d{2})?/)
   if (!m) return new Date(NaN)

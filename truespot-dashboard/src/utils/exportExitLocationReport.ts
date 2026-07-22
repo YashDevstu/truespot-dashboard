@@ -11,9 +11,10 @@ export interface ExitLocationExportParams {
   dwell:            'new' | 'dwelling' | 'all'
   assets:           ExitAssetRow[]
   monitoredExits:   MonitoredExitRow[]
-  // Looks up a manual review decision for an asset dwelling >24h — returns
-  // null for "New" (<24h) assets or ones not yet reviewed.
-  getReviewStatus?: (vin: string, firstSeen: string) => 'expected' | 'flagged' | null
+  // DST-aware label computed by the caller (e.g. "Daily at 2:00 PM EDT") — this
+  // module never hardcodes EST/EDT since the correct one depends on the current
+  // season, not a fixed string.
+  refreshCadence?:  string
 }
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -122,9 +123,9 @@ function rollupTable(ws: WS, startRow: number, rows: [string, number][], total: 
   let r = startRow
   const hdrS = mkS({ sz: 9, bold: true, color: CLR.white }, CLR.teal, { h: 'left', v: 'center' }, allB(CLR.tealDk))
   const hdrNumS = mkS({ sz: 9, bold: true, color: CLR.white }, CLR.teal, { h: 'center', v: 'center' }, allB(CLR.tealDk))
-  setCell(ws, 0, r, sCell('Name', hdrS)); mergeCells(ws, 0, r, 1, r)
-  setCell(ws, 2, r, sCell('Count', hdrNumS))
-  setCell(ws, 3, r, sCell('% of Total', hdrNumS))
+  setCell(ws, 0, r, sCell('Name', hdrS))
+  setCell(ws, 1, r, sCell('Count', hdrNumS))
+  setCell(ws, 2, r, sCell('% of Total', hdrNumS)); mergeCells(ws, 2, r, 3, r)
   r++
 
   rows.forEach(([name, count], i) => {
@@ -133,9 +134,9 @@ function rollupTable(ws: WS, startRow: number, rows: [string, number][], total: 
     const labelS = mkS({ sz: 10, color: CLR.slate900 }, bg, { h: 'left', v: 'center' }, btmB(CLR.slate200))
     const numS   = mkS({ sz: 10, bold: true, color: CLR.teal }, bg, { h: 'center', v: 'center' }, btmB(CLR.slate200))
     const pctS   = mkS({ sz: 10, color: CLR.slate700 }, bg, { h: 'center', v: 'center' }, btmB(CLR.slate200))
-    setCell(ws, 0, r, sCell(name, labelS)); mergeCells(ws, 0, r, 1, r)
-    setCell(ws, 2, r, nCell(count, numS))
-    setCell(ws, 3, r, sCell(total > 0 ? `${Math.round((count / total) * 100)}%` : '—', pctS))
+    setCell(ws, 0, r, sCell(name, labelS))
+    setCell(ws, 1, r, nCell(count, numS))
+    setCell(ws, 2, r, sCell(total > 0 ? `${Math.round((count / total) * 100)}%` : '—', pctS)); mergeCells(ws, 2, r, 3, r)
     r++
   })
   return r
@@ -180,7 +181,7 @@ function buildSummarySheet(params: ExitLocationExportParams): WS {
   mergeCells(ws, 1, r, 3, r)
   r++
   setCell(ws, 0, r, sCell('Refresh Cadence', mkS({ bold: true, color: CLR.slate700 }, CLR.slate100, undefined, allB(CLR.slate300))))
-  setCell(ws, 1, r, sCell('Daily at 2:00 PM EST', mkS({ color: CLR.slate700 }, CLR.white, undefined, allB(CLR.slate300))))
+  setCell(ws, 1, r, sCell(params.refreshCadence || '—', mkS({ color: CLR.slate700 }, CLR.white, undefined, allB(CLR.slate300))))
   mergeCells(ws, 1, r, 3, r)
   r++
 
@@ -232,7 +233,7 @@ function buildSummarySheet(params: ExitLocationExportParams): WS {
   r = rollupTable(ws, r, groupCounts(assets, 'assetType'), assets.length)
 
   ws['!ref']  = `A1:D${r}`
-  ws['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 18 }, { wch: 18 }]
+  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 18 }, { wch: 18 }]
   ws['!rows'] = [{ hpt: 28 }, { hpt: 20 }, { hpt: 16 }]
   return ws
 }
@@ -248,10 +249,9 @@ const ASSET_COLUMNS = [
   { header: 'VIN',               key: 'vin'        as const, w: 16 },
   { header: 'Time at Exit',      key: 'firstSeen'  as const, w: 20 },
   { header: 'Status',            key: 'last24'     as const, w: 16 },
-  { header: 'Expected at Exit?', key: 'expected'   as const, w: 22 },
 ]
 
-function buildAssetSheet(rows: ExitAssetRow[], getReviewStatus?: ExitLocationExportParams['getReviewStatus']): WS {
+function buildAssetSheet(rows: ExitAssetRow[]): WS {
   const ws: WS = {}
   const HEADER_ROW = 1
 
@@ -270,16 +270,6 @@ function buildAssetSheet(rows: ExitAssetRow[], getReviewStatus?: ExitLocationExp
     const nameS = mkS({ sz: 10, bold: true, color: row.last24 ? CLR.amber : CLR.slate900 }, bg, { v: 'center' }, btmB(CLR.slate200))
     const statS = mkS({ sz: 10, bold: true, color: row.last24 ? CLR.amber : CLR.teal }, row.last24 ? CLR.amberBg : CLR.tealBg, { h: 'center', v: 'center' }, allB(row.last24 ? 'FDE68A' : '99F6E4'))
 
-    const review = !row.last24 ? getReviewStatus?.(row.vin, row.firstSeen) ?? null : null
-    const expectedText = row.last24
-      ? 'n/a — under 24h'
-      : review === 'expected' ? 'Confirmed Expected'
-      : review === 'flagged'  ? 'Flagged for Review'
-      : 'Pending Review'
-    const expectedColor = review === 'expected' ? CLR.teal : review === 'flagged' ? CLR.red : CLR.slate500
-    const expectedBg    = review === 'expected' ? CLR.tealBg : review === 'flagged' ? CLR.redBg : bg
-    const expectedS = mkS({ sz: 10, bold: review !== null, italic: row.last24, color: expectedColor }, expectedBg, { h: 'center', v: 'center' }, allB(review === 'expected' ? '99F6E4' : review === 'flagged' ? CLR.redBorder : CLR.slate200))
-
     ASSET_COLUMNS.forEach((col, ci) => {
       if (col.key === 'firstSeen')     setCell(ws, ci, r, sCell(fmtDatetime(row.firstSeen), baseS))
       else if (col.key === 'vin')      setCell(ws, ci, r, sCell(row.vin || '—', monoS))
@@ -287,7 +277,6 @@ function buildAssetSheet(rows: ExitAssetRow[], getReviewStatus?: ExitLocationExp
       else if (col.key === 'assetName')setCell(ws, ci, r, sCell(row.assetName || '—', nameS))
       else if (col.key === 'department') setCell(ws, ci, r, sCell(row.department || '—', baseS))
       else if (col.key === 'last24')   setCell(ws, ci, r, sCell(row.last24 ? 'New (<24h)' : 'Dwelling (>24h)', statS))
-      else if (col.key === 'expected') setCell(ws, ci, r, sCell(expectedText, expectedS))
       else                             setCell(ws, ci, r, sCell(row[col.key] as string || '—', baseS))
     })
   })
@@ -354,7 +343,7 @@ export async function exportExitLocationExcel(params: ExitLocationExportParams):
   wb.Props = { Title: `${params.clientName} Exit Location Portal`, Author: 'TrueSpot' }
 
   XLSX.utils.book_append_sheet(wb, buildSummarySheet(params), 'Summary')
-  XLSX.utils.book_append_sheet(wb, buildAssetSheet(params.assets, params.getReviewStatus), 'Assets At Exits')
+  XLSX.utils.book_append_sheet(wb, buildAssetSheet(params.assets), 'Assets At Exits')
   XLSX.utils.book_append_sheet(wb, buildMonitoredExitsSheet(params.monitoredExits, params.assets), 'Monitored Exits')
 
   XLSX.writeFile(wb, buildFilename(params.clientName))

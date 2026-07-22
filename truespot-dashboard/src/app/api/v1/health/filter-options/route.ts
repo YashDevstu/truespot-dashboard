@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
     assetName:    searchParams.get('assetName')    || undefined,
     floor:        searchParams.get('floor')         || undefined,
     geofence:     searchParams.get('geofence')      || undefined,
+    subGeoZone:   searchParams.get('subGeoZone')    || undefined,
     tagId:        searchParams.get('tagId')         || undefined,
     assetId:      searchParams.get('assetId')       || undefined,
     exitsFilter:       searchParams.get('exitsFilter')       || undefined,
@@ -85,10 +86,17 @@ export async function GET(request: NextRequest) {
 
     const options: Record<string, string[]> = {}
     columnEntries.forEach(([key], index) => {
+      // "Unassigned" (the VIN Display fallback for blank VINs) pinned to the top —
+      // it's a real, common bucket, not just another alphabetical entry buried
+      // near the end since it starts with "U".
       options[key] = (results[index] as Record<string, unknown>[])
         .map((row) => String(row['[value]'] ?? ''))
         .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b))
+        .sort((a, b) => {
+          if (a === 'Unassigned') return -1
+          if (b === 'Unassigned') return 1
+          return a.localeCompare(b)
+        })
     })
 
     return Response.json(options)

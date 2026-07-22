@@ -9,8 +9,8 @@ import Skeleton from '@mui/material/Skeleton'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import { useExitLocationData, type ExitAssetRow } from '@/hooks/useExitLocationData'
-import { useExitReviewStatus } from '@/hooks/useExitReviewStatus'
-import { facilityLocalToUtcInstant } from '@/utils/formatters'
+import { facilityLocalToUtcInstant, getTimeZoneAbbreviation } from '@/utils/formatters'
+import { CLIENT_FACILITY_TIME_ZONE, DEFAULT_FACILITY_TIME_ZONE } from '@/constants/timezones'
 import ExportButton from '@/components/dashboard/ExportButton/ExportButton'
 
 const TEAL   = '#0d9488'
@@ -89,9 +89,9 @@ function KpiCard({ label, value, sublabel, accent, active, onClick }: { label: s
 }
 
 // ── Asset row (one row per asset — matches the client's reference layout:
-// Asset | Location | Department | Time at Exit | Expected at Exit?) ─────────
+// Asset | Location | Department | Time at Exit) ─────────────────────────────
 
-const ASSET_ROW_COLUMNS = '1.7fr 1.6fr 0.6fr 1fr 1.1fr 1.4fr'
+const ASSET_ROW_COLUMNS = '1.7fr 1.6fr 0.6fr 1fr 1.1fr'
 
 function AssetTableRow({ asset, product, clientId, locationCount }: { asset: ExitAssetRow; product: string; clientId: string; locationCount: number }) {
   const diffMin  = minutesAgo(asset.firstSeen)
@@ -186,12 +186,6 @@ function AssetTableRow({ asset, product, clientId, locationCount }: { asset: Exi
           <Box sx={{ width: `${pct}%`, height: '100%', bgcolor: barColor, borderRadius: '0 1.5px 1.5px 0' }} />
         </Box>
       </Box>
-
-      {/* Expected at Exit? — feature intentionally not surfaced yet (review/flag
-          logic in useExitReviewStatus is built and working). A visible
-          placeholder here, not an empty cell, so the column doesn't read as
-          a rendering gap. */}
-      <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>—</Typography>
     </Box>
   )
 }
@@ -205,11 +199,15 @@ export default function ExitLocationDashboard({ clientId, dashboardKey, product,
     exitAssets, monitoredExits, assetTypeOptions, refreshTime, loading, error,
     filters, setFilters,
   } = useExitLocationData(clientId, dashboardKey)
-  const review = useExitReviewStatus(clientId)
   const [dwell, setDwell] = useState<Dwell>('all')
   const [activeGeofence, setActiveGeofence] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('firstSeen')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  // DST-aware — "EDT" in summer, "EST" in winter, computed at render time
+  // rather than hardcoded, so it never drifts out of sync with the season.
+  const facilityTz = CLIENT_FACILITY_TIME_ZONE[clientId] ?? DEFAULT_FACILITY_TIME_ZONE
+  const tzAbbr = getTimeZoneAbbreviation(facilityTz)
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -224,7 +222,7 @@ export default function ExitLocationDashboard({ clientId, dashboardKey, product,
     const { exportExitLocationExcel } = await import('@/utils/exportExitLocationReport')
     await exportExitLocationExcel({
       clientName: displayName, refreshTime, dwell, assets: exitAssets, monitoredExits,
-      getReviewStatus: (vin, firstSeen) => review.getStatus(vin, firstSeen)?.status ?? null,
+      refreshCadence: `Daily at 2:00 PM ${tzAbbr}`,
     })
   }
 
@@ -310,7 +308,7 @@ export default function ExitLocationDashboard({ clientId, dashboardKey, product,
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
           <Box sx={{ textAlign: 'right' }}>
             <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
-              Refreshes daily · 2:00 PM EST
+              Refreshes daily · 2:00 PM {tzAbbr}
             </Typography>
             <Typography sx={{ fontSize: 12, color: 'text.secondary', fontWeight: 500 }}>
               {refreshTime ? `Last refresh: ${refreshTime}` : ''}
@@ -446,7 +444,6 @@ export default function ExitLocationDashboard({ clientId, dashboardKey, product,
             { label: 'Qty',                key: null },
             { label: 'Department',         key: 'department' as const },
             { label: 'Time at Exit',       key: 'firstSeen' as const },
-            { label: 'Expected at Exit?',  key: null },
           ]).map(({ label, key }) => (
             <Box
               key={label}

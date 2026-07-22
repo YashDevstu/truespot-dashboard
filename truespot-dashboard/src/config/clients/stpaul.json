@@ -1,0 +1,20 @@
+{
+  "client_id": "stpaul",
+  "product": "health",
+  "display_name": "St. Paul Senior Services",
+  "locations": [],
+  "dashboards": {
+    "emailalerts": {
+      "label": "Email Alert Portal",
+      "dashboard_type": "email_alerts",
+      "workspace_name": "Health - Launch Portals",
+      "dataset_name": "St. Paul Senior Services",
+      "icon": "mail",
+      "description": "Review subscribed email alerts, recipients, and recent send activity.",
+      "category": "Notifications",
+      "mail_table": "St Paul Senior Services Mail",
+      "mail_no_assets_column": "HasNoAssetsFlag",
+      "mail_has_utc_columns": true
+    }
+  }
+}

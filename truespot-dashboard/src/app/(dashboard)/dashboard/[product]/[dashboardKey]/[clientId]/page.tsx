@@ -11,6 +11,7 @@ import MissingAssetsDashboard from '@/components/dashboard/MissingAssetsDashboar
 import HealthLocationDashboard from '@/components/dashboard/HealthLocationDashboard/HealthLocationDashboard'
 import InsightHubDashboard from '@/components/dashboard/InsightHubDashboard/InsightHubDashboard'
 import ExitLocationDashboard from '@/components/dashboard/ExitLocationDashboard/ExitLocationDashboard'
+import EmailAlertsDashboard from '@/components/dashboard/EmailAlertsDashboard/EmailAlertsDashboard'
 
 interface PageProps {
   params: Promise<{ product: string; dashboardKey: string; clientId: string }>
@@ -136,6 +137,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
     return (
       <Suspense fallback={fallback}>
         <ExitLocationDashboard {...sharedProps} />
+      </Suspense>
+    )
+  }
+
+  if (dashboard.dashboard_type === 'email_alerts') {
+    return (
+      <Suspense fallback={fallback}>
+        <EmailAlertsDashboard {...sharedProps} />
       </Suspense>
     )
   }

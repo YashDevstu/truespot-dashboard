@@ -32,8 +32,12 @@ export interface ActiveHealthFilters {
   assetName?: string          // 'Post-Aggregate'[Name]
   floor?: string              // 'Post-Aggregate'[Floor]
   geofence?: string           // 'Post-Aggregate'[Geofence]
+  subGeoZone?: string         // 'Post-Aggregate'[SubGeo]
   tagId?: string              // 'Post-Aggregate'[Beaconid]
-  assetId?: string            // 'Post-Aggregate'[VIN]
+  assetId?: string            // 'Post-Aggregate'[VIN Display] — same as [VIN] for populated rows, but
+                               // substitutes "Unassigned" for blank VINs (confirmed: 525 rows for Halifax,
+                               // 756 for BSA) — using raw [VIN] here silently hid that bucket from the
+                               // dropdown, since blank values are excluded from distinct-value queries.
   exitsFilter?: string        // 'Post-Aggregate'[Exits and Non Exits] — "Exit" | "Non-Exit"
   hourGroup?: string          // 'Post-Aggregate'[HourGrp] — e.g. "Less than 2hr", "30d+", or comma-separated multi
   outsideHospital?: string    // 'Post-Aggregate'[Outside/Inside] — "Yes" | "No"
@@ -46,8 +50,9 @@ const HEALTH_FILTER_COLUMNS: Partial<Record<keyof ActiveHealthFilters, string>> 
   assetName:       "'Post-Aggregate'[Name]",
   floor:           "'Post-Aggregate'[Floor]",
   geofence:        "'Post-Aggregate'[Geofence]",
+  subGeoZone:      "'Post-Aggregate'[SubGeo]",
   tagId:           "'Post-Aggregate'[Beaconid]",
-  assetId:         "'Post-Aggregate'[VIN]",
+  assetId:         "'Post-Aggregate'[VIN Display]",
   exitsFilter:     "'Post-Aggregate'[Exits and Non Exits]",
   hourGroup:       "'Post-Aggregate'[HourGrp]",
   outsideHospital: "'Post-Aggregate'[Outside/Inside]",
@@ -210,7 +215,7 @@ TOPN(
     ${source},
     "Department",      'Post-Aggregate'[My Department],
     "AssetName",       'Post-Aggregate'[Name],
-    "AssetId",         'Post-Aggregate'[VIN],
+    "AssetId",         'Post-Aggregate'[VIN Display],
     "TagId",           'Post-Aggregate'[Beaconid],
     "LastSeen",        'Post-Aggregate'[LastSeen CST],
     "DaysMissing",     'Post-Aggregate'[Not seen since],

@@ -170,6 +170,14 @@ export default function HealthLocationFilterSidebar({
             />
 
             <MultiFilter
+              label="Sub Geo Zone"
+              options={filterOptions.subGeoZone ?? []}
+              value={toArray(filters.subGeoZone)}
+              onChange={handleMulti('subGeoZone')}
+              placeholder="All sub geo zones"
+            />
+
+            <MultiFilter
               label="Floor Level"
               options={filterOptions.floorLevel ?? []}
               value={toArray(filters.floorLevel)}

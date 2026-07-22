@@ -143,6 +143,7 @@ export default function HealthFilterSidebar({
     toArray(filters.assetName).length > 0,
     toArray(filters.floor).length > 0,
     toArray(filters.geofence).length > 0,
+    toArray(filters.subGeoZone).length > 0,
     toArray(filters.tagId).length > 0,
     toArray(filters.assetId).length > 0,
     Boolean(filters.exitsFilter),
@@ -439,6 +440,13 @@ export default function HealthFilterSidebar({
               options={filterOptions.geofence ?? []}
               value={toArray(filters.geofence)}
               onChange={handleMulti('geofence')}
+            />
+
+            <MultiFilter
+              label="Sub Geo Zone"
+              options={filterOptions.subGeoZone ?? []}
+              value={toArray(filters.subGeoZone)}
+              onChange={handleMulti('subGeoZone')}
             />
 
             <MultiFilter
