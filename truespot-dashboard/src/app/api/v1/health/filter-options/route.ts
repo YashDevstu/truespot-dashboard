@@ -8,6 +8,7 @@ import { CACHE_TTL_LOCATION_HISTORY } from '@/constants/cache'
 import {
   buildHealthFilterConditions,
   buildHealthDistinctWithFiltersQuery,
+  BLANK_LABEL,
   type ActiveHealthFilters,
 } from '@/utils/daxHealth'
 
@@ -86,17 +87,22 @@ export async function GET(request: NextRequest) {
 
     const options: Record<string, string[]> = {}
     columnEntries.forEach(([key], index) => {
-      // "Unassigned" (the VIN Display fallback for blank VINs) pinned to the top —
-      // it's a real, common bucket, not just another alphabetical entry buried
-      // near the end since it starts with "U".
-      options[key] = (results[index] as Record<string, unknown>[])
-        .map((row) => String(row['[value]'] ?? ''))
-        .filter(Boolean)
-        .sort((a, b) => {
-          if (a === 'Unassigned') return -1
-          if (b === 'Unassigned') return 1
-          return a.localeCompare(b)
-        })
+      const raw = (results[index] as Record<string, unknown>[]).map((row) => String(row['[value]'] ?? ''))
+      const hasBlank = raw.some((v) => !v)
+      const nonBlank = raw.filter(Boolean)
+
+      // BLANK_LABEL and "Unassigned" (the VIN Display fallback for blank VINs)
+      // both pinned to the top — real, selectable buckets, not values silently
+      // dropped from the list or buried alphabetically near the end.
+      const combined = hasBlank ? [BLANK_LABEL, ...nonBlank] : nonBlank
+      options[key] = combined.sort((a, b) => {
+        const aPinned = a === BLANK_LABEL || a === 'Unassigned'
+        const bPinned = b === BLANK_LABEL || b === 'Unassigned'
+        if (aPinned && !bPinned) return -1
+        if (bPinned && !aPinned) return 1
+        if (aPinned && bPinned) return 0
+        return a.localeCompare(b)
+      })
     })
 
     return Response.json(options)

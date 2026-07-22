@@ -7,9 +7,21 @@ function sanitize(value: string): string {
   return value.replace(/["\\]/g, '')
 }
 
+// Sentinel selected from a filter dropdown to mean "rows where this column is
+// blank" — translated to ISBLANK() below rather than a literal string match,
+// since no real row actually contains the text "(Blank)".
+export const BLANK_LABEL = '(Blank)'
+
 function buildInCondition(column: string, values: string[]): string {
-  if (values.length === 1) return `${column} = "${sanitize(values[0])}"`
-  return `${column} IN {${values.map((v) => `"${sanitize(v)}"`).join(', ')}}`
+  const hasBlank = values.includes(BLANK_LABEL)
+  const realValues = values.filter((v) => v !== BLANK_LABEL)
+
+  const parts: string[] = []
+  if (realValues.length === 1) parts.push(`${column} = "${sanitize(realValues[0])}"`)
+  else if (realValues.length > 1) parts.push(`${column} IN {${realValues.map((v) => `"${sanitize(v)}"`).join(', ')}}`)
+  if (hasBlank) parts.push(`ISBLANK(${column})`)
+
+  return parts.length > 1 ? `(${parts.join(' || ')})` : parts[0]
 }
 
 // Values are joined with a bare "," by the filter sidebar from exact distinct-value
@@ -235,6 +247,9 @@ TOPN(
 
 // Returns distinct non-blank values for one column, filtered by all OTHER active
 // filters (cascading behaviour). Pass the DAX column reference as tableColumn.
+// Blanks are intentionally included here (not filtered out) — a blank result
+// becomes a real, selectable BLANK_LABEL option in the dropdown (see
+// filter-options/route.ts), instead of silently vanishing from the list.
 export function buildHealthDistinctWithFiltersQuery(
   tableColumn: string,
   conditions: string[]
@@ -243,7 +258,7 @@ export function buildHealthDistinctWithFiltersQuery(
     conditions.length > 0
       ? `FILTER('Post-Aggregate', ${conditions.join(' && ')})`
       : "'Post-Aggregate'"
-  return `EVALUATE SELECTCOLUMNS(FILTER(DISTINCT(SELECTCOLUMNS(${source}, "value", ${tableColumn})), NOT ISBLANK([value])), "value", [value])`
+  return `EVALUATE SELECTCOLUMNS(DISTINCT(SELECTCOLUMNS(${source}, "value", ${tableColumn})), "value", [value])`
 }
 
 // ── Refresh time query ─────────────────────────────────────────────────────────
