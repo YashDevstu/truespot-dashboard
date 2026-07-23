@@ -13,7 +13,8 @@
       "description": "Review subscribed email alerts, recipients, and recent send activity.",
       "category": "Notifications",
       "mail_table": "Halifax Mail",
-      "mail_no_assets_column": "HasNoAssets"
+      "mail_no_assets_column": "HasNoAssets",
+      "mail_has_utc_columns": true
     },
     "missingassets": {
       "label": "Missing Assets",

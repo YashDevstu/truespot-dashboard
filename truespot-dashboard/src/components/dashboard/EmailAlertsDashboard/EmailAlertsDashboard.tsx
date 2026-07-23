@@ -6,7 +6,8 @@ import Typography from '@mui/material/Typography'
 import Skeleton from '@mui/material/Skeleton'
 import Image from 'next/image'
 import { useEmailAlertsData, type EmailAlertGroup } from '@/hooks/useEmailAlertsData'
-import { parseFacilityLocalParts } from '@/utils/formatters'
+import { parseFacilityLocalParts, getUtcOffsetHours } from '@/utils/formatters'
+import { CLIENT_FACILITY_TIME_ZONE, DEFAULT_FACILITY_TIME_ZONE } from '@/constants/timezones'
 
 const GREEN = '#16a34a'
 const GREEN_BG = '#f0fdf4'
@@ -33,30 +34,46 @@ function toUtcMillis(iso: string): number | null {
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute)
 }
 
-function formatDateTime(iso: string): string {
-  if (!iso) return '—'
+// Converts a genuine-UTC "YYYY-MM-DDTHH:MM:SS" string into the client's own
+// facility-local wall-clock time (DST-aware), so the dashboard shows what the
+// client would actually see on their own clock — not a bare UTC number.
+function toFacilityLocalParts(iso: string, clientId: string) {
+  const utcMillis = toUtcMillis(iso)
+  if (utcMillis === null) return null
   const p = parseFacilityLocalParts(iso)
-  if (p.year === 0) return iso
+  const tz = CLIENT_FACILITY_TIME_ZONE[clientId] ?? DEFAULT_FACILITY_TIME_ZONE
+  const offsetHours = getUtcOffsetHours(tz, p.year, p.month, p.day, p.hour, p.minute)
+  const d = new Date(utcMillis + offsetHours * 3_600_000)
+  return {
+    year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(),
+    hour: d.getUTCHours(), minute: d.getUTCMinutes(),
+  }
+}
+
+function formatDateTime(iso: string, clientId: string): string {
+  if (!iso) return '—'
+  const p = toFacilityLocalParts(iso, clientId)
+  if (!p) return iso
   const hour12 = p.hour % 12 === 0 ? 12 : p.hour % 12
   const ampm = p.hour < 12 ? 'AM' : 'PM'
   const minute = String(p.minute).padStart(2, '0')
   return `${MONTH_NAMES[p.month - 1]} ${p.day}, ${p.year}, ${hour12}:${minute} ${ampm}`
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, clientId: string): string {
   if (!iso) return '—'
-  const p = parseFacilityLocalParts(iso)
-  if (p.year === 0) return iso
+  const p = toFacilityLocalParts(iso, clientId)
+  if (!p) return iso
   const hour12 = p.hour % 12 === 0 ? 12 : p.hour % 12
   const ampm = p.hour < 12 ? 'AM' : 'PM'
   const minute = String(p.minute).padStart(2, '0')
   return `${hour12}:${minute} ${ampm}`
 }
 
-function formatDateMDY(iso: string): string {
+function formatDateMDY(iso: string, clientId: string): string {
   if (!iso) return '—'
-  const p = parseFacilityLocalParts(iso)
-  if (p.year === 0) return iso
+  const p = toFacilityLocalParts(iso, clientId)
+  if (!p) return iso
   return `${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}-${p.year}`
 }
 
@@ -112,7 +129,7 @@ interface EmailAlertsDashboardProps {
 
 function KpiCard({ label, value, sublabel, valueColor }: { label: string; value: string | number; sublabel?: string; valueColor?: string }) {
   return (
-    <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, border: '1px solid', borderColor: 'divider', p: 3, flex: '1 1 220px' }}>
+    <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, border: '1px solid', borderColor: 'divider', p: 3, flex: '1 1 260px' }}>
       <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'text.disabled', textTransform: 'uppercase' }}>
         {label}
       </Typography>
@@ -137,10 +154,6 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
     null
   )
   const lastRunStatus = lastRunGroup ? computeStatus(lastRunGroup) : null
-
-  const recurrenceValues = [...new Set(groups.map((g) => g.recurrence).filter(Boolean))]
-  const recurrenceDisplay = recurrenceValues.length === 0 ? '—' : recurrenceValues.length === 1 ? recurrenceValues[0] : 'Varies'
-  const recurrenceSublabel = recurrenceValues.length > 1 ? recurrenceValues.join(' & ') : 'across all alerts'
 
   return (
     <Box>
@@ -187,16 +200,15 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
         <Box sx={{ display: 'flex', gap: 2.5, flexWrap: 'wrap' }}>
           <KpiCard label="Active Subscriptions" value={loading ? '—' : groups.length} sublabel="Org-wide" />
           <KpiCard label="Recipients" value={loading ? '—' : allRecipients.size} sublabel="across all alerts" />
-          <KpiCard label="Recurrence" value={loading ? '—' : recurrenceDisplay} sublabel={loading ? undefined : recurrenceSublabel} />
           <KpiCard
             label="Last Run"
-            value={loading ? '—' : (lastRunGroup ? formatTime(lastRunGroup.lastRun) : '—')}
+            value={loading ? '—' : (lastRunGroup ? formatTime(lastRunGroup.lastRun, clientId) : '—')}
             valueColor={loading || !lastRunStatus ? undefined : lastRunStatus.color}
             sublabel={
               loading
                 ? undefined
                 : lastRunGroup
-                ? formatDateMDY(lastRunGroup.lastRun)
+                ? formatDateMDY(lastRunGroup.lastRun, clientId)
                 : 'No sends recorded yet'
             }
           />
@@ -252,7 +264,7 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
                   </Typography>
 
                   <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatDateTime(group.lastRun)}
+                    {formatDateTime(group.lastRun, clientId)}
                   </Typography>
 
                   <Box>

@@ -3,6 +3,7 @@
 export const CLIENT_FACILITY_TIME_ZONE: Record<string, string> = {
   bsa:     'America/Chicago',   // Amarillo, TX — Central Time
   halifax: 'America/New_York',  // Daytona Beach, FL — Eastern Time
+  stpaul:  'America/Los_Angeles', // San Diego, CA (HQ) — Pacific Time, confirmed by client
 }
 
 export const DEFAULT_FACILITY_TIME_ZONE = 'America/Chicago'
