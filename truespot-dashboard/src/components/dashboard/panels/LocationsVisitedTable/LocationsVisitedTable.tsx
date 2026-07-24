@@ -4,7 +4,6 @@ import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Skeleton from '@mui/material/Skeleton'
 import Typography from '@mui/material/Typography'
-import Chip from '@mui/material/Chip'
 import Collapse from '@mui/material/Collapse'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
@@ -17,6 +16,8 @@ import LastPageIcon from '@mui/icons-material/LastPage'
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import LocationOffIcon from '@mui/icons-material/LocationOff'
+import ArrowRightAltIcon from '@mui/icons-material/ArrowRightAlt'
+import ScheduleIcon from '@mui/icons-material/Schedule'
 import { parsePings, mergeConsecutiveStops } from '@/utils/stops'
 import { toTitleCase } from '@/utils/formatters'
 
@@ -141,7 +142,24 @@ function SortPill({
 }
 
 const COLUMNS = ['#', 'VEHICLE', 'GEOFENCE', 'SUBZONE', 'TIME RANGE', 'DURATION'] as const
-const GRID = '32px minmax(110px, 180px) minmax(100px, 1fr) minmax(100px, 1fr) 160px 80px'
+// Kept deliberately narrow so the table fits inside the map+table split view.
+// The header/row region below also gets its own overflowX:'auto' wrapper as a
+// safety net — if a container is ever narrower than this, only the table
+// scrolls internally instead of blowing out the whole page's layout.
+const GRID = '26px minmax(76px, 110px) minmax(130px, 1.3fr) minmax(130px, 1.3fr) 132px minmax(76px, 110px)'
+
+// Numeric/time values use tabular figures (not a separate monospace font —
+// that would clash with the app's typeface) so digits stay aligned as they change.
+const TABULAR_NUMS = { fontVariantNumeric: 'tabular-nums' } as const
+
+// Standard 2-line clamp for long location names — shows meaningfully more
+// text than a single-line ellipsis without needing a hover to read it.
+const CLAMP_2_LINES = {
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical' as const,
+  overflow: 'hidden',
+}
 const PAGE_SIZE = 5
 
 // ── LocationsVisitedTable ─────────────────────────────────────────────────────
@@ -419,7 +437,7 @@ export default function LocationsVisitedTable({
               onClick={() => onSelectRow?.(isSelected ? null : stop.startMs)}
               sx={{
                 px: 2.5,
-                py: 1.5,
+                py: 1.75,
                 display: 'grid',
                 gridTemplateColumns: GRID,
                 gap: 1,
@@ -431,31 +449,39 @@ export default function LocationsVisitedTable({
                 borderLeftColor: isLive ? 'success.main' : 'transparent',
                 '&:last-child': { borderBottom: 'none' },
                 cursor: 'pointer',
-                transition: 'background-color 0.12s',
+                transitionProperty: 'background-color, box-shadow',
+                transitionDuration: '150ms',
+                transitionTimingFunction: 'ease-out',
+                position: 'relative',
+                zIndex: 0,
                 '&:hover': {
                   bgcolor: isSelected ? '#BBDEFB' : isLive ? '#E8F5E9' : 'grey.50',
+                  boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.04)',
+                  zIndex: 1,
                 },
               }}
             >
               {/* # */}
-              <Typography variant="body2" color="text.disabled" sx={{ fontWeight: 500 }}>{globalIndex + 1}</Typography>
+              <Typography variant="body2" color="text.disabled" sx={{ fontWeight: 500, ...TABULAR_NUMS }}>{globalIndex + 1}</Typography>
 
               {/* Vehicle */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
                 <AssetIcon assetType={stop.assetType} />
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'text.primary' }}
-                >
-                  {stop.model
-                    ? `${stop.model}${stop.year ? ` '${String(stop.year).slice(-2)}` : ''}`
-                    : stop.make || '—'}
-                </Typography>
+                <Tooltip title={stop.model ? `${stop.model}${stop.year ? ` '${String(stop.year).slice(-2)}` : ''}` : stop.make || ''}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'text.primary' }}
+                  >
+                    {stop.model
+                      ? `${stop.model}${stop.year ? ` '${String(stop.year).slice(-2)}` : ''}`
+                      : stop.make || '—'}
+                  </Typography>
+                </Tooltip>
               </Box>
 
-              {/* Geofence: colored dot + name */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                <Box sx={{ position: 'relative', width: 10, height: 10, flexShrink: 0 }}>
+              {/* Geofence: colored dot + name, wraps to 2 lines before truncating */}
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 0 }}>
+                <Box sx={{ position: 'relative', width: 10, height: 10, flexShrink: 0, mt: 0.4 }}>
                   {isLive && (
                     <Box
                       sx={{
@@ -470,64 +496,114 @@ export default function LocationsVisitedTable({
                   )}
                   <Box sx={{ position: 'relative', width: 10, height: 10, borderRadius: '50%', bgcolor: dotColor }} />
                 </Box>
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: isLive ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                >
-                  {stop.geofence || '—'}
-                </Typography>
+                <Tooltip title={stop.geofence || ''}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: isLive ? 600 : 500, lineHeight: 1.35, ...CLAMP_2_LINES }}
+                  >
+                    {stop.geofence || '—'}
+                  </Typography>
+                </Tooltip>
               </Box>
 
-              {/* Subzone + floor level */}
+              {/* Subzone + floor level, wraps to 2 lines before truncating */}
               <Box sx={{ minWidth: 0 }}>
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                >
-                  {stop.subZone || '—'}
-                </Typography>
+                <Tooltip title={stop.subZone || ''}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600, lineHeight: 1.35, ...CLAMP_2_LINES }}
+                  >
+                    {stop.subZone || '—'}
+                  </Typography>
+                </Tooltip>
                 {stop.floorLevel && (
                   <Typography variant="caption" color="text.disabled">{stop.floorLevel}</Typography>
                 )}
               </Box>
 
-              {/* Time range: date label above, time range below */}
+              {/* Time range: date badge above, icon-linked start/end times below */}
               <Box>
-                <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', lineHeight: 1.2, mb: 0.25 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    display: 'inline-block',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: 0.3,
+                    color: 'text.secondary',
+                    bgcolor: 'grey.100',
+                    borderRadius: '4px',
+                    px: 0.6,
+                    py: 0.15,
+                    mb: 0.5,
+                    lineHeight: 1.4,
+                  }}
+                >
                   {isLive ? fmtDateShort(stop.startMs) : fmtDateLabel(stop.startMs, stop.endMs)}
-                </Typography>
-                <Typography variant="body2" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                  {fmtTime(stop.startMs)}
-                  {' → '}
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, whiteSpace: 'nowrap' }}>
+                  <Typography variant="body2" sx={{ color: 'text.primary', fontSize: 13, ...TABULAR_NUMS }}>
+                    {fmtTime(stop.startMs)}
+                  </Typography>
+                  <ArrowRightAltIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
                   {isLive
-                    ? <Box component="span" sx={{ color: 'success.main', fontWeight: 700 }}>now</Box>
-                    : fmtTime(stop.endMs)
+                    ? <Box component="span" sx={{ color: 'success.main', fontWeight: 700, fontSize: 13, ...TABULAR_NUMS }}>now</Box>
+                    : (
+                      <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 13, ...TABULAR_NUMS }}>
+                        {fmtTime(stop.endMs)}
+                      </Typography>
+                    )
                   }
-                </Typography>
+                </Box>
               </Box>
 
-              {/* Duration + Live chip */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              {/* Duration badge — Live state folded into the same pill instead of a second chip.
+                  justifySelf keeps the pill sized to its own content instead of stretching
+                  to fill the grid column (CSS Grid's default for items without justify-self). */}
+              <Box
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifySelf: 'start',
+                  gap: 0.5,
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                  whiteSpace: 'nowrap',
+                  borderRadius: '999px',
+                  border: '1px solid',
+                  borderColor: isLive ? 'success.light' : 'divider',
+                  bgcolor: isLive ? 'rgba(46, 125, 50, 0.08)' : 'grey.50',
+                  px: 1,
+                  py: 0.4,
+                }}
+              >
+                {isLive ? (
+                  <Box sx={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }}>
+                    <Box
+                      sx={{
+                        position: 'absolute', inset: 0, borderRadius: '50%',
+                        bgcolor: 'success.main', ...pulseRing,
+                        animation: 'pulseRing 1.8s ease-out infinite',
+                      }}
+                    />
+                    <Box sx={{ position: 'relative', width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
+                  </Box>
+                ) : (
+                  <ScheduleIcon sx={{ fontSize: 13, color: 'text.disabled', flexShrink: 0 }} />
+                )}
                 <Typography
                   variant="body2"
-                  sx={{ fontWeight: isLive ? 700 : 500, color: isLive ? 'success.main' : 'text.primary' }}
+                  sx={{
+                    fontWeight: isLive ? 700 : 600,
+                    color: isLive ? 'success.main' : 'text.primary',
+                    fontSize: 13,
+                    lineHeight: 1,
+                    whiteSpace: 'nowrap',
+                    ...TABULAR_NUMS,
+                  }}
                 >
                   {fmtDuration(stop.totalMinutes)}
                 </Typography>
-                {isLive && (
-                  <Chip
-                    label="Live"
-                    size="small"
-                    sx={{
-                      height: 18,
-                      fontSize: 10,
-                      fontWeight: 700,
-                      bgcolor: 'success.main',
-                      color: '#fff',
-                      '& .MuiChip-label': { px: 0.75 },
-                    }}
-                  />
-                )}
               </Box>
             </Box>
           )
