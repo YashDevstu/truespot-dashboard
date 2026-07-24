@@ -1,0 +1,39 @@
+{
+  "client_id": "findlaycadillac",
+  "product": "automotive",
+  "display_name": "Findlay Cadillac",
+  "locations": [],
+  "dashboards": {
+    "locationhistory": {
+      "label": "Location History",
+      "workspace_name": "Auto - Location History",
+      "icon": "history",
+      "description": "Track vehicle movement across your lot",
+      "category": "Operations & Workflow",
+      "dataset_name": "Findlay Cadillac",
+      "asset_status_column": "Asset Status",
+      "panels": [
+        {
+          "id": "last-refresh",
+          "title": "Last Refresh",
+          "type": "kpi_card",
+          "measure": "[Last Refresh]"
+        },
+        {
+          "id": "location-history-data",
+          "title": "Locations Visited",
+          "type": "data_table",
+          "filter_columns": {
+            "geofence":    "AppendFinal[Geofence]",
+            "subGeoZone":  "AppendFinal[SubGeoZone]",
+            "floorLevel":  "AppendFinal[Floor Level]",
+            "beaconId":    "AppendFinal[BeaconId]",
+            "vin":         "AppendFinal[VIN Updated]",
+            "stockNumber": "AppendFinal[StockNumber]",
+            "assetType":   "AppendFinal[AssetType]"
+          }
+        }
+      ]
+    }
+  }
+}

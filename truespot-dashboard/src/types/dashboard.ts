@@ -65,6 +65,10 @@ export const DashboardConfigSchema = z.object({
   // across ALL sends of a report type, including "no result" ones) — lets status
   // logic tell "automation stopped" apart from "automation is fine, nothing found."
   mail_has_heartbeat_column: z.boolean().optional(),
+  // Location History — the AssetStatus column name varies per client's Fabric
+  // model (most use "AssetStatus", Findlay Cadillac uses "Asset Status" with a
+  // space). Defaults to "AssetStatus" in buildBaseConditions when unset.
+  asset_status_column: z.string().optional(),
 })
 
 export type DashboardConfig = z.infer<typeof DashboardConfigSchema>

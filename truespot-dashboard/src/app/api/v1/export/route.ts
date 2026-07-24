@@ -10,14 +10,14 @@ import { CACHE_TTL_LOCATION_HISTORY } from '@/constants/cache'
 // Builds a location history query identical to buildLocationHistoryQuery but
 // adds a "DateLabel" column (AppendFinal[LastSeenDateDefault]) so the exported
 // rows carry the date label used for filtering in the file-based client project.
-function buildExportQuery(dateSeen: string, timeChunk: TimeChunk): string {
+function buildExportQuery(dateSeen: string, timeChunk: TimeChunk, assetStatusColumn = 'AssetStatus'): string {
   const { startFraction, endFraction } = timeChunk
   return `EVALUATE
 SELECTCOLUMNS(
   FILTER(
     AppendFinal,
-    AppendFinal[AssetStatus] <> "Sold"
-    && AppendFinal[AssetStatus] <> "Archieved"
+    AppendFinal[${assetStatusColumn}] <> "Sold"
+    && AppendFinal[${assetStatusColumn}] <> "Archieved"
     && DATEDIFF(AppendFinal[Last Seen-Local], AppendFinal[PreviousLastSeenNew_], MINUTE) > 0
     && AppendFinal[Make] <> "zz_manualentry"
     && AppendFinal[LastSeenDateDefault] = "${dateSeen}"
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
         DAY_TIME_CHUNKS.map((timeChunk) =>
           executeQuery(
             dashboard.dataset_name,
-            buildExportQuery(dateSeen, timeChunk),
+            buildExportQuery(dateSeen, timeChunk, dashboard.asset_status_column),
             CACHE_TTL_LOCATION_HISTORY
           )
         )

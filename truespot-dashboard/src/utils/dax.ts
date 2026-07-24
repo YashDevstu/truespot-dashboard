@@ -9,12 +9,16 @@ const DURATION_DAX = `DATEDIFF(AppendFinal[Last Seen-Local], AppendFinal[Previou
 
 // Always-on data quality guards: exclude sold/archived assets, zero-duration
 // pings, and manual-entry placeholder records.
-const BASE_CONDITIONS = [
-  'AppendFinal[AssetStatus] <> "Sold"',
-  'AppendFinal[AssetStatus] <> "Archieved"',
-  `${DURATION_DAX} > 0`,
-  'AppendFinal[Make] <> "zz_manualentry"',
-]
+// assetStatusColumn varies per client — most Fabric models name it "AssetStatus",
+// but some (e.g. Findlay Cadillac) use "Asset Status" with a space.
+function buildBaseConditions(assetStatusColumn = 'AssetStatus'): string[] {
+  return [
+    `AppendFinal[${assetStatusColumn}] <> "Sold"`,
+    `AppendFinal[${assetStatusColumn}] <> "Archieved"`,
+    `${DURATION_DAX} > 0`,
+    'AppendFinal[Make] <> "zz_manualentry"',
+  ]
+}
 
 // Parse a comma-separated filter value (e.g. "VIN1,VIN2") into an array.
 // Single values work too: "VIN1" → ["VIN1"]. Empty / undefined → [].
@@ -76,9 +80,10 @@ export interface ActiveFilters {
 //   compatible options rather than collapsing to a single selected value.
 export function buildCascadeConditions(
   filters: ActiveFilters,
-  excludeKey?: keyof ActiveFilters
+  excludeKey?: keyof ActiveFilters,
+  assetStatusColumn?: string
 ): string[] {
-  const conditions = [...BASE_CONDITIONS]
+  const conditions = buildBaseConditions(assetStatusColumn)
 
   const apply = (key: keyof ActiveFilters, column: string) => {
     if (key === excludeKey) return
@@ -155,11 +160,12 @@ interface LocationHistoryFilters {
   minDurationMinutes?: number
   limit?: number   // when set: bypasses time chunks, wraps result in TOPN
   cursor?: number  // DAX datetime serial — if set, adds < cursor condition for next-page
+  assetStatusColumn?: string  // per-client override, see buildBaseConditions
 }
 
 export function buildLocationHistoryQuery(filters: LocationHistoryFilters = {}): string {
   const minDur = filters.minDurationMinutes ?? 0
-  const conditions: string[] = [...BASE_CONDITIONS]
+  const conditions: string[] = buildBaseConditions(filters.assetStatusColumn)
 
   if (filters.dateSeen) {
     conditions.push(`AppendFinal[LastSeenDateDefault] = "${sanitize(filters.dateSeen)}"`)

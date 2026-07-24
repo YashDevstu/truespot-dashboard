@@ -57,7 +57,7 @@ async function warmDashboard(clientId: string, dashboardKey: string) {
   const dateLabels = ['Today', ...lastNDayLabels(7)]
   const queries = dateLabels.flatMap((dateSeen) =>
     DAY_TIME_CHUNKS.map((timeChunk) =>
-      buildLocationHistoryQuery({ dateSeen, timeChunk })
+      buildLocationHistoryQuery({ dateSeen, timeChunk, assetStatusColumn: dashboard.asset_status_column })
     )
   )
 

@@ -42,11 +42,12 @@ async function fetchDateChunked(
   datasetName: string,
   dateSeen: string,
   baseFilters: Record<string, unknown>,
-  ttl: number
+  ttl: number,
+  assetStatusColumn: string | undefined
 ): Promise<Record<string, unknown>[]> {
   const chunkRows = await Promise.all(
     DAY_TIME_CHUNKS.map((timeChunk) => {
-      const q = buildLocationHistoryQuery({ ...baseFilters, dateSeen, timeChunk } as Parameters<typeof buildLocationHistoryQuery>[0])
+      const q = buildLocationHistoryQuery({ ...baseFilters, dateSeen, timeChunk, assetStatusColumn } as Parameters<typeof buildLocationHistoryQuery>[0])
       return executeQuery(datasetName, q, ttl)
     })
   )
@@ -114,6 +115,7 @@ export async function POST(request: NextRequest) {
           dateSeen: filters.dateSeen ?? undefined,
           limit: filters.limit,
           cursor: filters.cursor ?? undefined,
+          assetStatusColumn: dashboard.asset_status_column,
         })
         const rows = await executeQuery(dashboard.dataset_name, q, ttl)
         return Response.json({ rows, refreshedAt: null } satisfies QueryResponse)
@@ -121,7 +123,7 @@ export async function POST(request: NextRequest) {
 
       if (filters?.dateSeen && filters.dateSeen !== 'all') {
         // Single date: 4 parallel 6-hour chunks → each chunk < 15 MB → merge
-        const rows = await fetchDateChunked(dashboard.dataset_name, filters.dateSeen, baseFilters, ttl)
+        const rows = await fetchDateChunked(dashboard.dataset_name, filters.dateSeen, baseFilters, ttl, dashboard.asset_status_column)
         return Response.json({ rows, refreshedAt: null } satisfies QueryResponse)
       }
 
@@ -130,7 +132,7 @@ export async function POST(request: NextRequest) {
       const dateLabels = ['Today', ...lastNDayLabels(7)]
       const allChunkResults = await Promise.all(
         dateLabels.map((dateSeen) =>
-          fetchDateChunked(dashboard.dataset_name, dateSeen, baseFilters, ttl)
+          fetchDateChunked(dashboard.dataset_name, dateSeen, baseFilters, ttl, dashboard.asset_status_column)
         )
       )
       const rows = allChunkResults.flat()

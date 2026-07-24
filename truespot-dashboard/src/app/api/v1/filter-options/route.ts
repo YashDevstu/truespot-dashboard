@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     // but exclude that column's own filter (so the dropdown isn't locked to 1 item).
     const results = await Promise.all(
       columnEntries.map(([key, col]) => {
-        const conds = buildCascadeConditions(activeFilters, key as keyof ActiveFilters)
+        const conds = buildCascadeConditions(activeFilters, key as keyof ActiveFilters, dashboard.asset_status_column)
         return executeQuery(dashboard.dataset_name, buildDistinctWithFiltersQuery(col, conds), ttl)
       })
     )
