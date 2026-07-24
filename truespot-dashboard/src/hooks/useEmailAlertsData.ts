@@ -18,6 +18,11 @@ export interface EmailAlertRow {
   recurrenceIntervalMinutes:  number | null
   undeliverable:              boolean
   noAssetsFlag:               boolean
+  // Timestamp of the most recent send of ANY kind for this report type — including
+  // "no result" sends that are otherwise excluded from display. Only present for
+  // clients whose Mail table exposes it; null means fall back to dateTimeReceived
+  // for overdue math (the only signal we have for that client).
+  lastHeartbeat:              string | null
 }
 
 // One row per distinct alert type (grouped by cleanSubject).
@@ -26,7 +31,8 @@ export interface EmailAlertGroup {
   recipients:                 string[]     // distinct recipients across the group
   recurrence:                 string       // recurrence of the group, or "Mixed" if inconsistent
   recurrenceIntervalMinutes:  number | null // null if inconsistent or not yet available for this client
-  lastRun:                    string       // most recent dateTimeReceived in the group
+  lastRun:                    string       // most recent GENUINE dateTimeReceived in the group — shown in the UI
+  lastHeartbeat:              string       // most recent send of any kind — used for overdue/active math only
   isActive:                   boolean      // true if the MOST RECENT send in this group wasn't a bounce
   rows:                       EmailAlertRow[]
 }
@@ -50,6 +56,9 @@ function parseRow(row: Record<string, unknown>): EmailAlertRow {
   const recurrenceIntervalMinutes =
     intervalRaw !== undefined && intervalRaw !== null ? Number(intervalRaw) : null
 
+  const heartbeatRaw = row['[LastHeartbeat]']
+  const lastHeartbeat = heartbeatRaw !== undefined && heartbeatRaw !== null ? String(heartbeatRaw) : null
+
   return {
     subject,
     cleanSubject:     subject.replace(UNDELIVERABLE_PREFIX, '').trim(),
@@ -59,6 +68,7 @@ function parseRow(row: Record<string, unknown>): EmailAlertRow {
     recurrenceIntervalMinutes,
     undeliverable,
     noAssetsFlag:     Number(row['[NoAssetsFlag]'] ?? 0) === 1,
+    lastHeartbeat,
   }
 }
 
@@ -83,12 +93,18 @@ function groupRows(rows: EmailAlertRow[]): EmailAlertGroup[] {
       )
       const recurrenceIntervalMinutes = intervals.size === 1 ? [...intervals][0] : null
 
+      // Heartbeat is the same value on every row within a report type (computed
+      // group-wide upstream in the M query), so any row's value works — falls
+      // back to the genuine lastRun for clients that don't expose it yet.
+      const lastHeartbeat = latest?.lastHeartbeat ?? latest?.dateTimeReceived ?? ''
+
       return {
         cleanSubject,
         recipients,
         recurrence,
         recurrenceIntervalMinutes,
         lastRun: latest?.dateTimeReceived ?? '',
+        lastHeartbeat,
         isActive: latest ? !latest.undeliverable : false,
         rows: groupRows,
       }

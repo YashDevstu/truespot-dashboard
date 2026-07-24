@@ -61,6 +61,10 @@ export const DashboardConfigSchema = z.object({
   // 5:30 there, St. Paul subtracts 5:00, so each needs its own compensation).
   // Defaults to 330 (5:30) to preserve existing Halifax behavior when unset.
   mail_utc_correction_minutes: z.number().optional(),
+  // True once this client's Mail table computes LastHeartbeat (max EffectiveDate
+  // across ALL sends of a report type, including "no result" ones) — lets status
+  // logic tell "automation stopped" apart from "automation is fine, nothing found."
+  mail_has_heartbeat_column: z.boolean().optional(),
 })
 
 export type DashboardConfig = z.infer<typeof DashboardConfigSchema>

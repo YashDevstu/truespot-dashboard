@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Alert from '@mui/material/Alert'
 import Typography from '@mui/material/Typography'
@@ -74,6 +75,10 @@ interface AlertStatus {
 
 const TOLERANCE_MULTIPLIER = 2
 
+// Overdue/Active math uses `lastHeartbeat` (last send of ANY kind), not `lastRun`
+// (last GENUINE detection) — an alert that correctly finds nothing to report for
+// hours isn't "overdue," it's working fine. Falls back to lastRun for clients
+// without a heartbeat column, since that's the only signal available there.
 function computeStatus(group: EmailAlertGroup): AlertStatus {
   if (!group.lastRun) {
     return { label: 'No Data', color: MUTED, bg: '#f8fafc', border: '#e2e8f0', sublabel: 'no sends recorded' }
@@ -82,15 +87,15 @@ function computeStatus(group: EmailAlertGroup): AlertStatus {
     return { label: 'Delivery Issue', color: AMBER, bg: AMBER_BG, border: AMBER_BORDER, sublabel: 'last send bounced' }
   }
 
-  const lastRunMs = toUtcMillis(group.lastRun)
-  if (lastRunMs === null || group.recurrenceIntervalMinutes === null) {
+  const heartbeatMs = toUtcMillis(group.lastHeartbeat || group.lastRun)
+  if (heartbeatMs === null || group.recurrenceIntervalMinutes === null) {
     return { label: 'Active', color: GREEN, bg: GREEN_BG, border: GREEN_BORDER, sublabel: '' }
   }
 
-  const elapsedMinutes = Math.round((Date.now() - lastRunMs) / 60_000)
+  const elapsedMinutes = Math.round((Date.now() - heartbeatMs) / 60_000)
   const overdue = elapsedMinutes > group.recurrenceIntervalMinutes * TOLERANCE_MULTIPLIER
   return overdue
-    ? { label: 'Overdue', color: AMBER, bg: AMBER_BG, border: AMBER_BORDER, sublabel: `${elapsedMinutes}m since last run` }
+    ? { label: 'Overdue', color: AMBER, bg: AMBER_BG, border: AMBER_BORDER, sublabel: `${elapsedMinutes}m since last check-in` }
     : { label: 'Active', color: GREEN, bg: GREEN_BG, border: GREEN_BORDER, sublabel: 'on time' }
 }
 
@@ -110,12 +115,28 @@ interface EmailAlertsDashboardProps {
   dashboardLabel: string
 }
 
-function KpiCard({ label, value, sublabel, valueColor, accent }: { label: string; value: string | number; sublabel?: string; valueColor?: string; accent?: string }) {
+function KpiCard({
+  label, value, sublabel, valueColor, accent, selected, onClick,
+}: {
+  label: string; value: string | number; sublabel?: string; valueColor?: string
+  accent?: string; selected?: boolean; onClick?: () => void
+}) {
   return (
     <Box
+      onClick={onClick}
       sx={{
-        bgcolor: 'background.paper', borderRadius: 3, border: '1px solid',
-        borderColor: accent ?? 'divider', p: 3, flex: '1 1 200px',
+        bgcolor: selected ? (accent ? `${accent}0d` : 'action.selected') : 'background.paper',
+        borderRadius: 3, border: '1.5px solid',
+        borderColor: selected ? (accent ?? 'primary.main') : 'divider',
+        p: 3, flex: '1 1 200px',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease',
+        boxShadow: selected ? `0 0 0 3px ${accent ?? '#2563eb'}1a` : 'none',
+        '&:hover': onClick ? {
+          borderColor: accent ?? 'primary.main',
+          boxShadow: `0 2px 8px rgba(15, 23, 42, 0.06)`,
+          transform: 'translateY(-1px)',
+        } : undefined,
       }}
     >
       <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: accent ?? 'text.disabled', textTransform: 'uppercase' }}>
@@ -129,6 +150,26 @@ function KpiCard({ label, value, sublabel, valueColor, accent }: { label: string
           {sublabel}
         </Typography>
       )}
+    </Box>
+  )
+}
+
+// Premium SaaS-style status badge: small rounded-rect (not a full pill), soft
+// tinted background, colored text + dot. The polish comes from restraint —
+// modest radius, no border, no animation — rather than from a bold pill shape.
+function StatusPill({ status }: { status: AlertStatus }) {
+  return (
+    <Box
+      sx={{
+        display: 'inline-flex', alignItems: 'center', gap: 0.65,
+        pl: 1, pr: 1.35, py: 0.5, borderRadius: '7px',
+        bgcolor: status.bg, justifySelf: 'start',
+      }}
+    >
+      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: status.color, flexShrink: 0 }} />
+      <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.015em', color: status.color }}>
+        {status.label}
+      </Typography>
     </Box>
   )
 }
@@ -150,12 +191,27 @@ function countByCadence(groups: EmailAlertGroup[]) {
   return { daily, weekly }
 }
 
+type CadenceFilter = 'all' | 'daily' | 'weekly' | 'overdue'
+
 export default function EmailAlertsDashboard({ clientId, dashboardKey, displayName, dashboardLabel }: EmailAlertsDashboardProps) {
   const { groups, loading, error } = useEmailAlertsData(clientId, dashboardKey)
+  const [filter, setFilter] = useState<CadenceFilter>('all')
 
   const allRecipients = new Set(groups.flatMap((g) => g.recipients))
   const { daily, weekly } = countByCadence(groups)
   const lateRunCount = groups.filter((g) => computeStatus(g).label === 'Overdue').length
+
+  const visibleGroups = groups.filter((g) => {
+    if (filter === 'all') return true
+    if (filter === 'overdue') return computeStatus(g).label === 'Overdue'
+    if (filter === 'daily') return g.recurrenceIntervalMinutes !== null && g.recurrenceIntervalMinutes <= DAY_MINUTES
+    if (filter === 'weekly') return g.recurrenceIntervalMinutes !== null && g.recurrenceIntervalMinutes > DAY_MINUTES
+    return true
+  })
+
+  function toggleFilter(next: CadenceFilter) {
+    setFilter((current) => (current === next ? 'all' : next))
+  }
 
   return (
     <Box>
@@ -187,8 +243,15 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
             <Typography sx={{ fontSize: { xs: '1.5rem', sm: '1.875rem' }, fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.2 }}>
               {dashboardLabel}
             </Typography>
-            <Box sx={{ px: 1.25, py: 0.35, borderRadius: 6, bgcolor: '#f0fdfb', border: '1px solid #99f6e4', flexShrink: 0 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: TEAL, letterSpacing: '0.01em' }}>{displayName}</Typography>
+            <Box
+              sx={{
+                display: 'inline-flex', alignItems: 'center', gap: 0.65,
+                pl: 1, pr: 1.35, py: 0.5, borderRadius: '7px',
+                bgcolor: '#f0fdfb', flexShrink: 0,
+              }}
+            >
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: TEAL, flexShrink: 0 }} />
+              <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.015em', color: TEAL }}>{displayName}</Typography>
             </Box>
           </Box>
 
@@ -198,31 +261,54 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
           </Box>
         </Box>
 
-        {/* KPI cards */}
+        {/* KPI cards — clickable, filter the table below */}
         <Box sx={{ display: 'flex', gap: 2.5, flexWrap: 'wrap' }}>
           <KpiCard
             label="Subscriptions" accent={AVATAR_BLUE}
             value={loading ? '—' : groups.length} sublabel="active alerts"
+            selected={filter === 'all'}
+            onClick={() => setFilter('all')}
           />
-          <KpiCard label="Daily" value={loading ? '—' : daily} sublabel="recurring daily" />
-          <KpiCard label="Weekly" value={loading ? '—' : weekly} sublabel="recurring weekly" />
+          <KpiCard
+            label="Daily" value={loading ? '—' : daily} sublabel="recurring daily"
+            selected={filter === 'daily'}
+            onClick={() => toggleFilter('daily')}
+          />
+          <KpiCard
+            label="Weekly" value={loading ? '—' : weekly} sublabel="recurring weekly"
+            selected={filter === 'weekly'}
+            onClick={() => toggleFilter('weekly')}
+          />
           <KpiCard
             label="Late Run" accent={AMBER}
             value={loading ? '—' : lateRunCount}
             valueColor={!loading && lateRunCount > 0 ? AMBER : undefined}
             sublabel="currently overdue"
+            selected={filter === 'overdue'}
+            onClick={() => toggleFilter('overdue')}
           />
         </Box>
 
         {/* Table */}
         <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
-          <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
             <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'text.disabled', textTransform: 'uppercase' }}>
               Subscribed Email Alerts
             </Typography>
+            {filter !== 'all' && (
+              <Box
+                onClick={() => setFilter('all')}
+                sx={{
+                  cursor: 'pointer', fontSize: 11.5, fontWeight: 700, color: 'primary.main',
+                  '&:hover': { textDecoration: 'underline' },
+                }}
+              >
+                Clear filter ×
+              </Box>
+            )}
           </Box>
 
-          {!loading && groups.length > 0 && (
+          {!loading && visibleGroups.length > 0 && (
             <Box
               sx={{
                 display: 'grid', gridTemplateColumns: '2.2fr 1.2fr 1.3fr 0.9fr',
@@ -239,12 +325,12 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
 
           {loading ? (
             <Box sx={{ p: 3 }}><Skeleton height={120} /></Box>
-          ) : groups.length === 0 ? (
+          ) : visibleGroups.length === 0 ? (
             <Typography sx={{ fontSize: 13, color: 'text.disabled', textAlign: 'center', py: 5 }}>
-              No email alerts recorded yet.
+              {groups.length === 0 ? 'No email alerts recorded yet.' : 'No alerts match this filter.'}
             </Typography>
           ) : (
-            groups.map((group) => {
+            visibleGroups.map((group) => {
               const status = computeStatus(group)
               return (
                 <Box
@@ -267,20 +353,7 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
                     {formatDateTime(group.lastRun, clientId)}
                   </Typography>
 
-                  <Box>
-                    <Box
-                      sx={{
-                        display: 'inline-flex', alignItems: 'center', gap: 0.6,
-                        px: 1.1, py: 0.35, borderRadius: 6,
-                        bgcolor: status.bg, border: '1px solid', borderColor: status.border,
-                      }}
-                    >
-                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: status.color, flexShrink: 0 }} />
-                      <Typography sx={{ fontSize: 11, fontWeight: 700, color: status.color }}>
-                        {status.label}
-                      </Typography>
-                    </Box>
-                  </Box>
+                  <StatusPill status={status} />
                 </Box>
               )
             })

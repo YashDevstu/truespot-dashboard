@@ -15,7 +15,8 @@
       "mail_table": "St Paul Senior Services Mail",
       "mail_no_assets_column": "HasNoAssetsFlag",
       "mail_has_utc_columns": true,
-      "mail_utc_correction_minutes": 300
+      "mail_utc_correction_minutes": 300,
+      "mail_has_heartbeat_column": true
     }
   }
 }

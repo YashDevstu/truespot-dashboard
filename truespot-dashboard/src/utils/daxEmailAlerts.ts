@@ -34,11 +34,18 @@ function sanitizeTableName(name: string): string {
 // Halifax's M query subtracts 5:30, St. Paul's subtracts 5:00 — so it's passed
 // in as `utcCorrectionMinutes` (from the client's `mail_utc_correction_minutes`
 // config) rather than hardcoded, to avoid over/under-correcting per client.
+//
+// `hasHeartbeatColumn` — true once a client's Mail table computes LastHeartbeat
+// (max EffectiveDate across ALL sends of a report type, including excluded
+// "no result" ones) — lets status logic distinguish "automation stopped" from
+// "automation is fine, just found nothing to report." Not all migrated clients
+// have this column yet, so it's a separate flag from hasCorrectedColumns.
 export function buildEmailAlertRowsQuery(
   tableName: string,
   noAssetsFlagColumn: string,
   hasCorrectedColumns = false,
-  utcCorrectionMinutes = 330
+  utcCorrectionMinutes = 330,
+  hasHeartbeatColumn = false
 ): string {
   const t = sanitizeTableName(tableName)
   const flagCol = noAssetsFlagColumn.replace(/[[\]]/g, '')
@@ -46,6 +53,9 @@ export function buildEmailAlertRowsQuery(
   if (hasCorrectedColumns) {
     const hours = Math.floor(utcCorrectionMinutes / 60)
     const minutes = utcCorrectionMinutes % 60
+    const heartbeatColumn = hasHeartbeatColumn
+      ? `,\n  "LastHeartbeat",             '${t}'[LastHeartbeat] + TIME(${hours},${minutes},0)`
+      : ''
     return `EVALUATE
 SELECTCOLUMNS(
   '${t}',
@@ -55,7 +65,7 @@ SELECTCOLUMNS(
   "Recurrence",                '${t}'[Recurrence],
   "RecurrenceIntervalMinutes", '${t}'[RecurrenceIntervalMinutes],
   "IsUndeliverable",           '${t}'[IsUndeliverable],
-  "NoAssetsFlag",              '${t}'[${flagCol}]
+  "NoAssetsFlag",              '${t}'[${flagCol}]${heartbeatColumn}
 )
 ORDER BY [DateTimeReceived] DESC`
   }
