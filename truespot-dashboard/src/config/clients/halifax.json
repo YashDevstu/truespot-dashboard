@@ -14,7 +14,8 @@
       "category": "Notifications",
       "mail_table": "Halifax Mail",
       "mail_no_assets_column": "HasNoAssets",
-      "mail_has_utc_columns": true
+      "mail_has_utc_columns": true,
+      "mail_utc_correction_minutes": 330
     },
     "missingassets": {
       "label": "Missing Assets",

@@ -56,6 +56,11 @@ export const DashboardConfigSchema = z.object({
   // True once this client's Mail table has the corrected Power Query columns
   // (DateTimeReceivedUTC, RecurrenceIntervalMinutes, folder-aware IsUndeliverable).
   mail_has_utc_columns:   z.boolean().optional(),
+  // Minutes added back to DateTimeReceivedUTC to recover true UTC — this must
+  // match this client's own M-query correction magnitude (Halifax subtracts
+  // 5:30 there, St. Paul subtracts 5:00, so each needs its own compensation).
+  // Defaults to 330 (5:30) to preserve existing Halifax behavior when unset.
+  mail_utc_correction_minutes: z.number().optional(),
 })
 
 export type DashboardConfig = z.infer<typeof DashboardConfigSchema>

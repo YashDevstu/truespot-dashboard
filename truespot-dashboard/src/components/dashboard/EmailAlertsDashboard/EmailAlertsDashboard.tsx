@@ -60,23 +60,6 @@ function formatDateTime(iso: string, clientId: string): string {
   return `${MONTH_NAMES[p.month - 1]} ${p.day}, ${p.year}, ${hour12}:${minute} ${ampm}`
 }
 
-function formatTime(iso: string, clientId: string): string {
-  if (!iso) return '—'
-  const p = toFacilityLocalParts(iso, clientId)
-  if (!p) return iso
-  const hour12 = p.hour % 12 === 0 ? 12 : p.hour % 12
-  const ampm = p.hour < 12 ? 'AM' : 'PM'
-  const minute = String(p.minute).padStart(2, '0')
-  return `${hour12}:${minute} ${ampm}`
-}
-
-function formatDateMDY(iso: string, clientId: string): string {
-  if (!iso) return '—'
-  const p = toFacilityLocalParts(iso, clientId)
-  if (!p) return iso
-  return `${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}-${p.year}`
-}
-
 // Real computed status, not an asserted label — "on time"/"overdue" only appears
 // when RecurrenceIntervalMinutes is actually known for this alert (migrated
 // clients); otherwise falls back to a neutral elapsed description so nothing is
@@ -127,10 +110,15 @@ interface EmailAlertsDashboardProps {
   dashboardLabel: string
 }
 
-function KpiCard({ label, value, sublabel, valueColor }: { label: string; value: string | number; sublabel?: string; valueColor?: string }) {
+function KpiCard({ label, value, sublabel, valueColor, accent }: { label: string; value: string | number; sublabel?: string; valueColor?: string; accent?: string }) {
   return (
-    <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, border: '1px solid', borderColor: 'divider', p: 3, flex: '1 1 260px' }}>
-      <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'text.disabled', textTransform: 'uppercase' }}>
+    <Box
+      sx={{
+        bgcolor: 'background.paper', borderRadius: 3, border: '1px solid',
+        borderColor: accent ?? 'divider', p: 3, flex: '1 1 200px',
+      }}
+    >
+      <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: accent ?? 'text.disabled', textTransform: 'uppercase' }}>
         {label}
       </Typography>
       <Typography sx={{ fontSize: 34, fontWeight: 800, color: valueColor ?? 'text.primary', lineHeight: 1.1, mt: 1, fontVariantNumeric: 'tabular-nums' }}>
@@ -145,15 +133,29 @@ function KpiCard({ label, value, sublabel, valueColor }: { label: string; value:
   )
 }
 
+// "Daily" = fires at least once a day (interval <= 24h) — covers same-day recurring
+// alerts like "Every 15 minutes" as well as literal daily ones. "Weekly" = anything
+// slower than daily. Alerts with an unknown interval (not yet migrated to the
+// corrected Power Query) fall into neither bucket rather than being guessed at.
+const DAY_MINUTES = 1440
+
+function countByCadence(groups: EmailAlertGroup[]) {
+  let daily = 0
+  let weekly = 0
+  for (const g of groups) {
+    if (g.recurrenceIntervalMinutes === null) continue
+    if (g.recurrenceIntervalMinutes <= DAY_MINUTES) daily++
+    else weekly++
+  }
+  return { daily, weekly }
+}
+
 export default function EmailAlertsDashboard({ clientId, dashboardKey, displayName, dashboardLabel }: EmailAlertsDashboardProps) {
   const { groups, loading, error } = useEmailAlertsData(clientId, dashboardKey)
 
   const allRecipients = new Set(groups.flatMap((g) => g.recipients))
-  const lastRunGroup = groups.reduce<EmailAlertGroup | null>(
-    (best, g) => (!best || g.lastRun > best.lastRun ? g : best),
-    null
-  )
-  const lastRunStatus = lastRunGroup ? computeStatus(lastRunGroup) : null
+  const { daily, weekly } = countByCadence(groups)
+  const lateRunCount = groups.filter((g) => computeStatus(g).label === 'Overdue').length
 
   return (
     <Box>
@@ -198,19 +200,17 @@ export default function EmailAlertsDashboard({ clientId, dashboardKey, displayNa
 
         {/* KPI cards */}
         <Box sx={{ display: 'flex', gap: 2.5, flexWrap: 'wrap' }}>
-          <KpiCard label="Active Subscriptions" value={loading ? '—' : groups.length} sublabel="Org-wide" />
-          <KpiCard label="Recipients" value={loading ? '—' : allRecipients.size} sublabel="across all alerts" />
           <KpiCard
-            label="Last Run"
-            value={loading ? '—' : (lastRunGroup ? formatTime(lastRunGroup.lastRun, clientId) : '—')}
-            valueColor={loading || !lastRunStatus ? undefined : lastRunStatus.color}
-            sublabel={
-              loading
-                ? undefined
-                : lastRunGroup
-                ? formatDateMDY(lastRunGroup.lastRun, clientId)
-                : 'No sends recorded yet'
-            }
+            label="Subscriptions" accent={AVATAR_BLUE}
+            value={loading ? '—' : groups.length} sublabel="active alerts"
+          />
+          <KpiCard label="Daily" value={loading ? '—' : daily} sublabel="recurring daily" />
+          <KpiCard label="Weekly" value={loading ? '—' : weekly} sublabel="recurring weekly" />
+          <KpiCard
+            label="Late Run" accent={AMBER}
+            value={loading ? '—' : lateRunCount}
+            valueColor={!loading && lateRunCount > 0 ? AMBER : undefined}
+            sublabel="currently overdue"
           />
         </Box>
 

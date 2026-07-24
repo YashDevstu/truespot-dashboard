@@ -21,29 +21,37 @@ function sanitizeTableName(name: string): string {
 // doesn't yet, so this query falls back to the older schema for BSA rather than
 // erroring on missing columns.
 //
-// `+ TIME(5,30,0)`: our app's own Execute Queries calls (service-principal auth)
-// read every "Date"-typed column 5h30m EARLIER than what Fabric's own native query
+// `+ TIME(h,m,0)`: our app's own Execute Queries calls (service-principal auth)
+// read every "Date"-typed column earlier than what Fabric's own native query
 // view shows for the identical column — confirmed reproducible via a direct
 // side-by-side comparison for Halifax. DateTimeReceivedUTC is correct as stored
 // (verified against Fabric's native view), so this addition compensates for our
 // own read-path artifact, not the data — do not "fix" this by touching the
 // semantic model again, and do not remove it without re-verifying the read-quirk
 // is gone (e.g. after any auth/tenant/environment change).
+//
+// The compensation magnitude must match each client's own M-query correction —
+// Halifax's M query subtracts 5:30, St. Paul's subtracts 5:00 — so it's passed
+// in as `utcCorrectionMinutes` (from the client's `mail_utc_correction_minutes`
+// config) rather than hardcoded, to avoid over/under-correcting per client.
 export function buildEmailAlertRowsQuery(
   tableName: string,
   noAssetsFlagColumn: string,
-  hasCorrectedColumns = false
+  hasCorrectedColumns = false,
+  utcCorrectionMinutes = 330
 ): string {
   const t = sanitizeTableName(tableName)
   const flagCol = noAssetsFlagColumn.replace(/[[\]]/g, '')
 
   if (hasCorrectedColumns) {
+    const hours = Math.floor(utcCorrectionMinutes / 60)
+    const minutes = utcCorrectionMinutes % 60
     return `EVALUATE
 SELECTCOLUMNS(
   '${t}',
   "Subject",                  '${t}'[Subject],
   "DisplayTo",                 '${t}'[DisplayTo],
-  "DateTimeReceived",          '${t}'[DateTimeReceivedUTC] + TIME(5,30,0),
+  "DateTimeReceived",          '${t}'[DateTimeReceivedUTC] + TIME(${hours},${minutes},0),
   "Recurrence",                '${t}'[Recurrence],
   "RecurrenceIntervalMinutes", '${t}'[RecurrenceIntervalMinutes],
   "IsUndeliverable",           '${t}'[IsUndeliverable],

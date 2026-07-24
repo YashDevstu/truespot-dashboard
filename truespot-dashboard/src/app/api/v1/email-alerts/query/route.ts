@@ -63,7 +63,8 @@ export async function POST(request: NextRequest) {
   const daxQuery = buildEmailAlertRowsQuery(
     dashboard.mail_table,
     dashboard.mail_no_assets_column,
-    dashboard.mail_has_utc_columns
+    dashboard.mail_has_utc_columns,
+    dashboard.mail_utc_correction_minutes
   )
 
   try {
